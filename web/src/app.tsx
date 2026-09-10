@@ -18,6 +18,7 @@ import {
 
 import { Badge } from "./components/ui/badge"
 import { Card } from "./components/ui/card"
+import { ThemeToggle } from "./components/theme-toggle"
 
 const navigation = [
   { icon: Gauge, label: "Overview", active: true },
@@ -75,6 +76,7 @@ export function App() {
             </button>
             <div className="topbar-actions">
               <Badge className="environment"><span className="status-dot" />Production</Badge>
+              <ThemeToggle />
               <button aria-label="Notifications" className="icon-button" type="button"><Bell size={18} /></button>
               <div className="avatar">GB</div>
             </div>
@@ -93,7 +95,6 @@ export function App() {
               <Metric label="Instances" value="24" detail="22 connected" trend="+2 this month" />
               <Metric label="Healthy systems" value="91.7%" detail="22 of 24" trend="within target" />
               <Metric label="Open alerts" value="3" detail="1 needs attention" trend="2 acknowledged" alert />
-              <Metric label="Jobs today" value="38" detail="37 successful" trend="97.4% success" />
             </section>
 
             <div className="dashboard-grid">
@@ -116,8 +117,8 @@ export function App() {
                 </div>
               </Card>
 
-              <Card className="activity-card">
-                <div className="card-header"><div><h2>Recent activity</h2><p>Alerts and operational changes</p></div></div>
+              <Card aria-label="Operational alerts" className="activity-card">
+                <div className="card-header"><div><h2>Operational alerts</h2><p>Signals that need operator attention</p></div></div>
                 <div className="timeline">
                   <Event icon={CircleAlert} tone="amber" title="CPU pressure detected" meta="worker-07 · 6 min ago" />
                   <Event icon={Activity} tone="blue" title="nginx restarted" meta="web-prod-03 · 18 min ago" />
@@ -151,4 +152,3 @@ function Event({ icon: Icon, tone, title, meta }: { icon: typeof Activity; tone:
     </div>
   )
 }
-
