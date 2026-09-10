@@ -22,3 +22,23 @@ func TestHTTPAddressDefaultsTo8080(t *testing.T) {
 	}
 }
 
+func TestEnrollmentToken(t *testing.T) {
+	t.Setenv("BAZUSOP_ENROLLMENT_TOKEN", "bootstrap-secret")
+
+	if token := config.Load().EnrollmentToken; token != "bootstrap-secret" {
+		t.Fatalf("expected configured enrollment token, got %q", token)
+	}
+}
+
+func TestTLSFiles(t *testing.T) {
+	t.Setenv("BAZUSOP_TLS_CERT_FILE", "/run/secrets/hub.crt")
+	t.Setenv("BAZUSOP_TLS_KEY_FILE", "/run/secrets/hub.key")
+
+	configuration := config.Load()
+	if configuration.TLSCertificate != "/run/secrets/hub.crt" {
+		t.Fatalf("expected configured TLS certificate, got %q", configuration.TLSCertificate)
+	}
+	if configuration.TLSPrivateKey != "/run/secrets/hub.key" {
+		t.Fatalf("expected configured TLS private key, got %q", configuration.TLSPrivateKey)
+	}
+}
