@@ -52,8 +52,9 @@ conditions. Pastel decoration is not part of the product language.
 
 ## Alerts and interaction
 
-- Critical alert surfaces use a restrained dark-red tint, critical red text and
-  a 4px red leading border.
+- Colored leading borders are not used anywhere in the interface. Alert severity
+  is communicated with a restrained surface tint, a subtle full-perimeter border,
+  status text and icon color.
 - Motion uses 150–180ms easing and respects `prefers-reduced-motion`.
 - Focus, hover and selected states must remain distinguishable in both themes.
 - Operational actions use domain icons such as servers, terminals, services and
