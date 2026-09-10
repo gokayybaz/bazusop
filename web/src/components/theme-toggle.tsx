@@ -1,22 +1,22 @@
 import { useEffect, useState } from "react"
-import { Moon, Sun } from "lucide-react"
+import { Contrast, Moon } from "lucide-react"
 
-type Theme = "dark" | "light"
+type Theme = "graphite" | "midnight"
 
 const storageKey = "bazusop-theme"
 
 function initialTheme(): Theme {
   const persisted = window.localStorage.getItem(storageKey)
-  return persisted === "light" ? "light" : "dark"
+  return persisted === "midnight" ? "midnight" : "graphite"
 }
 
 export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(initialTheme)
-  const nextTheme = theme === "dark" ? "light" : "dark"
+  const nextTheme = theme === "graphite" ? "midnight" : "graphite"
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    document.documentElement.style.colorScheme = theme
+    document.documentElement.style.colorScheme = "dark"
     window.localStorage.setItem(storageKey, theme)
   }, [theme])
 
@@ -29,11 +29,10 @@ export function ThemeToggle() {
       type="button"
     >
       <span className="theme-toggle-track" aria-hidden="true">
-        <Sun size={14} />
+        <Contrast size={14} />
         <Moon size={14} />
-        <i className={theme === "light" ? "light" : "dark"} />
+        <i className={theme} />
       </span>
     </button>
   )
 }
-

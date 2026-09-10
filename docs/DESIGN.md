@@ -9,8 +9,8 @@ important state is visible immediately, while decoration stays quiet.
 
 ## Color system
 
-Dark is the default operational theme. Light remains selectable for operator
-preference and accessibility.
+Dark is the operational theme. Operators can select the neutral **Graphite**
+palette or the cooler **Midnight** palette; neither introduces a white canvas.
 
 | Token | Dark | Purpose |
 | --- | --- | --- |
@@ -58,4 +58,3 @@ conditions. Pastel decoration is not part of the product language.
 - Focus, hover and selected states must remain distinguishable in both themes.
 - Operational actions use domain icons such as servers, terminals, services and
   activity signals; decorative or metaphorically vague icons are avoided.
-

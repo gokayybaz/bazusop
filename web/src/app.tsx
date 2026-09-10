@@ -1,5 +1,4 @@
 import {
-  Activity,
   Bell,
   Boxes,
   ChartNoAxesCombined,
@@ -16,9 +15,9 @@ import {
   TerminalSquare,
 } from "lucide-react"
 
+import { ThemeToggle } from "./components/theme-toggle"
 import { Badge } from "./components/ui/badge"
 import { Card } from "./components/ui/card"
-import { ThemeToggle } from "./components/theme-toggle"
 
 const navigation = [
   { icon: Gauge, label: "Overview", active: true },
@@ -31,9 +30,10 @@ const navigation = [
 ]
 
 const instances = [
-  { name: "web-prod-03", platform: "Ubuntu 24.04", zone: "eu-central-1a", load: 42, state: "Healthy" },
-  { name: "api-prod-01", platform: "Windows Server 2025", zone: "westeurope-2", load: 68, state: "Healthy" },
-  { name: "worker-07", platform: "Rocky Linux 9", zone: "on-prem / rack-4", load: 91, state: "Warning" },
+  { name: "web-prod-03", platform: "Ubuntu 24.04", zone: "eu-central-1a", cpu: 42, memory: 61, services: "18 / 18", state: "Healthy" },
+  { name: "api-prod-01", platform: "Windows Server 2025", zone: "westeurope-2", cpu: 68, memory: 74, services: "31 / 31", state: "Healthy" },
+  { name: "worker-07", platform: "Rocky Linux 9", zone: "on-prem / rack-4", cpu: 91, memory: 86, services: "13 / 14", state: "Warning" },
+  { name: "db-replica-02", platform: "Debian 13", zone: "eu-central-1b", cpu: 36, memory: 79, services: "11 / 11", state: "Healthy" },
 ]
 
 export function App() {
@@ -43,16 +43,13 @@ export function App() {
         <aside className="sidebar">
           <div className="brand">
             <div className="brand-mark" aria-hidden="true">U</div>
-            <div>
-              <strong>bazUSOP</strong>
-              <span>control plane</span>
-            </div>
+            <div><strong>bazUSOP</strong><span>control plane</span></div>
           </div>
 
           <nav aria-label="Primary navigation" className="nav-list">
             {navigation.map(({ icon: Icon, label, active, count }) => (
               <button className={active ? "nav-item active" : "nav-item"} key={label} type="button">
-                <Icon aria-hidden="true" size={17} strokeWidth={1.8} />
+                <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
                 <span>{label}</span>
                 {count ? <span className="nav-count">{count}</span> : null}
               </button>
@@ -60,9 +57,9 @@ export function App() {
           </nav>
 
           <div className="sidebar-bottom">
-            <button className="nav-item" type="button"><Cloud size={17} />Cloud accounts</button>
-            <button className="nav-item" type="button"><ShieldCheck size={17} />Audit trail</button>
-            <button className="nav-item" type="button"><Settings size={17} />Settings</button>
+            <button className="nav-item" type="button"><Cloud size={18} />Cloud accounts</button>
+            <button className="nav-item" type="button"><ShieldCheck size={18} />Audit trail</button>
+            <button className="nav-item" type="button"><Settings size={18} />Settings</button>
             <div className="hub-health"><span className="status-dot" />Hub operational <span>v0.1</span></div>
           </div>
         </aside>
@@ -70,9 +67,9 @@ export function App() {
         <main>
           <header className="topbar">
             <button className="search" type="button">
-              <Search size={16} />
+              <Search size={17} />
               <span>Search instances, services, logs…</span>
-              <kbd><Command size={11} /> K</kbd>
+              <kbd><Command size={12} /> K</kbd>
             </button>
             <div className="topbar-actions">
               <Badge className="environment"><span className="status-dot" />Production</Badge>
@@ -84,49 +81,60 @@ export function App() {
 
           <div className="content">
             <div className="page-heading">
-              <div>
-                <p className="eyebrow">THURSDAY · 10 SEP · 19:48 TRT</p>
-                <h1>Operations overview</h1>
-              </div>
+              <div><p className="eyebrow">FLEET / PRODUCTION</p><h1>Operations overview</h1></div>
               <div className="live-status"><span className="pulse" />Live · updated 8s ago</div>
             </div>
 
             <section className="stat-grid" aria-label="Fleet summary">
               <Metric label="Instances" value="24" detail="22 connected" trend="+2 this month" />
-              <Metric label="Healthy systems" value="91.7%" detail="22 of 24" trend="within target" />
+              <Metric label="Average CPU" value="42.8%" detail="24h fleet average" trend="−3.2% vs yesterday" />
               <Metric label="Open alerts" value="3" detail="1 needs attention" trend="2 acknowledged" alert />
             </section>
 
             <div className="dashboard-grid">
-              <Card className="fleet-card">
+              <Card className="chart-card">
                 <div className="card-header">
-                  <div><h2>Fleet health</h2><p>Resource pressure across connected systems</p></div>
-                  <button className="text-button" type="button">View fleet <ChevronRight size={14} /></button>
+                  <div><h2>Fleet resource utilization</h2><p>CPU and memory · last 24 hours</p></div>
+                  <div className="chart-legend"><span className="cpu">CPU</span><span className="memory">Memory</span></div>
                 </div>
-                <div className="fleet-list">
-                  {instances.map((instance) => (
-                    <div className="instance-row" key={instance.name}>
-                      <div className="instance-icon"><Server size={17} /></div>
-                      <div className="instance-name"><strong>{instance.name}</strong><span>{instance.platform}</span></div>
-                      <span className="zone">{instance.zone}</span>
-                      <div className="load"><div><span>CPU</span><strong>{instance.load}%</strong></div><div className="bar"><i style={{ width: `${instance.load}%` }} /></div></div>
-                      <Badge className={instance.state === "Warning" ? "warning" : "healthy"}><span className="status-dot" />{instance.state}</Badge>
-                      <ChevronRight className="row-arrow" size={16} />
-                    </div>
-                  ))}
-                </div>
+                <ResourceChart />
               </Card>
 
-              <Card aria-label="Operational alerts" className="activity-card">
-                <div className="card-header"><div><h2>Operational alerts</h2><p>Signals that need operator attention</p></div></div>
-                <div className="timeline">
-                  <Event icon={CircleAlert} tone="amber" title="CPU pressure detected" meta="worker-07 · 6 min ago" />
-                  <Event icon={Activity} tone="blue" title="nginx restarted" meta="web-prod-03 · 18 min ago" />
-                  <Event icon={ListChecks} tone="green" title="Patch job completed" meta="12 instances · 42 min ago" />
+              <Card aria-label="Operational alerts" className="alerts-card">
+                <div className="card-header"><div><h2>Operational alerts</h2><p>Signals that need attention</p></div><Badge className="critical-count">3 open</Badge></div>
+                <div className="alert-list">
+                  <Alert level="Critical" title="CPU saturation" host="worker-07" meta="91% for 12 min · 6 min ago" />
+                  <Alert level="Warning" title="Service unavailable" host="worker-07" meta="queue-worker · 14 min ago" />
+                  <Alert level="Warning" title="Memory pressure" host="db-replica-02" meta="79% and rising · 28 min ago" />
                 </div>
-                <button className="activity-link" type="button">Open activity timeline <ChevronRight size={14} /></button>
+                <button className="panel-link" type="button">Open alert center <ChevronRight size={15} /></button>
               </Card>
             </div>
+
+            <Card className="table-card">
+              <div className="card-header">
+                <div><h2>Instance health</h2><p>Current load and service availability</p></div>
+                <button className="text-button" type="button">View all instances <ChevronRight size={15} /></button>
+              </div>
+              <div className="table-scroll">
+                <table aria-label="Instance health">
+                  <thead><tr><th>Instance</th><th>Location</th><th>CPU</th><th>Memory</th><th>Services</th><th>Status</th><th aria-label="Actions" /></tr></thead>
+                  <tbody>
+                    {instances.map((instance) => (
+                      <tr key={instance.name}>
+                        <td><div className="instance-cell"><span className="instance-icon"><Server size={17} /></span><span><strong>{instance.name}</strong><small>{instance.platform}</small></span></div></td>
+                        <td className="mono muted">{instance.zone}</td>
+                        <td><Meter value={instance.cpu} warning={instance.cpu > 80} /></td>
+                        <td><Meter value={instance.memory} warning={instance.memory > 80} /></td>
+                        <td className="mono">{instance.services}</td>
+                        <td><Badge className={instance.state === "Warning" ? "warning" : "healthy"}><span className="status-dot" />{instance.state}</Badge></td>
+                        <td><button aria-label={`Open ${instance.name}`} className="row-button" type="button"><ChevronRight size={17} /></button></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
           </div>
         </main>
       </div>
@@ -136,7 +144,7 @@ export function App() {
 
 function Metric({ label, value, detail, trend, alert = false }: { label: string; value: string; detail: string; trend: string; alert?: boolean }) {
   return (
-    <Card className="metric-card">
+    <Card className={alert ? "metric-card metric-alert" : "metric-card"}>
       <span className="metric-label">{label}</span>
       <div className="metric-value"><strong>{value}</strong>{alert ? <span className="alert-pip">1 critical</span> : null}</div>
       <div className="metric-detail"><span>{detail}</span><span className={alert ? "trend alert" : "trend"}>{trend}</span></div>
@@ -144,11 +152,36 @@ function Metric({ label, value, detail, trend, alert = false }: { label: string;
   )
 }
 
-function Event({ icon: Icon, tone, title, meta }: { icon: typeof Activity; tone: string; title: string; meta: string }) {
+function ResourceChart() {
   return (
-    <div className="event">
-      <div className={`event-icon ${tone}`}><Icon size={15} /></div>
-      <div><strong>{title}</strong><span>{meta}</span></div>
+    <div className="chart-wrap">
+      <div className="chart-scale"><span>100%</span><span>75%</span><span>50%</span><span>25%</span><span>0%</span></div>
+      <svg aria-label="Fleet resource utilization over 24 hours" className="resource-chart" role="img" viewBox="0 0 800 250">
+        <defs>
+          <linearGradient id="cpu-area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="var(--accent)" stopOpacity=".28"/><stop offset="1" stopColor="var(--accent)" stopOpacity="0"/></linearGradient>
+          <linearGradient id="memory-area" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stopColor="var(--success)" stopOpacity=".14"/><stop offset="1" stopColor="var(--success)" stopOpacity="0"/></linearGradient>
+        </defs>
+        {[20, 72, 124, 176, 228].map((y) => <line className="grid-line" key={y} x1="0" x2="800" y1={y} y2={y} />)}
+        <path className="memory-area" d="M0 154 C65 140 94 158 142 133 S230 118 282 139 S360 103 419 116 S492 84 550 101 S628 69 682 92 S742 63 800 77 L800 228 L0 228 Z" />
+        <path className="memory-line" d="M0 154 C65 140 94 158 142 133 S230 118 282 139 S360 103 419 116 S492 84 550 101 S628 69 682 92 S742 63 800 77" />
+        <path className="cpu-area" d="M0 184 C48 172 78 190 116 163 S188 146 228 158 S288 117 334 139 S411 84 452 112 S514 92 558 119 S620 75 659 97 S724 54 753 82 S783 60 800 68 L800 228 L0 228 Z" />
+        <path className="cpu-line" d="M0 184 C48 172 78 190 116 163 S188 146 228 158 S288 117 334 139 S411 84 452 112 S514 92 558 119 S620 75 659 97 S724 54 753 82 S783 60 800 68" />
+        <circle className="chart-point" cx="800" cy="68" r="4" />
+      </svg>
+      <div className="chart-axis"><span>00:00</span><span>04:00</span><span>08:00</span><span>12:00</span><span>16:00</span><span>20:00</span><span>Now</span></div>
     </div>
   )
+}
+
+function Alert({ level, title, host, meta }: { level: "Critical" | "Warning"; title: string; host: string; meta: string }) {
+  return (
+    <div className={level === "Critical" ? "alert-item critical" : "alert-item warning-item"}>
+      <CircleAlert size={18} />
+      <div><span className="alert-level">{level}</span><strong>{title}</strong><span className="alert-host">{host}</span><small>{meta}</small></div>
+    </div>
+  )
+}
+
+function Meter({ value, warning = false }: { value: number; warning?: boolean }) {
+  return <div className="meter"><div><i className={warning ? "hot" : ""} style={{ width: `${value}%` }} /></div><span className={warning ? "hot" : ""}>{value}%</span></div>
 }
