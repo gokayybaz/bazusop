@@ -30,6 +30,14 @@ func TestEnrollmentToken(t *testing.T) {
 	}
 }
 
+func TestOperatorToken(t *testing.T) {
+	t.Setenv("BAZUSOP_OPERATOR_TOKEN", "operator-secret")
+
+	if token := config.Load().OperatorToken; token != "operator-secret" {
+		t.Fatalf("expected configured operator token, got %q", token)
+	}
+}
+
 func TestTLSFiles(t *testing.T) {
 	t.Setenv("BAZUSOP_TLS_CERT_FILE", "/run/secrets/hub.crt")
 	t.Setenv("BAZUSOP_TLS_KEY_FILE", "/run/secrets/hub.key")

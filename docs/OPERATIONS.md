@@ -6,6 +6,7 @@
 | --- | --- | --- |
 | `BAZUSOP_HTTP_ADDR` | Hayır | Dinleme adresi; varsayılan `:8080` |
 | `BAZUSOP_ENROLLMENT_TOKEN` | Üretimde evet | İlk agent için bootstrap secret |
+| `BAZUSOP_OPERATOR_TOKEN` | Uzak aksiyon için evet | İş oluşturma bearer secret'ı |
 | `DATABASE_URL` | Üretimde evet | PostgreSQL bağlantı dizesi |
 | `BAZUSOP_TIMESCALE_ENABLED` | Hayır | `true` ise extension, hypertable ve retention kurulur |
 | `BAZUSOP_TLS_CERT_FILE` | Uzak agent için evet | Hub server sertifikası |
@@ -19,13 +20,13 @@ süreç içi bellekte tutulur; restart sonrası kaybolur.
 ```bash
 make test
 make build
-BAZUSOP_ENROLLMENT_TOKEN=local-token ./bin/bazusop-hub
+BAZUSOP_ENROLLMENT_TOKEN=local-token BAZUSOP_OPERATOR_TOKEN=local-operator-token ./bin/bazusop-hub
 ```
 
 Tam stack için:
 
 ```bash
-POSTGRES_PASSWORD=yerel-parola BAZUSOP_ENROLLMENT_TOKEN=yerel-token docker compose up --build
+POSTGRES_PASSWORD=yerel-parola BAZUSOP_ENROLLMENT_TOKEN=yerel-token BAZUSOP_OPERATOR_TOKEN=yerel-operator-token docker compose up --build
 ```
 
 Compose TimescaleDB PostgreSQL 18 imajını kullanır, database health bekler ve hub
@@ -33,7 +34,7 @@ başlangıcında migration’ları uygular.
 
 ## Kubernetes
 
-Chart uygulama secret’ını üretmez. `database-url` ve `enrollment-token` anahtarlarını
+Chart uygulama secret’ını üretmez. `database-url`, `enrollment-token` ve `operator-token` anahtarlarını
 taşıyan mevcut bir Secret verilmelidir. TLS etkinse server cert/key ayrıca mevcut
 bir TLS Secret’tan read-only mount edilir.
 
@@ -43,9 +44,11 @@ bir TLS Secret’tan read-only mount edilir.
 2. Timescale extension yetkisini ve 30 günlük retention'ı doğrula.
    Telemetri 30 gün, loglar 14 gün saklanır.
 3. TLS secret rotasyonunu planla.
-4. CPU/RAM request-limit değerlerini gerçek yük testine göre ayarla.
-5. Enrollment state paylaşılmadan HPA’yı açma.
-6. Ingress kullanılıyorsa agent mTLS trafiğinin client sertifikasını hub’a kadar
+4. Enrollment ve operator token'larını ayrı, yüksek entropili değerlerle oluştur;
+   secret erişimini sınırla ve rotasyon prosedürünü test et.
+5. CPU/RAM request-limit değerlerini gerçek yük testine göre ayarla.
+6. Enrollment state ve iş imza anahtarı paylaşılmadan HPA’yı açma.
+7. Ingress kullanılıyorsa agent mTLS trafiğinin client sertifikasını hub’a kadar
    koruduğunu doğrula.
 
 ## Sağlık ve sorun giderme
@@ -64,4 +67,13 @@ bir TLS Secret’tan read-only mount edilir.
   çoklu hub replikasında ortak event bus henüz bulunmadığını hesaba kat.
 - Agent yazma uçları `401` dönüyorsa client certificate chain, süre ve SPIFFE URI
   SAN değerini kontrol et.
+- İş oluşturma `401` dönüyorsa `Authorization: Bearer ...` değerini; `503`
+  dönüyorsa hub'da `BAZUSOP_OPERATOR_TOKEN` yapılandırmasını kontrol et. UI token'ı
+  kalıcı depolamaz ve başarılı oluşturmadan sonra bellekten temizler.
+- İş `running` durumunda kalıyorsa agent event sequence'inin teslimden sonra 2 ile
+  başlayıp kesintisiz arttığını ve terminal olay gönderdiğini kontrol et.
 - `426` enrollment yanıtı, uzak isteğin TLS olmadan geldiğini gösterir.
+
+Operator token rotasyonu sırasında eski token'la yeni iş oluşturmayı durdurun,
+Secret/env değerini değiştirip hub pod'larını yeniden başlatın ve yeni token'la
+kontrollü bir test işi oluşturun. Mevcut imzalı işler rotasyondan etkilenmez.

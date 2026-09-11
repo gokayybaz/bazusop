@@ -11,6 +11,9 @@ döner.
   amacıyla açıktır.
 - Renewal, inventory ve telemetry yazma uçları hub CA’sının doğruladığı mTLS
   client sertifikasını zorunlu tutar.
+- Operasyon işi oluşturma ucu `Authorization: Bearer <operator-token>` ister.
+  Token yapılandırılmamışsa uç `503`, eksik veya hatalıysa `401` döner.
+- İş teslim alma ve olay raporlama uçları mTLS agent kimliğini zorunlu tutar.
 - Agent kimliği sertifikadaki `spiffe://bazusop/agent/{agent_id}` URI SAN
   değerinden alınır; istek gövdesinden agent ID kabul edilmez.
 
@@ -180,3 +183,54 @@ Yanıt `{ "entries": [...] }` zarfıdır. Aralık ve limit her sorguda doğrulan
 yeni kayıt için `log` olayı gönderir. Her abonelik yalnız URL'deki agent kimliğinin
 kayıtlarını alır. Proxy buffering kapatılmalı, istemci kopunca bağlantı iptal
 edilmelidir.
+
+### `POST /api/v1/instances/{agent_id}/jobs`
+
+Operatör bearer token'ı gerekir. İzin verilen aksiyonlar yalnız
+`service.restart` ve `host.reboot` değerleridir.
+
+```json
+{
+  "action": "service.restart",
+  "target": "nginx.service",
+  "approved_by": "gokay",
+  "reason": "yapılandırma dağıtımı"
+}
+```
+
+Servis restart için `target` zorunludur; reboot için boş olmalıdır. Başarı `201`
+ile `queued` durumundaki işi, Ed25519 `signature` ve `signing_public_key`
+alanlarıyla döndürür. Geçersiz talep `400` döner.
+
+İmza kanonik v1 payload'ında `id`, `agent_id`, `action`, `target`,
+`approved_by`, `reason` ve nanosaniye duyarlıklı RFC3339 `requested_at` alanlarını
+kapsar. Agent, public key'i yanıtın kendisinden güvenilir kabul etmemeli; güvenli
+enrollment/config kanalıyla sabitlenen hub anahtarıyla eşleştirmelidir.
+
+### `GET /api/v1/instances/{agent_id}/jobs`
+
+En yeni işleri `{ "jobs": [...] }` zarfında döndürür. `limit` değeri `1–200`
+arasındadır; varsayılan `50` olur.
+
+### `GET /api/v1/instances/{agent_id}/jobs/{job_id}/events`
+
+İşin `approved`, `claimed`, `output`, `succeeded` veya `failed` olaylarını artan
+sequence sırasıyla `{ "events": [...] }` zarfında döndürür. İş/agent eşleşmezse
+`404` döner.
+
+### `GET /api/v1/agents/jobs/next`
+
+mTLS gerekir. Sertifikadaki agent için sıradaki işi atomik olarak teslim alır;
+işi `running` durumuna geçirip `claimed` audit olayını yazar. İş yoksa `204`
+döner.
+
+### `POST /api/v1/agents/jobs/{job_id}/events`
+
+mTLS gerekir. Agent yalnız kendi `running` işine bir sonraki sıralı olayı
+ekleyebilir. Teslimden sonraki ilk sequence `2` olmalıdır. `output` işi açık
+tutar; `succeeded` ve `failed` terminaldir. Sıra çakışması veya terminal işe
+yazma denemesi `409` döner.
+
+```json
+{"sequence":2,"type":"output","message":"nginx durduruldu"}
+```

@@ -3,6 +3,7 @@ package postgres
 import (
 	"context"
 	"embed"
+	"errors"
 	"fmt"
 	"io/fs"
 	"time"
@@ -11,6 +12,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
@@ -320,6 +322,159 @@ func (store *Store) SearchLogs(ctx context.Context, query logstream.Query) ([]lo
 		return nil, fmt.Errorf("iterate logs: %w", err)
 	}
 	return entries, nil
+}
+
+func (store *Store) CreateJob(ctx context.Context, job jobs.Job, event jobs.Event) error {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin job creation: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	if _, err := transaction.Exec(ctx, `
+		INSERT INTO jobs (id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		job.ID, job.AgentID, job.Action, job.Target, job.ApprovedBy, job.Reason, job.RequestedAt, job.Status, job.LastSequence, job.Signature, job.SigningPublicKey,
+	); err != nil {
+		return fmt.Errorf("insert job: %w", err)
+	}
+	if err := insertJobEvent(ctx, transaction, event); err != nil {
+		return err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit job creation: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) ClaimNextJob(ctx context.Context, agentID string, occurredAt time.Time) (*jobs.Job, error) {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("begin job claim: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	job, err := scanJob(transaction.QueryRow(ctx, `
+		SELECT id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key
+		FROM jobs WHERE agent_id=$1 AND status='queued'
+		ORDER BY requested_at, id FOR UPDATE SKIP LOCKED LIMIT 1`, agentID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("select queued job: %w", err)
+	}
+	job.Status, job.LastSequence = jobs.StatusRunning, 1
+	if _, err := transaction.Exec(ctx, "UPDATE jobs SET status=$2, last_sequence=$3 WHERE id=$1", job.ID, job.Status, job.LastSequence); err != nil {
+		return nil, fmt.Errorf("claim queued job: %w", err)
+	}
+	event := jobs.Event{JobID: job.ID, Sequence: 1, Type: jobs.EventClaimed, Message: "agent claimed job", Actor: "agent:" + agentID, OccurredAt: occurredAt}
+	if err := insertJobEvent(ctx, transaction, event); err != nil {
+		return nil, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return nil, fmt.Errorf("commit job claim: %w", err)
+	}
+	return &job, nil
+}
+
+func (store *Store) RecordJobEvent(ctx context.Context, agentID, jobID string, request jobs.EventRequest, occurredAt time.Time) (jobs.Job, jobs.Event, error) {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return jobs.Job{}, jobs.Event{}, fmt.Errorf("begin job event: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	job, err := scanJob(transaction.QueryRow(ctx, `
+		SELECT id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key
+		FROM jobs WHERE id=$1 AND agent_id=$2 FOR UPDATE`, jobID, agentID))
+	if errors.Is(err, pgx.ErrNoRows) {
+		return jobs.Job{}, jobs.Event{}, jobs.ErrJobNotFound
+	}
+	if err != nil {
+		return jobs.Job{}, jobs.Event{}, fmt.Errorf("lock job event: %w", err)
+	}
+	if job.Status != jobs.StatusRunning || request.Sequence != job.LastSequence+1 {
+		return jobs.Job{}, jobs.Event{}, jobs.ErrJobConflict
+	}
+	if request.Type == jobs.EventSucceeded {
+		job.Status = jobs.StatusSucceeded
+	}
+	if request.Type == jobs.EventFailed {
+		job.Status = jobs.StatusFailed
+	}
+	job.LastSequence = request.Sequence
+	if _, err := transaction.Exec(ctx, "UPDATE jobs SET status=$2, last_sequence=$3 WHERE id=$1", job.ID, job.Status, job.LastSequence); err != nil {
+		return jobs.Job{}, jobs.Event{}, fmt.Errorf("update job event state: %w", err)
+	}
+	event := jobs.Event{JobID: job.ID, Sequence: request.Sequence, Type: request.Type, Message: request.Message, Actor: "agent:" + agentID, OccurredAt: occurredAt}
+	if err := insertJobEvent(ctx, transaction, event); err != nil {
+		return jobs.Job{}, jobs.Event{}, err
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return jobs.Job{}, jobs.Event{}, fmt.Errorf("commit job event: %w", err)
+	}
+	return job, event, nil
+}
+
+func (store *Store) ListJobs(ctx context.Context, agentID string, limit int) ([]jobs.Job, error) {
+	rows, err := store.pool.Query(ctx, `
+		SELECT id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key
+		FROM jobs WHERE agent_id=$1 ORDER BY requested_at DESC, id DESC LIMIT $2`, agentID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query jobs: %w", err)
+	}
+	defer rows.Close()
+	values := make([]jobs.Job, 0)
+	for rows.Next() {
+		job, err := scanJob(rows)
+		if err != nil {
+			return nil, fmt.Errorf("scan jobs: %w", err)
+		}
+		values = append(values, job)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate jobs: %w", err)
+	}
+	return values, nil
+}
+
+func (store *Store) ListJobEvents(ctx context.Context, agentID, jobID string) ([]jobs.Event, error) {
+	rows, err := store.pool.Query(ctx, `
+		SELECT event.job_id, event.sequence, event.type, event.message, event.actor, event.occurred_at
+		FROM job_events event JOIN jobs job ON job.id=event.job_id
+		WHERE event.job_id=$1 AND job.agent_id=$2 ORDER BY event.sequence`, jobID, agentID)
+	if err != nil {
+		return nil, fmt.Errorf("query job events: %w", err)
+	}
+	defer rows.Close()
+	values := make([]jobs.Event, 0)
+	for rows.Next() {
+		var event jobs.Event
+		if err := rows.Scan(&event.JobID, &event.Sequence, &event.Type, &event.Message, &event.Actor, &event.OccurredAt); err != nil {
+			return nil, fmt.Errorf("scan job events: %w", err)
+		}
+		values = append(values, event)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate job events: %w", err)
+	}
+	if len(values) == 0 {
+		return nil, jobs.ErrJobNotFound
+	}
+	return values, nil
+}
+
+type rowScanner interface{ Scan(...any) error }
+
+func scanJob(row rowScanner) (jobs.Job, error) {
+	var job jobs.Job
+	err := row.Scan(&job.ID, &job.AgentID, &job.Action, &job.Target, &job.ApprovedBy, &job.Reason, &job.RequestedAt, &job.Status, &job.LastSequence, &job.Signature, &job.SigningPublicKey)
+	return job, err
+}
+
+func insertJobEvent(ctx context.Context, transaction pgx.Tx, event jobs.Event) error {
+	if _, err := transaction.Exec(ctx, `INSERT INTO job_events (job_id, sequence, type, message, actor, occurred_at) VALUES ($1,$2,$3,$4,$5,$6)`, event.JobID, event.Sequence, event.Type, event.Message, event.Actor, event.OccurredAt); err != nil {
+		return fmt.Errorf("insert job event: %w", err)
+	}
+	return nil
 }
 
 func (store *Store) migrate(ctx context.Context) error {

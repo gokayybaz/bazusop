@@ -14,6 +14,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/config"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
@@ -43,6 +44,7 @@ func main() {
 	var telemetryStore telemetry.Store = telemetry.NewMemoryStore()
 	var serviceInventoryStore serviceinventory.Store = serviceinventory.NewMemoryStore()
 	var logStore logstream.Store = logstream.NewMemoryStore()
+	var jobStore jobs.Store = jobs.NewMemoryStore()
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		postgresStore, err := postgresstore.Open(
@@ -60,6 +62,7 @@ func main() {
 		telemetryStore = postgresStore
 		serviceInventoryStore = postgresStore
 		logStore = postgresStore
+		jobStore = postgresStore
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
 	}
@@ -67,6 +70,14 @@ func main() {
 	telemetryService := telemetry.NewService(telemetryStore)
 	serviceInventoryService := serviceinventory.NewService(serviceInventoryStore)
 	logService := logstream.NewService(logStore)
+	jobService, err := jobs.NewService(jobStore)
+	if err != nil {
+		logger.Error("could not initialize job signing authority", "error", err)
+		os.Exit(1)
+	}
+	if configuration.OperatorToken == "" {
+		logger.Warn("BAZUSOP_OPERATOR_TOKEN is not set; remote job creation is disabled")
+	}
 	httpServer := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: server.NewHandler(
@@ -75,6 +86,7 @@ func main() {
 			server.WithTelemetry(telemetryService),
 			server.WithServiceInventory(serviceInventoryService),
 			server.WithLogs(logService),
+			server.WithJobs(jobService, configuration.OperatorToken),
 		),
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig: &tls.Config{

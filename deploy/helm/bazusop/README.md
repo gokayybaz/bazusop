@@ -6,7 +6,8 @@ Chart'ı kurmadan önce uygulama Secret'ını oluşturun:
 kubectl create namespace bazusop
 kubectl -n bazusop create secret generic bazusop-secrets \
   --from-literal=database-url='postgres://user:password@postgres.example/bazusop' \
-  --from-literal=enrollment-token='rastgele-tek-kullanimlik-guclu-bir-secret'
+  --from-literal=enrollment-token='rastgele-tek-kullanimlik-guclu-bir-secret' \
+  --from-literal=operator-token='rastgele-guclu-bir-operator-secret'
 helm upgrade --install bazusop . --namespace bazusop
 ```
 

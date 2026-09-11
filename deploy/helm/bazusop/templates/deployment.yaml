@@ -64,6 +64,11 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.existingSecret }}
                   key: {{ .Values.secrets.enrollmentTokenKey }}
+            - name: BAZUSOP_OPERATOR_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.operatorTokenKey }}
             - name: BAZUSOP_TIMESCALE_ENABLED
               value: {{ .Values.timescale.enabled | quote }}
             {{- if .Values.tls.enabled }}

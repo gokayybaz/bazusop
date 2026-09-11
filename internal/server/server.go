@@ -1,16 +1,19 @@
 package server
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
@@ -25,6 +28,8 @@ type handlerOptions struct {
 	telemetryService    *telemetry.Service
 	serviceInventory    *serviceinventory.Manager
 	logService          *logstream.Service
+	jobService          *jobs.Service
+	operatorToken       string
 }
 
 func WithInventory(service *inventory.Service) Option {
@@ -54,6 +59,13 @@ func WithServiceInventory(service *serviceinventory.Manager) Option {
 func WithLogs(service *logstream.Service) Option {
 	return func(options *handlerOptions) {
 		options.logService = service
+	}
+}
+
+func WithJobs(service *jobs.Service, operatorToken string) Option {
+	return func(options *handlerOptions) {
+		options.jobService = service
+		options.operatorToken = operatorToken
 	}
 }
 
@@ -92,6 +104,15 @@ func NewHandler(options ...Option) http.Handler {
 		mux.HandleFunc("GET /api/v1/instances/{agentID}/logs/stream", handleStreamLogs(configuration.logService))
 		if configuration.enrollmentAuthority != nil {
 			mux.HandleFunc("POST /api/v1/agents/logs", handleLogIngest(configuration.enrollmentAuthority, configuration.logService))
+		}
+	}
+	if configuration.jobService != nil {
+		mux.HandleFunc("POST /api/v1/instances/{agentID}/jobs", handleCreateJob(configuration.jobService, configuration.operatorToken))
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/jobs", handleListJobs(configuration.jobService))
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/jobs/{jobID}/events", handleJobEvents(configuration.jobService))
+		if configuration.enrollmentAuthority != nil {
+			mux.HandleFunc("GET /api/v1/agents/jobs/next", handleClaimJob(configuration.enrollmentAuthority, configuration.jobService))
+			mux.HandleFunc("POST /api/v1/agents/jobs/{jobID}/events", handleReportJobEvent(configuration.enrollmentAuthority, configuration.jobService))
 		}
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
@@ -441,6 +462,152 @@ func handleStreamLogs(service *logstream.Service) http.HandlerFunc {
 			}
 		}
 	}
+}
+
+func handleCreateJob(service *jobs.Service, operatorToken string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if operatorToken == "" {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		if !validBearerToken(request.Header.Get("Authorization"), operatorToken) {
+			response.Header().Set("WWW-Authenticate", "Bearer")
+			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		var createRequest jobs.CreateRequest
+		if err := decodeJSON(response, request, &createRequest); err != nil {
+			return
+		}
+		job, err := service.Create(request.Context(), request.PathValue("agentID"), createRequest)
+		if errors.Is(err, jobs.ErrInvalidJob) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(response, http.StatusCreated, job)
+	}
+}
+
+func validBearerToken(authorization, expected string) bool {
+	const prefix = "Bearer "
+	if !strings.HasPrefix(authorization, prefix) {
+		return false
+	}
+	provided := strings.TrimPrefix(authorization, prefix)
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
+}
+
+func handleListJobs(service *jobs.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		limit := 50
+		var err error
+		if value := request.URL.Query().Get("limit"); value != "" {
+			limit, err = strconv.Atoi(value)
+			if err != nil {
+				http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+		}
+		values, err := service.List(request.Context(), request.PathValue("agentID"), limit)
+		if errors.Is(err, jobs.ErrInvalidJob) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Jobs []jobs.Job `json:"jobs"`
+		}{Jobs: values})
+	}
+}
+
+func handleJobEvents(service *jobs.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		events, err := service.Events(request.Context(), request.PathValue("agentID"), request.PathValue("jobID"))
+		if errors.Is(err, jobs.ErrInvalidJob) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, jobs.ErrJobNotFound) {
+			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Events []jobs.Event `json:"events"`
+		}{Events: events})
+	}
+}
+
+func handleClaimJob(authority *enrollment.Authority, service *jobs.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		agentID, ok := authenticateAgent(response, request, authority)
+		if !ok {
+			return
+		}
+		job, err := service.ClaimNext(request.Context(), agentID)
+		if errors.Is(err, jobs.ErrInvalidJob) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		if job == nil {
+			response.WriteHeader(http.StatusNoContent)
+			return
+		}
+		writeJSON(response, http.StatusOK, job)
+	}
+}
+
+func handleReportJobEvent(authority *enrollment.Authority, service *jobs.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		agentID, ok := authenticateAgent(response, request, authority)
+		if !ok {
+			return
+		}
+		var eventRequest jobs.EventRequest
+		if err := decodeJSON(response, request, &eventRequest); err != nil {
+			return
+		}
+		job, err := service.Report(request.Context(), agentID, request.PathValue("jobID"), eventRequest)
+		switch {
+		case errors.Is(err, jobs.ErrInvalidJob):
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+		case errors.Is(err, jobs.ErrJobNotFound):
+			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+		case errors.Is(err, jobs.ErrJobConflict):
+			http.Error(response, http.StatusText(http.StatusConflict), http.StatusConflict)
+		case err != nil:
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+		default:
+			writeJSON(response, http.StatusOK, job)
+		}
+	}
+}
+
+func authenticateAgent(response http.ResponseWriter, request *http.Request, authority *enrollment.Authority) (string, bool) {
+	if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
+		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return "", false
+	}
+	agentID, err := authority.Authenticate(request.TLS.PeerCertificates[0])
+	if err != nil {
+		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return "", false
+	}
+	return agentID, true
 }
 
 func decodeJSON(response http.ResponseWriter, request *http.Request, target any) error {

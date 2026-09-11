@@ -19,6 +19,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   aranabilir ve durumlarına göre filtrelenebilir.
 - journald, dosya ve Windows Event kayıtları ortak log modelinde aranabilir;
   sunucu detayında sınırlı geçmiş ve canlı SSE akışı birlikte izlenebilir.
+- Servis yeniden başlatma ve host reboot talepleri operatör token'ıyla onaylanır,
+  Ed25519 ile imzalanır ve sıralı audit olaylarıyla uçtan uca izlenir.
 - Docker Compose geliştirme ortamı ve production odaklı Kubernetes/Helm chart'ı
   bulunur.
 
@@ -29,7 +31,9 @@ Gereksinimler: Go 1.26+, Node.js 24+ ve npm.
 ```bash
 make test
 make build
-BAZUSOP_ENROLLMENT_TOKEN="tek-kullanimlik-guclu-bir-secret" ./bin/bazusop-hub
+BAZUSOP_ENROLLMENT_TOKEN="tek-kullanimlik-guclu-bir-secret" \
+BAZUSOP_OPERATOR_TOKEN="ayri-guclu-bir-operator-secret" \
+./bin/bazusop-hub
 ```
 
 React uygulaması önce derlenir, sonra Go hub binary'sine gömülür. Hub varsayılan
@@ -40,6 +44,7 @@ Tam geliştirme ortamını TimescaleDB ile başlatmak için:
 ```bash
 POSTGRES_PASSWORD=yerel-parola \
 BAZUSOP_ENROLLMENT_TOKEN=yerel-token \
+BAZUSOP_OPERATOR_TOKEN=yerel-operator-token \
 docker compose up --build
 ```
 
@@ -52,6 +57,7 @@ docker compose up --build
 | --- | --- |
 | `BAZUSOP_HTTP_ADDR` | Hub dinleme adresi; varsayılan `:8080` |
 | `BAZUSOP_ENROLLMENT_TOKEN` | İlk kayıt için tek kullanımlık bootstrap secret |
+| `BAZUSOP_OPERATOR_TOKEN` | Uzak operasyon işi oluşturma yetkisi veren bearer secret |
 | `DATABASE_URL` | PostgreSQL/TimescaleDB bağlantı dizesi |
 | `BAZUSOP_TIMESCALE_ENABLED` | `true` ise hypertable ve retention yapılandırılır |
 | `BAZUSOP_TLS_CERT_FILE` | Hub TLS sertifikasının yolu |
@@ -78,13 +84,19 @@ raporlar; log batch'leri `POST /api/v1/agents/logs` yolunu kullanır. UI, filo l
 Log geçmişi `GET /api/v1/instances/{agent_id}/logs`, canlı akış ise aynı yolun
 `/stream` alt kaynağıdır.
 
+Operatörler `POST /api/v1/instances/{agent_id}/jobs` ile imzalı restart/reboot
+işi oluşturur. Agent işi mTLS ile teslim alır ve sıralı çıktı/durum olaylarını
+raporlar. İş listesi ve değiştirilemez olay geçmişi sunucu detayında gösterilir.
+`BAZUSOP_OPERATOR_TOKEN` ayarlanmadığında uzak iş oluşturma güvenli biçimde
+kapatılır.
+
 Şu anda CA private key'i ve tüketilmiş bootstrap-token durumu hub sürecindedir.
 Bu nedenle enrollment trafiği için tek replika kullanılmalıdır; ortak KMS/Secret
 ve PostgreSQL tabanlı token durumu sonraki ölçek sertleştirmesinde ele alınacaktır.
 
 ## Kubernetes ve Helm
 
-Chart, `database-url` ve `enrollment-token` anahtarlarını içeren mevcut bir
+Chart, `database-url`, `enrollment-token` ve `operator-token` anahtarlarını içeren mevcut bir
 `bazusop-secrets` Secret'ı bekler:
 
 ```bash

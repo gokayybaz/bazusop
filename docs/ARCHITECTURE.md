@@ -25,6 +25,10 @@
 7. Log batch'i kalıcı depoya toplu yazıldıktan sonra agent'a özel süreç içi SSE
    broker'ına yayınlanır.
 8. UI filo, zaman serisi, servis listesi ve logları salt-okunur API uçlarından alır.
+9. Operatör bearer token ile izinli bir restart/reboot talebi oluşturur; hub işin
+   değişmez alanlarını Ed25519 ile imzalayıp `queued` olarak saklar.
+10. Hedef agent işi mTLS ile atomik teslim alır, çıktıyı ve terminal durumu artan
+    sequence numaralı audit olayları olarak raporlar.
 
 ## Saklama modeli
 
@@ -43,6 +47,11 @@ olarak çalışır; agent/zaman ve agent/önem/zaman indeksleri sınırlı geçm
 destekler. Timescale etkinse loglar için 14 günlük retention policy uygulanır.
 Geliştirme amaçlı memory store agent başına en yeni 10.000 kaydı tutar.
 
+`jobs` tablosu imzalı komutu, son sequence değerini ve yaşam döngüsü durumunu;
+`job_events` tablosu onay, teslim, çıktı ve sonucu append-only audit izi olarak
+tutar. PostgreSQL `FOR UPDATE SKIP LOCKED`, aynı işin eşzamanlı agent poll'larında
+yalnız bir kez teslim edilmesini sağlar. Terminal işler yeniden açılamaz.
+
 Canlı tail broker'ı hub sürecindedir. Bu nedenle birden fazla hub replikasında SSE
 istemcisi yalnız bağlandığı replikanın aldığı yeni kayıtları görür. Production
 yatay ölçekleme öncesinde PostgreSQL LISTEN/NOTIFY, NATS veya eşdeğer ortak event
@@ -60,10 +69,22 @@ içindedir. Bu yüzden varsayılan chart tek replika çalışır ve HPA kapalıd
 çoklu replika enrollment için CA’nın secret/KMS üzerinden ortak yüklenmesi ve token
 tüketiminin PostgreSQL transaction’ıyla atomik yapılması gerekir.
 
+İş imzalama anahtarı da şu anda hub başlangıcında süreç içinde üretilir ve restart
+sonrası değişir. Kalıcı güven kökü ve çoklu replika için private key KMS/Secret'ta
+saklanmalı, public key güvenli enrollment/config kanalından agent'a sabitlenmelidir.
+
 ## Güven sınırları
 
 - Uzak enrollment plaintext HTTP üzerinden reddedilir.
 - Agent yazma uçları doğrulanmış mTLS client sertifikası ister.
+- Operasyon oluşturma ayrı bir bearer secret ister; secret yoksa uç kapalıdır.
+- Aksiyon allowlist'i yalnız servis restart ve host reboot'u kabul eder; keyfi shell
+  çalıştırma desteklenmez.
 - JSON gövdeleri 1 MiB ile sınırlıdır ve bilinmeyen alanlar reddedilir.
 - Container non-root ve read-only root filesystem ile çalışmaya uygundur.
 - Kubernetes ServiceAccount token’ı varsayılan olarak pod’a bağlanmaz.
+
+Mevcut bearer token kimlik doğrulaması ilk güvenli dikey dilimdir;
+`approved_by` alanı token sahibinin beyanıdır. Kullanıcı bazlı RBAC, SSO/MFA,
+çift onay ve immutable harici audit sink production yetkilendirme sertleştirmesi
+olarak ayrıca ele alınacaktır.
