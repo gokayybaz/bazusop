@@ -28,7 +28,7 @@ const navigation = [
   { icon: ChartNoAxesCombined, label: "Metrikler" },
   { icon: TerminalSquare, label: "Loglar" },
   { icon: ListChecks, label: "İşler" },
-  { icon: Bell, label: "Alarmlar", count: 3 },
+  { icon: Bell, label: "Alarmlar" },
 ]
 
 type InventoryInstance = {
@@ -173,6 +173,11 @@ export function App() {
   const activeIncidents = incidents.filter((incident) => incident.status !== "resolved")
   const criticalIncidents = activeIncidents.filter((incident) => incident.severity === "critical").length
 
+  function openAlarmCenter() {
+    setShowAlarmCenter(true)
+    requestAnimationFrame(() => document.getElementById("alarm-center")?.scrollIntoView({ behavior: "smooth", block: "start" }))
+  }
+
   function openTelemetry(instance: InventoryInstance) {
     setSelectedInstance(instance)
     setTelemetry(null)
@@ -235,13 +240,16 @@ export function App() {
           </div>
 
           <nav aria-label="Ana navigasyon" className="nav-list">
-            {navigation.map(({ icon: Icon, label, active, count }) => (
-              <button className={active ? "nav-item active" : "nav-item"} key={label} type="button">
+            {navigation.map(({ icon: Icon, label, active }) => {
+              const count = label === "Alarmlar" ? activeIncidents.length : undefined
+              return (
+              <button className={active ? "nav-item active" : "nav-item"} key={label} onClick={label === "Alarmlar" ? openAlarmCenter : undefined} type="button">
                 <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
                 <span>{label}</span>
-                {count ? <span className="nav-count">{count}</span> : null}
+                {count !== undefined ? <span className="nav-count">{count}</span> : null}
               </button>
-            ))}
+              )
+            })}
           </nav>
 
           <div className="sidebar-bottom">
@@ -301,7 +309,7 @@ export function App() {
                   {alertState === "error" ? <div className="alert-empty">Alarm verisine ulaşılamıyor.</div> : null}
                   {alertState === "ready" && activeIncidents.length === 0 ? <div className="alert-empty">Açık alarm yok.</div> : null}
                 </div>
-                <button aria-label="Alarm merkezini aç" className="panel-link" onClick={() => setShowAlarmCenter(true)} type="button">Alarm merkezini aç <ChevronRight size={15} /></button>
+                <button aria-label="Alarm merkezini aç" className="panel-link" onClick={openAlarmCenter} type="button">Alarm merkezini aç <ChevronRight size={15} /></button>
               </Card>
             </div>
 
@@ -454,7 +462,7 @@ function AlarmCenter({ incidents, onClose, onIncidentUpdated }: { incidents: Ale
   }
 
   return (
-    <Card aria-label="Alarm merkezi" className="alarm-center">
+    <Card aria-label="Alarm merkezi" className="alarm-center" id="alarm-center">
       <div className="card-header alarm-center-header"><div><h2>Alarm merkezi</h2><p>Kurallar, bakım pencereleri ve olay yaşam döngüsü</p></div><button aria-label="Alarm merkezini kapat" className="icon-button" onClick={onClose} type="button"><X size={17} /></button></div>
       <div className="alarm-credentials"><label><span>Operatör</span><input onChange={(event) => setActor(event.target.value)} placeholder="Ad veya kimlik" value={actor} /></label><label><span>Operatör token'ı</span><input autoComplete="current-password" onChange={(event) => setOperatorToken(event.target.value)} placeholder="••••••••" type="password" value={operatorToken} /></label>{message ? <p aria-live="polite">{message}</p> : null}</div>
       <div className="alarm-center-grid">
