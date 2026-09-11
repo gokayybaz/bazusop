@@ -40,7 +40,8 @@ bir TLS Secret’tan read-only mount edilir.
 Üretim başlangıç kontrol listesi:
 
 1. PostgreSQL yedekleme ve PITR politikasını doğrula.
-2. Timescale extension yetkisini ve 30 günlük retention’ı doğrula.
+2. Timescale extension yetkisini ve 30 günlük retention'ı doğrula.
+   Telemetri 30 gün, loglar 14 gün saklanır.
 3. TLS secret rotasyonunu planla.
 4. CPU/RAM request-limit değerlerini gerçek yük testine göre ayarla.
 5. Enrollment state paylaşılmadan HPA’yı açma.
@@ -57,6 +58,10 @@ bir TLS Secret’tan read-only mount edilir.
 - Servis snapshot'ı `500` dönüyorsa agent'ın önce envanter raporu gönderdiğini ve
   `hosts` kaydının bulunduğunu kontrol et. `400` için servis state/startup type
   eşlemesini ve 5000 kayıt sınırını kontrol et.
+- Log batch'i `400` dönüyorsa collector/severity eşlemesini, timestamp'i, 1000
+  kayıt batch sınırını ve 64 KiB mesaj sınırını kontrol et.
+- SSE bağlantısı açılıyor fakat kayıt gelmiyorsa reverse proxy buffering'i kapat;
+  çoklu hub replikasında ortak event bus henüz bulunmadığını hesaba kat.
 - Agent yazma uçları `401` dönüyorsa client certificate chain, süre ve SPIFFE URI
   SAN değerini kontrol et.
 - `426` enrollment yanıtı, uzak isteğin TLS olmadan geldiğini gösterir.

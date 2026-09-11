@@ -22,7 +22,9 @@
 5. Telemetry örneği `(agent_id, recorded_at)` anahtarıyla idempotent yazılır.
 6. Servis snapshot'ı ortak durum modeline çevrilir ve önceki snapshot'ı transaction
    içinde atomik olarak değiştirir.
-7. UI filo, zaman serisi ve servis listesini salt-okunur API uçlarından alır.
+7. Log batch'i kalıcı depoya toplu yazıldıktan sonra agent'a özel süreç içi SSE
+   broker'ına yayınlanır.
+8. UI filo, zaman serisi, servis listesi ve logları salt-okunur API uçlarından alır.
 
 ## Saklama modeli
 
@@ -36,10 +38,21 @@ Snapshot yenilenirken aynı agent'ın eski satırları ve yeni satırları tek t
 içinde değiştirilir; okuyucu kısmi liste görmez. State ve startup type alanları
 systemd ile Windows Service Manager farklarını ortak modele indirger.
 
+`log_entries` tablosu `(id, occurred_at)` bileşik anahtarıyla Timescale hypertable
+olarak çalışır; agent/zaman ve agent/önem/zaman indeksleri sınırlı geçmiş aramayı
+destekler. Timescale etkinse loglar için 14 günlük retention policy uygulanır.
+Geliştirme amaçlı memory store agent başına en yeni 10.000 kaydı tutar.
+
+Canlı tail broker'ı hub sürecindedir. Bu nedenle birden fazla hub replikasında SSE
+istemcisi yalnız bağlandığı replikanın aldığı yeni kayıtları görür. Production
+yatay ölçekleme öncesinde PostgreSQL LISTEN/NOTIFY, NATS veya eşdeğer ortak event
+bus eklenmelidir; geçmiş arama tüm replikalarda ortak PostgreSQL'den gelir.
+
 ## Ölçekleme
 
-Inventory ve telemetry handler’ları süreç durumu taşımaz; ortak PostgreSQL/
-TimescaleDB kullanan hub replikalarında yatay ölçeklenebilir. Helm chart HPA,
+Inventory, telemetry, servis ve geçmiş log handler'ları süreç durumu taşımaz;
+ortak PostgreSQL/TimescaleDB kullanan hub replikalarında yatay ölçeklenebilir.
+Canlı SSE yayınında yukarıdaki event bus kısıtı geçerlidir. Helm chart HPA,
 topology spread, rolling update ve PDB tanımlar.
 
 Enrollment CA private key’i ve tüketilmiş bootstrap-token durumu henüz süreç

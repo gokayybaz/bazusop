@@ -17,6 +17,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   Timescale etkinse 30 günlük retention policy uygulanır.
 - systemd ve Windows Service snapshot'ları normalize edilerek sunucu bazında
   aranabilir ve durumlarına göre filtrelenebilir.
+- journald, dosya ve Windows Event kayıtları ortak log modelinde aranabilir;
+  sunucu detayında sınırlı geçmiş ve canlı SSE akışı birlikte izlenebilir.
 - Docker Compose geliştirme ortamı ve production odaklı Kubernetes/Helm chart'ı
   bulunur.
 
@@ -69,10 +71,12 @@ geliştirme için açıktır.
 
 Kayıtlı agent'lar envanteri `PUT /api/v1/agents/inventory`, telemetriyi
 `POST /api/v1/agents/telemetry`, servisleri `PUT /api/v1/agents/services` ile
-raporlar. UI, filo listesini
+raporlar; log batch'leri `POST /api/v1/agents/logs` yolunu kullanır. UI, filo listesini
 `GET /api/v1/instances`, zaman serisini
 `GET /api/v1/instances/{agent_id}/telemetry`, servisleri
 `GET /api/v1/instances/{agent_id}/services` üzerinden okur.
+Log geçmişi `GET /api/v1/instances/{agent_id}/logs`, canlı akış ise aynı yolun
+`/stream` alt kaynağıdır.
 
 Şu anda CA private key'i ve tüketilmiş bootstrap-token durumu hub sürecindedir.
 Bu nedenle enrollment trafiği için tek replika kullanılmalıdır; ortak KMS/Secret

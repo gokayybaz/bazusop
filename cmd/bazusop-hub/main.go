@@ -14,6 +14,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/config"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	postgresstore "github.com/gokayybaz/bazusop/internal/storage/postgres"
@@ -41,6 +42,7 @@ func main() {
 	var inventoryStore inventory.Store = inventory.NewMemoryStore()
 	var telemetryStore telemetry.Store = telemetry.NewMemoryStore()
 	var serviceInventoryStore serviceinventory.Store = serviceinventory.NewMemoryStore()
+	var logStore logstream.Store = logstream.NewMemoryStore()
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		postgresStore, err := postgresstore.Open(
@@ -57,12 +59,14 @@ func main() {
 		inventoryStore = postgresStore
 		telemetryStore = postgresStore
 		serviceInventoryStore = postgresStore
+		logStore = postgresStore
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
 	}
 	inventoryService := inventory.NewService(inventoryStore)
 	telemetryService := telemetry.NewService(telemetryStore)
 	serviceInventoryService := serviceinventory.NewService(serviceInventoryStore)
+	logService := logstream.NewService(logStore)
 	httpServer := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: server.NewHandler(
@@ -70,6 +74,7 @@ func main() {
 			server.WithInventory(inventoryService),
 			server.WithTelemetry(telemetryService),
 			server.WithServiceInventory(serviceInventoryService),
+			server.WithLogs(logService),
 		),
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig: &tls.Config{

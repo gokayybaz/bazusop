@@ -83,6 +83,14 @@ describe("bazUSOP shell", () => {
 		  { agent_id: "agent-01", name: "queue-worker.service", display_name: "Queue Worker", state: "failed", startup_type: "automatic", observed_at: "2026-09-11T04:05:00Z" },
 		],
 	  }),
+	} as Response).mockResolvedValueOnce({
+	  ok: true,
+	  json: async () => ({
+		entries: [
+		  { id: "log-01", agent_id: "agent-01", occurred_at: "2026-09-11T04:04:00Z", collector: "journald", source: "nginx.service", severity: "info", message: "worker process started" },
+		  { id: "log-02", agent_id: "agent-01", occurred_at: "2026-09-11T04:05:00Z", collector: "journald", source: "nginx.service", severity: "error", message: "upstream timeout" },
+		],
+	  }),
 	} as Response)
 
 	render(<App />)
@@ -104,5 +112,13 @@ describe("bazUSOP shell", () => {
 	fireEvent.click(screen.getByRole("button", { name: "Başarısız servisleri göster" }))
 	expect(screen.queryByText("NGINX Web Server")).not.toBeInTheDocument()
 	expect(screen.getByText("Queue Worker")).toBeInTheDocument()
+	expect(await screen.findByRole("region", { name: "edge-01.example.com logları" })).toBeInTheDocument()
+	expect(screen.getByText("worker process started")).toBeInTheDocument()
+	expect(screen.getByText("upstream timeout")).toBeInTheDocument()
+	expect(screen.getByRole("button", { name: "Canlı akışı başlat" })).toBeInTheDocument()
+
+	fireEvent.click(screen.getByRole("button", { name: "Hata loglarını göster" }))
+	expect(screen.queryByText("worker process started")).not.toBeInTheDocument()
+	expect(screen.getByText("upstream timeout")).toBeInTheDocument()
   })
 })

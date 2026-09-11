@@ -136,3 +136,47 @@ Sunucunun son servis snapshot'ını ada göre sıralı döndürür:
 İsteğe bağlı `state` parametresi `running`, `stopped`, `failed` veya `unknown`
 değerini kabul eder. `q` parametresi servis adı ve görünen adda büyük/küçük harf
 duyarsız arama yapar. Geçersiz filtre `400` döner.
+
+### `POST /api/v1/agents/logs`
+
+mTLS gerekir. Tek istekte 1–1000 kayıt kabul edilir; her mesaj en fazla 64 KiB'dir.
+
+```json
+{
+  "entries": [
+    {
+      "occurred_at": "2026-09-11T05:10:00Z",
+      "collector": "journald",
+      "source": "nginx.service",
+      "severity": "error",
+      "message": "upstream timeout"
+    }
+  ]
+}
+```
+
+`collector`; `journald`, `file` veya `windows_event` olur. Önem derecesi
+`debug`, `info`, `warn`, `error` veya `critical` ortak değerine normalize edilir.
+Hub her kayda benzersiz `id` ve doğrulanmış sertifikadan `agent_id` ekler. Başarı
+`204`, geçersiz batch `400` döner.
+
+### `GET /api/v1/instances/{agent_id}/logs`
+
+Varsayılan olarak son bir saatin en yeni 100 kaydını kronolojik sırada döndürür.
+Sorgu parametreleri:
+
+- `from`, `to`: RFC3339 zaman aralığı.
+- `limit`: `1–500` arası sonuç sınırı.
+- `collector`: collector türü.
+- `severity`: ortak önem derecesi.
+- `source`: kaynak adında büyük/küçük harf duyarsız arama.
+- `q`: mesaj metninde büyük/küçük harf duyarsız arama.
+
+Yanıt `{ "entries": [...] }` zarfıdır. Aralık ve limit her sorguda doğrulanır.
+
+### `GET /api/v1/instances/{agent_id}/logs/stream`
+
+`text/event-stream` yanıtıyla canlı tail açar. Bağlantı önce `ready`, ardından her
+yeni kayıt için `log` olayı gönderir. Her abonelik yalnız URL'deki agent kimliğinin
+kayıtlarını alır. Proxy buffering kapatılmalı, istemci kopunca bağlantı iptal
+edilmelidir.

@@ -182,6 +182,24 @@ tbody tr:hover { background: var(--surface-hover); }
 .service-badge.failed { color: var(--danger); border-color: color-mix(in srgb, var(--danger) 38%, var(--border)); background: var(--danger-soft); }
 .service-badge.stopped .status-dot, .service-badge.unknown .status-dot { background: var(--subtle); box-shadow: 0 0 0 3px color-mix(in srgb, var(--subtle) 12%, transparent); }
 .service-badge.failed .status-dot { background: var(--danger); box-shadow: 0 0 0 3px var(--danger-soft); }
+.logs-card { margin-top: 16px; border-radius: 16px; overflow: hidden; }
+.logs-header { align-items: center; gap: 16px; }
+.log-actions { display: flex; align-items: center; gap: 10px; }
+.log-search { width: min(300px, 34vw); }
+.live-button { min-height: 38px; padding: 0 12px; border: 1px solid var(--border); border-radius: 9px; color: var(--muted); background: var(--surface); cursor: pointer; white-space: nowrap; }
+.live-button .status-dot { background: var(--subtle); box-shadow: 0 0 0 3px color-mix(in srgb, var(--subtle) 12%, transparent); }
+.live-button.active { color: var(--success); border-color: color-mix(in srgb, var(--success) 34%, var(--border)); background: var(--success-soft); }
+.live-button.active .status-dot { background: var(--success); box-shadow: 0 0 0 3px var(--success-soft); }
+.log-console { max-height: 420px; overflow: auto; background: color-mix(in srgb, var(--background) 72%, #000); font: 12px/1.6 "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace; }
+.log-line { min-width: 780px; padding: 9px 20px; border-bottom: 1px solid color-mix(in srgb, var(--border) 62%, transparent); display: grid; grid-template-columns: 82px 64px minmax(130px, 190px) minmax(320px, 1fr); gap: 12px; color: var(--muted); }
+.log-line:last-child { border-bottom: 0; }
+.log-line:hover { background: var(--surface-hover); }
+.log-line time { color: var(--subtle); }
+.log-severity { color: var(--accent); font-weight: 700; }
+.log-line.warn .log-severity { color: var(--warning); }
+.log-line.error .log-severity, .log-line.critical .log-severity { color: var(--danger); }
+.log-source { overflow: hidden; color: var(--success); text-overflow: ellipsis; white-space: nowrap; }
+.log-message { color: #fff; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 .metric-card, .chart-card, .alerts-card, .table-card, .search, .icon-button, .theme-toggle { transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease; }
 .metric-card:hover, .chart-card:hover, .alerts-card:hover, .table-card:hover { box-shadow: var(--shadow); }
@@ -207,6 +225,8 @@ tbody tr:hover { background: var(--surface-hover); }
   .telemetry-chart { height: 180px; }
   .services-header { align-items: flex-start; flex-direction: column; }
   .service-search { width: 100%; }
+  .logs-header, .log-actions { width: 100%; align-items: stretch; flex-direction: column; }
+  .log-search { width: 100%; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -7,9 +7,11 @@ import (
 	"io/fs"
 	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
@@ -269,6 +271,57 @@ func (store *Store) ListServices(ctx context.Context, agentID string, filter ser
 	return services, nil
 }
 
+func (store *Store) AppendLogs(ctx context.Context, entries []logstream.Entry) error {
+	rows := make([][]any, 0, len(entries))
+	for _, entry := range entries {
+		rows = append(rows, []any{entry.ID, entry.AgentID, entry.OccurredAt, entry.Collector, entry.Source, entry.Severity, entry.Message})
+	}
+	if _, err := store.pool.CopyFrom(
+		ctx,
+		pgx.Identifier{"log_entries"},
+		[]string{"id", "agent_id", "occurred_at", "collector", "source", "severity", "message"},
+		pgx.CopyFromRows(rows),
+	); err != nil {
+		return fmt.Errorf("append log batch: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) SearchLogs(ctx context.Context, query logstream.Query) ([]logstream.Entry, error) {
+	rows, err := store.pool.Query(ctx, `
+		SELECT id, agent_id, occurred_at, collector, source, severity, message
+		FROM (
+			SELECT id, agent_id, occurred_at, collector, source, severity, message
+			FROM log_entries
+			WHERE agent_id = $1 AND occurred_at >= $2 AND occurred_at <= $3
+				AND ($4 = '' OR collector = $4)
+				AND ($5 = '' OR severity = $5)
+				AND ($6 = '' OR source ILIKE '%' || $6 || '%')
+				AND ($7 = '' OR message ILIKE '%' || $7 || '%')
+			ORDER BY occurred_at DESC, id DESC
+			LIMIT $8
+		) bounded
+		ORDER BY occurred_at, id`,
+		query.AgentID, query.From, query.To, query.Collector, query.Severity, query.Source, query.Text, query.Limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query logs: %w", err)
+	}
+	defer rows.Close()
+	entries := make([]logstream.Entry, 0)
+	for rows.Next() {
+		var entry logstream.Entry
+		if err := rows.Scan(&entry.ID, &entry.AgentID, &entry.OccurredAt, &entry.Collector, &entry.Source, &entry.Severity, &entry.Message); err != nil {
+			return nil, fmt.Errorf("scan logs: %w", err)
+		}
+		entries = append(entries, entry)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate logs: %w", err)
+	}
+	return entries, nil
+}
+
 func (store *Store) migrate(ctx context.Context) error {
 	if _, err := store.pool.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -330,6 +383,8 @@ func (store *Store) enableTimescale(ctx context.Context) error {
 		"CREATE EXTENSION IF NOT EXISTS timescaledb",
 		"SELECT create_hypertable('telemetry_samples', 'recorded_at', if_not_exists => TRUE, migrate_data => TRUE)",
 		"SELECT add_retention_policy('telemetry_samples', INTERVAL '30 days', if_not_exists => TRUE)",
+		"SELECT create_hypertable('log_entries', 'occurred_at', if_not_exists => TRUE, migrate_data => TRUE)",
+		"SELECT add_retention_policy('log_entries', INTERVAL '14 days', if_not_exists => TRUE)",
 	}
 	for _, statement := range statements {
 		if _, err := store.pool.Exec(ctx, statement); err != nil {

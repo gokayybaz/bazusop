@@ -3,6 +3,7 @@ package server
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"strconv"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 	"github.com/gokayybaz/bazusop/internal/webui"
@@ -22,6 +24,7 @@ type handlerOptions struct {
 	inventoryService    *inventory.Service
 	telemetryService    *telemetry.Service
 	serviceInventory    *serviceinventory.Manager
+	logService          *logstream.Service
 }
 
 func WithInventory(service *inventory.Service) Option {
@@ -45,6 +48,12 @@ func WithTelemetry(service *telemetry.Service) Option {
 func WithServiceInventory(service *serviceinventory.Manager) Option {
 	return func(options *handlerOptions) {
 		options.serviceInventory = service
+	}
+}
+
+func WithLogs(service *logstream.Service) Option {
+	return func(options *handlerOptions) {
+		options.logService = service
 	}
 }
 
@@ -76,6 +85,13 @@ func NewHandler(options ...Option) http.Handler {
 		mux.HandleFunc("GET /api/v1/instances/{agentID}/services", handleListServices(configuration.serviceInventory))
 		if configuration.enrollmentAuthority != nil {
 			mux.HandleFunc("PUT /api/v1/agents/services", handleServiceReport(configuration.enrollmentAuthority, configuration.serviceInventory))
+		}
+	}
+	if configuration.logService != nil {
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/logs", handleSearchLogs(configuration.logService))
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/logs/stream", handleStreamLogs(configuration.logService))
+		if configuration.enrollmentAuthority != nil {
+			mux.HandleFunc("POST /api/v1/agents/logs", handleLogIngest(configuration.enrollmentAuthority, configuration.logService))
 		}
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
@@ -316,6 +332,114 @@ func handleListServices(service *serviceinventory.Manager) http.HandlerFunc {
 		writeJSON(response, http.StatusOK, struct {
 			Services []serviceinventory.Service `json:"services"`
 		}{Services: services})
+	}
+}
+
+func handleLogIngest(authority *enrollment.Authority, service *logstream.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
+			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		agentID, err := authority.Authenticate(request.TLS.PeerCertificates[0])
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		var batch logstream.Batch
+		if err := decodeJSON(response, request, &batch); err != nil {
+			return
+		}
+		if err := service.Ingest(request.Context(), agentID, batch); errors.Is(err, logstream.ErrInvalidLogs) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		} else if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func handleSearchLogs(service *logstream.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		to := time.Now().UTC()
+		from := to.Add(-time.Hour)
+		limit := 100
+		var err error
+		if value := request.URL.Query().Get("from"); value != "" {
+			from, err = time.Parse(time.RFC3339, value)
+			if err != nil {
+				http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+		}
+		if value := request.URL.Query().Get("to"); value != "" {
+			to, err = time.Parse(time.RFC3339, value)
+			if err != nil {
+				http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+		}
+		if value := request.URL.Query().Get("limit"); value != "" {
+			limit, err = strconv.Atoi(value)
+			if err != nil {
+				http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+		}
+		entries, err := service.Search(request.Context(), logstream.Query{
+			AgentID: request.PathValue("agentID"), From: from, To: to,
+			Collector: logstream.Collector(request.URL.Query().Get("collector")),
+			Severity:  logstream.Severity(request.URL.Query().Get("severity")),
+			Source:    request.URL.Query().Get("source"), Text: request.URL.Query().Get("q"), Limit: limit,
+		})
+		if errors.Is(err, logstream.ErrInvalidLogs) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Entries []logstream.Entry `json:"entries"`
+		}{Entries: entries})
+	}
+}
+
+func handleStreamLogs(service *logstream.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		flusher, ok := response.(http.Flusher)
+		if !ok {
+			http.Error(response, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
+			return
+		}
+		stream, err := service.Subscribe(request.Context(), request.PathValue("agentID"))
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		response.Header().Set("Content-Type", "text/event-stream")
+		response.Header().Set("Cache-Control", "no-cache")
+		response.Header().Set("X-Accel-Buffering", "no")
+		_, _ = fmt.Fprint(response, "event: ready\ndata: {}\n\n")
+		flusher.Flush()
+		for {
+			select {
+			case <-request.Context().Done():
+				return
+			case entry := <-stream:
+				payload, err := json.Marshal(entry)
+				if err != nil {
+					continue
+				}
+				if _, err := fmt.Fprintf(response, "event: log\ndata: %s\n\n", payload); err != nil {
+					return
+				}
+				flusher.Flush()
+			}
+		}
 	}
 }
 

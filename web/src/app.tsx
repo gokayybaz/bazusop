@@ -71,6 +71,16 @@ type ManagedService = {
   observed_at: string
 }
 
+type LogEntry = {
+  id: string
+  agent_id: string
+  occurred_at: string
+  collector: "journald" | "file" | "windows_event"
+  source: string
+  severity: "debug" | "info" | "warn" | "error" | "critical"
+  message: string
+}
+
 export function App() {
   const [instances, setInstances] = useState<InventoryInstance[]>([])
   const [inventoryState, setInventoryState] = useState<"loading" | "ready" | "error">("loading")
@@ -79,6 +89,8 @@ export function App() {
   const [telemetryState, setTelemetryState] = useState<"idle" | "loading" | "ready" | "error">("idle")
   const [services, setServices] = useState<ManagedService[]>([])
   const [serviceState, setServiceState] = useState<"idle" | "loading" | "ready" | "error">("idle")
+  const [logs, setLogs] = useState<LogEntry[]>([])
+  const [logState, setLogState] = useState<"idle" | "loading" | "ready" | "error">("idle")
 
   useEffect(() => {
     const controller = new AbortController()
@@ -106,6 +118,8 @@ export function App() {
     setTelemetryState("loading")
     setServices([])
     setServiceState("loading")
+    setLogs([])
+    setLogState("loading")
     fetch(`/api/v1/instances/${encodeURIComponent(instance.agent_id)}/telemetry?limit=288`)
       .then((response) => {
         if (!response.ok) throw new Error("telemetry unavailable")
@@ -126,6 +140,16 @@ export function App() {
         setServiceState("ready")
       })
       .catch(() => setServiceState("error"))
+    fetch(`/api/v1/instances/${encodeURIComponent(instance.agent_id)}/logs?limit=200`)
+      .then((response) => {
+        if (!response.ok) throw new Error("logs unavailable")
+        return response.json() as Promise<{ entries: LogEntry[] }>
+      })
+      .then((payload) => {
+        setLogs(payload.entries)
+        setLogState("ready")
+      })
+      .catch(() => setLogState("error"))
   }
 
   return (
@@ -246,6 +270,7 @@ export function App() {
                   state={telemetryState}
                 />
                 <ServicesPanel key={selectedInstance.agent_id} instance={selectedInstance} services={services} state={serviceState} />
+                <LogPanel key={`${selectedInstance.agent_id}-logs`} entries={logs} instance={selectedInstance} state={logState} />
               </>
             ) : null}
           </div>
@@ -440,4 +465,89 @@ function serviceStateLabel(state: ManagedService["state"]) {
 
 function startupTypeLabel(startupType: ManagedService["startup_type"]) {
   return { automatic: "Otomatik", manual: "Manuel", disabled: "Devre dışı", unknown: "Bilinmiyor" }[startupType]
+}
+
+type LogFilter = "all" | LogEntry["severity"]
+
+function LogPanel({ entries, instance, state }: {
+  entries: LogEntry[]
+  instance: InventoryInstance
+  state: "idle" | "loading" | "ready" | "error"
+}) {
+  const [filter, setFilter] = useState<LogFilter>("all")
+  const [query, setQuery] = useState("")
+  const [live, setLive] = useState(false)
+  const [streamEntries, setStreamEntries] = useState<LogEntry[]>([])
+
+  useEffect(() => {
+    if (!live) return
+    const stream = new EventSource(`/api/v1/instances/${encodeURIComponent(instance.agent_id)}/logs/stream`)
+    const receive = (event: MessageEvent<string>) => {
+      try {
+        const entry = JSON.parse(event.data) as LogEntry
+        setStreamEntries((current) => [...current.slice(-199), entry])
+      } catch {
+        // Ignore malformed frames and keep the live stream open.
+      }
+    }
+    stream.addEventListener("log", receive as EventListener)
+    return () => stream.close()
+  }, [instance.agent_id, live])
+
+  const normalizedQuery = query.trim().toLocaleLowerCase("tr-TR")
+  const visibleEntries = [...entries, ...streamEntries].filter((entry) => {
+    const matchesSeverity = filter === "all" || entry.severity === filter
+    const searchable = `${entry.source} ${entry.message}`.toLocaleLowerCase("tr-TR")
+    return matchesSeverity && (normalizedQuery === "" || searchable.includes(normalizedQuery))
+  })
+
+  return (
+    <Card aria-label={`${instance.hostname} logları`} className="logs-card">
+      <div className="card-header logs-header">
+        <div><h2>Log akışı</h2><p>{instance.hostname} · son 1 saat · en fazla 200 kayıt</p></div>
+        <div className="log-actions">
+          <label className="service-search log-search">
+            <Search aria-hidden="true" size={15} />
+            <input aria-label="Loglarda ara" onChange={(event) => setQuery(event.target.value)} placeholder="Mesaj veya kaynak ara…" type="search" value={query} />
+          </label>
+          <button aria-pressed={live} className={live ? "live-button active" : "live-button"} onClick={() => setLive((current) => !current)} type="button">
+            <span className="status-dot" />{live ? "Canlı akışı durdur" : "Canlı akışı başlat"}
+          </button>
+        </div>
+      </div>
+      <div aria-label="Log önem filtresi" className="service-filters log-filters" role="group">
+        <ServiceFilterButton active={filter === "all"} label="Tümü" onClick={() => setFilter("all")} />
+        <ServiceFilterButton active={filter === "debug"} label="Debug" onClick={() => setFilter("debug")} />
+        <ServiceFilterButton active={filter === "info"} label="Bilgi" onClick={() => setFilter("info")} />
+        <ServiceFilterButton active={filter === "warn"} label="Uyarı" onClick={() => setFilter("warn")} />
+        <ServiceFilterButton active={filter === "error"} label="Hata" onClick={() => setFilter("error")} accessibleLabel="Hata loglarını göster" />
+        <ServiceFilterButton active={filter === "critical"} label="Kritik" onClick={() => setFilter("critical")} />
+      </div>
+      {state === "loading" ? <div className="service-state">Loglar yükleniyor…</div> : null}
+      {state === "error" ? <div className="service-state">Log geçmişine şu anda ulaşılamıyor.</div> : null}
+      {state === "ready" && visibleEntries.length === 0 ? <div className="service-state">Bu filtreyle eşleşen log kaydı yok.</div> : null}
+      {visibleEntries.length > 0 ? (
+        <div aria-live={live ? "polite" : "off"} className="log-console">
+          {visibleEntries.map((entry) => (
+            <div className={`log-line ${entry.severity}`} key={`${entry.id}-${entry.occurred_at}`}>
+              <time dateTime={entry.occurred_at}>{formatLogTime(entry.occurred_at)}</time>
+              <span className="log-severity">{logSeverityLabel(entry.severity)}</span>
+              <span className="log-source">{entry.source}</span>
+              <span className="log-message">{entry.message}</span>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </Card>
+  )
+}
+
+function formatLogTime(value: string) {
+  const timestamp = new Date(value)
+  if (Number.isNaN(timestamp.getTime())) return "--:--:--"
+  return timestamp.toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
+}
+
+function logSeverityLabel(severity: LogEntry["severity"]) {
+  return { debug: "DEBUG", info: "BİLGİ", warn: "UYARI", error: "HATA", critical: "KRİTİK" }[severity]
 }
