@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
+	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/webui"
 )
 
@@ -14,6 +15,13 @@ type Option func(*handlerOptions)
 
 type handlerOptions struct {
 	enrollmentAuthority *enrollment.Authority
+	inventoryService    *inventory.Service
+}
+
+func WithInventory(service *inventory.Service) Option {
+	return func(options *handlerOptions) {
+		options.inventoryService = service
+	}
 }
 
 func WithEnrollment(authority *enrollment.Authority) Option {
@@ -33,6 +41,12 @@ func NewHandler(options ...Option) http.Handler {
 	if configuration.enrollmentAuthority != nil {
 		mux.HandleFunc("POST /api/v1/agents/enroll", handleEnroll(configuration.enrollmentAuthority))
 		mux.HandleFunc("POST /api/v1/agents/renew", handleRenew(configuration.enrollmentAuthority))
+	}
+	if configuration.inventoryService != nil {
+		mux.HandleFunc("GET /api/v1/instances", handleListInstances(configuration.inventoryService))
+		if configuration.enrollmentAuthority != nil {
+			mux.HandleFunc("PUT /api/v1/agents/inventory", handleInventoryReport(configuration.enrollmentAuthority, configuration.inventoryService))
+		}
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
 		http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
@@ -112,6 +126,45 @@ func handleRenew(authority *enrollment.Authority) http.HandlerFunc {
 			return
 		}
 		writeJSON(response, http.StatusOK, identity)
+	}
+}
+
+func handleInventoryReport(authority *enrollment.Authority, service *inventory.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
+			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		agentID, err := authority.Authenticate(request.TLS.PeerCertificates[0])
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		var facts inventory.Facts
+		if err := decodeJSON(response, request, &facts); err != nil {
+			return
+		}
+		if err := service.Report(request.Context(), agentID, facts); errors.Is(err, inventory.ErrInvalidFacts) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		} else if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func handleListInstances(service *inventory.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		instances, err := service.List(request.Context())
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Instances []inventory.Host `json:"instances"`
+		}{Instances: instances})
 	}
 }
 

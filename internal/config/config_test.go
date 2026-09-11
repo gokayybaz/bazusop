@@ -42,3 +42,11 @@ func TestTLSFiles(t *testing.T) {
 		t.Fatalf("expected configured TLS private key, got %q", configuration.TLSPrivateKey)
 	}
 }
+
+func TestDatabaseURL(t *testing.T) {
+	t.Setenv("DATABASE_URL", "postgres://bazusop:secret@db/bazusop")
+
+	if databaseURL := config.Load().DatabaseURL; databaseURL != "postgres://bazusop:secret@db/bazusop" {
+		t.Fatalf("expected configured database URL, got %q", databaseURL)
+	}
+}

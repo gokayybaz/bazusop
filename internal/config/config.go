@@ -7,6 +7,7 @@ type Config struct {
 	EnrollmentToken string
 	TLSCertificate  string
 	TLSPrivateKey   string
+	DatabaseURL     string
 }
 
 func Load() Config {
@@ -20,5 +21,6 @@ func Load() Config {
 		EnrollmentToken: os.Getenv("BAZUSOP_ENROLLMENT_TOKEN"),
 		TLSCertificate:  os.Getenv("BAZUSOP_TLS_CERT_FILE"),
 		TLSPrivateKey:   os.Getenv("BAZUSOP_TLS_KEY_FILE"),
+		DatabaseURL:     os.Getenv("DATABASE_URL"),
 	}
 }

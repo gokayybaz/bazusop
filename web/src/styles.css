@@ -148,10 +148,8 @@ tbody tr:hover { background: var(--surface-hover); }
 .instance-cell strong { display: block; color: #fff; font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .instance-cell small { display: block; margin-top: 4px; color: var(--subtle); font-size: 12px; }
 .mono { color: #fff; font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12px; }.mono.muted { color: var(--subtle); }
-.meter { min-width: 116px; display: flex; align-items: center; gap: 10px; }
-.meter > div { width: 74px; height: 5px; border-radius: 999px; background: var(--border); overflow: hidden; }
-.meter i { display: block; height: 100%; border-radius: inherit; background: var(--accent); }.meter i.hot { background: var(--danger); }
-.meter span { min-width: 32px; color: #fff; font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }.meter span.hot { color: var(--danger); }
+.cell-meta { display: block; margin-top: 5px; color: var(--subtle); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
+.empty-table { height: 112px; color: var(--subtle); text-align: center; }
 .healthy { color: var(--success); border-color: color-mix(in srgb, var(--success) 34%, var(--border)); background: var(--success-soft); }
 .warning { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 34%, var(--border)); background: var(--warning-soft); }
 .warning .status-dot { background: var(--warning); box-shadow: 0 0 0 3px var(--warning-soft); }

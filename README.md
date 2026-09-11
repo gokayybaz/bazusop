@@ -19,6 +19,10 @@ Set `BAZUSOP_TLS_CERT_FILE` and `BAZUSOP_TLS_KEY_FILE` together to serve HTTPS.
 The hub then requests and verifies enrolled client certificates for mTLS renewal;
 TLS 1.3 is the minimum supported version.
 
+Set `DATABASE_URL` to a PostgreSQL connection string to persist normalized host
+inventory. The hub applies ordered embedded migrations at startup. Without this
+variable, a process-local in-memory store is used for development.
+
 ## Agent enrollment
 
 `POST /api/v1/agents/enroll` exchanges a one-time bootstrap token and a signed
@@ -31,3 +35,6 @@ rejected; loopback HTTP remains available for local development.
 The current spike keeps the token-consumption state and certificate authority in
 the running hub process. Durable PostgreSQL-backed enrollment state and operator
 token issuance are the next hardening step before production use.
+
+Authenticated agents report host facts with `PUT /api/v1/agents/inventory`.
+Operators read the normalized fleet from `GET /api/v1/instances`.

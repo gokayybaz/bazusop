@@ -13,7 +13,9 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/config"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
+	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/server"
+	postgresstore "github.com/gokayybaz/bazusop/internal/storage/postgres"
 )
 
 func main() {
@@ -34,9 +36,27 @@ func main() {
 		logger.Error("could not initialize agent certificate authority", "error", err)
 		os.Exit(1)
 	}
+	var inventoryStore inventory.Store = inventory.NewMemoryStore()
+	if configuration.DatabaseURL != "" {
+		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		postgresStore, err := postgresstore.Open(startupContext, configuration.DatabaseURL)
+		cancel()
+		if err != nil {
+			logger.Error("could not initialize PostgreSQL inventory store", "error", err)
+			os.Exit(1)
+		}
+		defer postgresStore.Close()
+		inventoryStore = postgresStore
+	} else {
+		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
+	}
+	inventoryService := inventory.NewService(inventoryStore)
 	httpServer := &http.Server{
-		Addr:              configuration.HTTPAddress,
-		Handler:           server.NewHandler(server.WithEnrollment(authority)),
+		Addr: configuration.HTTPAddress,
+		Handler: server.NewHandler(
+			server.WithEnrollment(authority),
+			server.WithInventory(inventoryService),
+		),
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig: &tls.Config{
 			MinVersion: tls.VersionTLS13,

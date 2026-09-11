@@ -141,20 +141,9 @@ func (authority *Authority) Renew(peer *x509.Certificate, csrPEM string) (Identi
 	if err != nil || peer == nil {
 		return Identity{}, ErrInvalidIdentity
 	}
-
-	roots := x509.NewCertPool()
-	roots.AddCert(authority.caCertificate)
-	if _, err := peer.Verify(x509.VerifyOptions{
-		Roots:       roots,
-		CurrentTime: authority.now().UTC(),
-		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
-	}); err != nil {
-		return Identity{}, ErrInvalidIdentity
-	}
-
-	agentID := agentIDFromCertificate(peer)
-	if agentID == "" {
-		return Identity{}, ErrInvalidIdentity
+	agentID, err := authority.Authenticate(peer)
+	if err != nil {
+		return Identity{}, err
 	}
 	operatingSystem := "unknown"
 	if len(peer.Subject.OrganizationalUnit) > 0 {
@@ -164,6 +153,27 @@ func (authority *Authority) Renew(peer *x509.Certificate, csrPEM string) (Identi
 	authority.mu.Lock()
 	defer authority.mu.Unlock()
 	return authority.issue(agentID, operatingSystem, csr)
+}
+
+func (authority *Authority) Authenticate(peer *x509.Certificate) (string, error) {
+	if peer == nil {
+		return "", ErrInvalidIdentity
+	}
+	roots := x509.NewCertPool()
+	roots.AddCert(authority.caCertificate)
+	if _, err := peer.Verify(x509.VerifyOptions{
+		Roots:       roots,
+		CurrentTime: authority.now().UTC(),
+		KeyUsages:   []x509.ExtKeyUsage{x509.ExtKeyUsageClientAuth},
+	}); err != nil {
+		return "", ErrInvalidIdentity
+	}
+
+	agentID := agentIDFromCertificate(peer)
+	if agentID == "" {
+		return "", ErrInvalidIdentity
+	}
+	return agentID, nil
 }
 
 func (authority *Authority) issue(agentID, operatingSystem string, csr *x509.CertificateRequest) (Identity, error) {

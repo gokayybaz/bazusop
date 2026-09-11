@@ -14,6 +14,7 @@ import {
   ShieldCheck,
   TerminalSquare,
 } from "lucide-react"
+import { useEffect, useState } from "react"
 
 import { ThemeToggle } from "./components/theme-toggle"
 import { Badge } from "./components/ui/badge"
@@ -29,14 +30,47 @@ const navigation = [
   { icon: Bell, label: "Alerts", count: 3 },
 ]
 
-const instances = [
-  { name: "web-prod-03", platform: "Ubuntu 24.04", zone: "eu-central-1a", cpu: 42, memory: 61, services: "18 / 18", state: "Healthy" },
-  { name: "api-prod-01", platform: "Windows Server 2025", zone: "westeurope-2", cpu: 68, memory: 74, services: "31 / 31", state: "Healthy" },
-  { name: "worker-07", platform: "Rocky Linux 9", zone: "on-prem / rack-4", cpu: 91, memory: 86, services: "13 / 14", state: "Warning" },
-  { name: "db-replica-02", platform: "Debian 13", zone: "eu-central-1b", cpu: 36, memory: 79, services: "11 / 11", state: "Healthy" },
-]
+type InventoryInstance = {
+  agent_id: string
+  hostname: string
+  os_family: "linux" | "windows"
+  os_name: string
+  os_version: string
+  architecture: string
+  kernel_version: string
+  cpu_cores: number
+  memory_bytes: number
+  ip_addresses: string[]
+  agent_version: string
+  first_seen_at: string
+  last_seen_at: string
+  status: "connected" | "stale"
+}
 
 export function App() {
+  const [instances, setInstances] = useState<InventoryInstance[]>([])
+  const [inventoryState, setInventoryState] = useState<"loading" | "ready" | "error">("loading")
+
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch("/api/v1/instances", { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("inventory unavailable")
+        return response.json() as Promise<{ instances: InventoryInstance[] }>
+      })
+      .then((payload) => {
+        setInstances(payload.instances)
+        setInventoryState("ready")
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return
+        setInventoryState("error")
+      })
+    return () => controller.abort()
+  }, [])
+
+  const connectedInstances = instances.filter((instance) => instance.status === "connected").length
+
   return (
     <div className="min-h-screen bg-background text-foreground">
       <div className="app-frame">
@@ -86,7 +120,12 @@ export function App() {
             </div>
 
             <section className="stat-grid" aria-label="Fleet summary">
-              <Metric label="Instances" value="24" detail="22 connected" trend="+2 this month" />
+              <Metric
+                label="Instances"
+                value={inventoryState === "loading" ? "—" : String(instances.length)}
+                detail={inventoryState === "error" ? "Inventory unavailable" : `${connectedInstances} connected`}
+                trend={inventoryState === "ready" ? "Live inventory" : "Waiting for hub"}
+              />
               <Metric label="Average CPU" value="42.8%" detail="24h fleet average" trend="−3.2% vs yesterday" />
               <Metric label="Open alerts" value="3" detail="1 needs attention" trend="2 acknowledged" alert />
             </section>
@@ -113,24 +152,29 @@ export function App() {
 
             <Card className="table-card">
               <div className="card-header">
-                <div><h2>Instance health</h2><p>Current load and service availability</p></div>
+                <div><h2>Instance inventory</h2><p>Normalized facts reported by enrolled agents</p></div>
                 <button className="text-button" type="button">View all instances <ChevronRight size={15} /></button>
               </div>
               <div className="table-scroll">
                 <table aria-label="Instance health">
-                  <thead><tr><th>Instance</th><th>Location</th><th>CPU</th><th>Memory</th><th>Services</th><th>Status</th><th aria-label="Actions" /></tr></thead>
+                  <thead><tr><th>Instance</th><th>Operating system</th><th>Capacity</th><th>Network</th><th>Agent</th><th>Last seen</th><th>Status</th><th aria-label="Actions" /></tr></thead>
                   <tbody>
                     {instances.map((instance) => (
-                      <tr key={instance.name}>
-                        <td><div className="instance-cell"><span className="instance-icon"><Server size={17} /></span><span><strong>{instance.name}</strong><small>{instance.platform}</small></span></div></td>
-                        <td className="mono muted">{instance.zone}</td>
-                        <td><Meter value={instance.cpu} warning={instance.cpu > 80} /></td>
-                        <td><Meter value={instance.memory} warning={instance.memory > 80} /></td>
-                        <td className="mono">{instance.services}</td>
-                        <td><Badge className={instance.state === "Warning" ? "warning" : "healthy"}><span className="status-dot" />{instance.state}</Badge></td>
-                        <td><button aria-label={`Open ${instance.name}`} className="row-button" type="button"><ChevronRight size={17} /></button></td>
+                      <tr key={instance.agent_id}>
+                        <td><div className="instance-cell"><span className="instance-icon"><Server size={17} /></span><span><strong>{instance.hostname}</strong><small>{instance.os_name} {instance.os_version}</small></span></div></td>
+                        <td><span className="mono">{instance.os_family}</span><small className="cell-meta">{instance.kernel_version}</small></td>
+                        <td><span className="mono">{instance.cpu_cores} cores · {formatMemory(instance.memory_bytes)}</span><small className="cell-meta">{instance.architecture}</small></td>
+                        <td className="mono muted">{instance.ip_addresses[0] ?? "No address"}</td>
+                        <td><span className="mono">v{instance.agent_version}</span><small className="cell-meta">{instance.agent_id.slice(0, 8)}</small></td>
+                        <td className="mono muted">{formatLastSeen(instance.last_seen_at)}</td>
+                        <td><Badge className={instance.status === "connected" ? "healthy" : "warning"}><span className="status-dot" />{instance.status === "connected" ? "Connected" : "Stale"}</Badge></td>
+                        <td><button aria-label={`Open ${instance.hostname}`} className="row-button" type="button"><ChevronRight size={17} /></button></td>
                       </tr>
                     ))}
+                    {inventoryState !== "loading" && instances.length === 0 ? (
+                      <tr><td className="empty-table" colSpan={8}>{inventoryState === "error" ? "Inventory is temporarily unavailable." : "No enrolled instances have reported yet."}</td></tr>
+                    ) : null}
+                    {inventoryState === "loading" ? <tr><td className="empty-table" colSpan={8}>Loading instance inventory…</td></tr> : null}
                   </tbody>
                 </table>
               </div>
@@ -182,6 +226,12 @@ function Alert({ level, title, host, meta }: { level: "Critical" | "Warning"; ti
   )
 }
 
-function Meter({ value, warning = false }: { value: number; warning?: boolean }) {
-  return <div className="meter"><div><i className={warning ? "hot" : ""} style={{ width: `${value}%` }} /></div><span className={warning ? "hot" : ""}>{value}%</span></div>
+function formatMemory(bytes: number) {
+  return `${Math.round(bytes / 1024 / 1024 / 1024)} GiB`
+}
+
+function formatLastSeen(value: string) {
+  const timestamp = new Date(value)
+  if (Number.isNaN(timestamp.getTime())) return "Unknown"
+  return timestamp.toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
 }
