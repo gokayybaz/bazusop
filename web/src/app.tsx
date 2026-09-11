@@ -15,21 +15,46 @@ import {
   TerminalSquare,
   X,
 } from "lucide-react"
-import { useEffect, useState, type FormEvent } from "react"
+import { useEffect, useState, type ComponentType, type FormEvent, type ReactNode } from "react"
 
 import { ThemeToggle } from "./components/theme-toggle"
 import { Badge } from "./components/ui/badge"
 import { Card } from "./components/ui/card"
 
+type PageID = "overview" | "fleet" | "services" | "metrics" | "logs" | "jobs" | "alerts" | "cloud" | "audit" | "settings"
+
 const navigation = [
-  { icon: Gauge, label: "Genel bakış", active: true },
-  { icon: Server, label: "Filo" },
-  { icon: Boxes, label: "Servisler" },
-  { icon: ChartNoAxesCombined, label: "Metrikler" },
-  { icon: TerminalSquare, label: "Loglar" },
-  { icon: ListChecks, label: "İşler" },
-  { icon: Bell, label: "Alarmlar" },
+  { id: "overview" as const, icon: Gauge, label: "Genel bakış", path: "/" },
+  { id: "fleet" as const, icon: Server, label: "Filo", path: "/fleet" },
+  { id: "services" as const, icon: Boxes, label: "Servisler", path: "/services" },
+  { id: "metrics" as const, icon: ChartNoAxesCombined, label: "Metrikler", path: "/metrics" },
+  { id: "logs" as const, icon: TerminalSquare, label: "Loglar", path: "/logs" },
+  { id: "jobs" as const, icon: ListChecks, label: "İşler", path: "/jobs" },
+  { id: "alerts" as const, icon: Bell, label: "Alarmlar", path: "/alerts" },
 ]
+
+const secondaryNavigation = [
+  { id: "cloud" as const, icon: Cloud, label: "Bulut hesapları", path: "/cloud" },
+  { id: "audit" as const, icon: ShieldCheck, label: "Denetim izi", path: "/audit" },
+  { id: "settings" as const, icon: Settings, label: "Ayarlar", path: "/settings" },
+]
+
+const pageMeta: Record<PageID, { eyebrow: string; title: string; description: string }> = {
+  overview: { eyebrow: "FİLO / ÜRETİM", title: "Operasyon özeti", description: "Filo sağlığı ve ilgilenilmesi gereken sinyaller" },
+  fleet: { eyebrow: "ENVANTER", title: "Sunucu filosu", description: "Kayıtlı Linux ve Windows agent'ları" },
+  services: { eyebrow: "SUNUCU DURUMU", title: "Servisler", description: "systemd ve Windows Service envanteri" },
+  metrics: { eyebrow: "GÖZLEMLENEBİLİRLİK", title: "Metrikler", description: "CPU, bellek, disk ve ağ telemetrisi" },
+  logs: { eyebrow: "GÖZLEMLENEBİLİRLİK", title: "Loglar", description: "Geçmiş arama ve canlı log akışı" },
+  jobs: { eyebrow: "OPERASYON", title: "İşler", description: "İmzalı ve denetlenebilir uzak aksiyonlar" },
+  alerts: { eyebrow: "OLAY YÖNETİMİ", title: "Alarmlar", description: "Kurallar, olaylar ve bakım pencereleri" },
+  cloud: { eyebrow: "KEŞİF", title: "Bulut hesapları", description: "AWS, Azure ve GCP envanter bağlantıları" },
+  audit: { eyebrow: "YÖNETİŞİM", title: "Denetim izi", description: "Operasyon ve olay geçmişi" },
+  settings: { eyebrow: "SİSTEM", title: "Ayarlar", description: "Hub ve arayüz tercihleri" },
+}
+
+function pageFromPath(pathname: string): PageID {
+  return [...navigation, ...secondaryNavigation].find((item) => item.path === pathname)?.id ?? "overview"
+}
 
 type InventoryInstance = {
   agent_id: string
@@ -123,6 +148,7 @@ type AlertRule = { id: string; name: string; kind: "metric" | "reachability"; me
 type MaintenanceWindow = { id: string; name: string; agent_id: string; starts_at: string; ends_at: string; created_by: string; created_at: string }
 
 export function App() {
+  const [activePage, setActivePage] = useState<PageID>(() => pageFromPath(window.location.pathname))
   const [instances, setInstances] = useState<InventoryInstance[]>([])
   const [inventoryState, setInventoryState] = useState<"loading" | "ready" | "error">("loading")
   const [selectedInstance, setSelectedInstance] = useState<InventoryInstance | null>(null)
@@ -136,7 +162,6 @@ export function App() {
   const [jobState, setJobState] = useState<"idle" | "loading" | "ready" | "error">("idle")
   const [incidents, setIncidents] = useState<AlertIncident[]>([])
   const [alertState, setAlertState] = useState<"loading" | "ready" | "error">("loading")
-  const [showAlarmCenter, setShowAlarmCenter] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -169,13 +194,22 @@ export function App() {
     return () => controller.abort()
   }, [])
 
+  useEffect(() => {
+    const syncRoute = () => setActivePage(pageFromPath(window.location.pathname))
+    window.addEventListener("popstate", syncRoute)
+    return () => window.removeEventListener("popstate", syncRoute)
+  }, [])
+
   const connectedInstances = instances.filter((instance) => instance.status === "connected").length
   const activeIncidents = incidents.filter((incident) => incident.status !== "resolved")
   const criticalIncidents = activeIncidents.filter((incident) => incident.severity === "critical").length
 
-  function openAlarmCenter() {
-    setShowAlarmCenter(true)
-    requestAnimationFrame(() => document.getElementById("alarm-center")?.scrollIntoView({ behavior: "smooth", block: "start" }))
+  function navigate(page: PageID) {
+    const item = [...navigation, ...secondaryNavigation].find((candidate) => candidate.id === page)
+    if (!item) return
+    window.history.pushState({}, "", item.path)
+    setActivePage(page)
+    window.scrollTo({ top: 0, behavior: "smooth" })
   }
 
   function openTelemetry(instance: InventoryInstance) {
@@ -240,10 +274,10 @@ export function App() {
           </div>
 
           <nav aria-label="Ana navigasyon" className="nav-list">
-            {navigation.map(({ icon: Icon, label, active }) => {
+            {navigation.map(({ id, icon: Icon, label }) => {
               const count = label === "Alarmlar" ? activeIncidents.length : undefined
               return (
-              <button className={active ? "nav-item active" : "nav-item"} key={label} onClick={label === "Alarmlar" ? openAlarmCenter : undefined} type="button">
+              <button aria-current={activePage === id ? "page" : undefined} className={activePage === id ? "nav-item active" : "nav-item"} key={label} onClick={() => navigate(id)} type="button">
                 <Icon aria-hidden="true" size={18} strokeWidth={1.8} />
                 <span>{label}</span>
                 {count !== undefined ? <span className="nav-count">{count}</span> : null}
@@ -253,9 +287,7 @@ export function App() {
           </nav>
 
           <div className="sidebar-bottom">
-            <button className="nav-item" type="button"><Cloud size={18} />Bulut hesapları</button>
-            <button className="nav-item" type="button"><ShieldCheck size={18} />Denetim izi</button>
-            <button className="nav-item" type="button"><Settings size={18} />Ayarlar</button>
+            {secondaryNavigation.map(({ id, icon: Icon, label }) => <button aria-current={activePage === id ? "page" : undefined} className={activePage === id ? "nav-item active" : "nav-item"} key={id} onClick={() => navigate(id)} type="button"><Icon size={18} /><span>{label}</span></button>)}
             <div className="hub-health"><span className="status-dot" />Hub çalışıyor <span>v0.1</span></div>
           </div>
         </aside>
@@ -277,10 +309,11 @@ export function App() {
 
           <div className="content">
             <div className="page-heading">
-              <div><p className="eyebrow">FİLO / ÜRETİM</p><h1>Operasyon özeti</h1></div>
-              <div className="live-status"><span className="pulse" />Canlı · 8 sn önce güncellendi</div>
+              <div><p className="eyebrow">{pageMeta[activePage].eyebrow}</p><h1>{pageMeta[activePage].title}</h1><p className="page-description">{pageMeta[activePage].description}</p></div>
+              <div className="live-status"><span className="pulse" />Hub bağlantısı aktif</div>
             </div>
 
+            {activePage === "overview" ? <>
             <section className="stat-grid" aria-label="Filo özeti">
               <Metric
                 label="Sunucular"
@@ -309,16 +342,16 @@ export function App() {
                   {alertState === "error" ? <div className="alert-empty">Alarm verisine ulaşılamıyor.</div> : null}
                   {alertState === "ready" && activeIncidents.length === 0 ? <div className="alert-empty">Açık alarm yok.</div> : null}
                 </div>
-                <button aria-label="Alarm merkezini aç" className="panel-link" onClick={openAlarmCenter} type="button">Alarm merkezini aç <ChevronRight size={15} /></button>
+                <button aria-label="Alarm merkezini aç" className="panel-link" onClick={() => navigate("alerts")} type="button">Alarm merkezini aç <ChevronRight size={15} /></button>
               </Card>
             </div>
+            </> : null}
 
-            {showAlarmCenter ? <AlarmCenter incidents={incidents} onClose={() => setShowAlarmCenter(false)} onIncidentUpdated={(updated) => setIncidents((current) => current.map((incident) => incident.id === updated.id ? updated : incident))} /> : null}
+            {activePage === "alerts" ? <AlarmCenter incidents={incidents} onIncidentUpdated={(updated) => setIncidents((current) => current.map((incident) => incident.id === updated.id ? updated : incident))} /> : null}
 
-            <Card className="table-card">
+            {activePage === "fleet" ? <Card className="table-card page-card">
               <div className="card-header">
                 <div><h2>Sunucu envanteri</h2><p>Kayıtlı agent'ların raporladığı normalize edilmiş bilgiler</p></div>
-                <button className="text-button" type="button">Tüm sunucuları görüntüle <ChevronRight size={15} /></button>
               </div>
               <div className="table-scroll">
                 <table aria-label="Sunucu sağlığı">
@@ -333,7 +366,7 @@ export function App() {
                         <td><span className="mono">v{instance.agent_version}</span><small className="cell-meta">{instance.agent_id.slice(0, 8)}</small></td>
                         <td className="mono muted">{formatLastSeen(instance.last_seen_at)}</td>
                         <td><Badge className={instance.status === "connected" ? "healthy" : "warning"}><span className="status-dot" />{instance.status === "connected" ? "Bağlı" : "Eski veri"}</Badge></td>
-                        <td><button aria-label={`${instance.hostname} ayrıntılarını aç`} className="row-button" onClick={() => openTelemetry(instance)} type="button"><ChevronRight size={17} /></button></td>
+                        <td><button aria-label={`${instance.hostname} metriklerini aç`} className="row-button" onClick={() => { openTelemetry(instance); navigate("metrics") }} type="button"><ChevronRight size={17} /></button></td>
                       </tr>
                     ))}
                     {inventoryState !== "loading" && instances.length === 0 ? (
@@ -343,32 +376,44 @@ export function App() {
                   </tbody>
                 </table>
               </div>
-            </Card>
+            </Card> : null}
 
-            {selectedInstance ? (
-              <>
+            {activePage === "metrics" ? <InstancePage instances={instances} onSelect={openTelemetry} selected={selectedInstance}>{selectedInstance ?
                 <TelemetryPanel
                   instance={selectedInstance}
                   onClose={() => setSelectedInstance(null)}
                   payload={telemetry}
                   state={telemetryState}
-                />
-                <ServicesPanel key={selectedInstance.agent_id} instance={selectedInstance} services={services} state={serviceState} />
-                <LogPanel key={`${selectedInstance.agent_id}-logs`} entries={logs} instance={selectedInstance} state={logState} />
-                <JobPanel
+                /> : null}</InstancePage> : null}
+            {activePage === "services" ? <InstancePage instances={instances} onSelect={openTelemetry} selected={selectedInstance}>{selectedInstance ? <ServicesPanel key={selectedInstance.agent_id} instance={selectedInstance} services={services} state={serviceState} /> : null}</InstancePage> : null}
+            {activePage === "logs" ? <InstancePage instances={instances} onSelect={openTelemetry} selected={selectedInstance}>{selectedInstance ? <LogPanel key={`${selectedInstance.agent_id}-logs`} entries={logs} instance={selectedInstance} state={logState} /> : null}</InstancePage> : null}
+            {activePage === "jobs" ? <InstancePage instances={instances} onSelect={openTelemetry} selected={selectedInstance}>{selectedInstance ? <JobPanel
                   instance={selectedInstance}
                   jobs={jobs}
                   key={`${selectedInstance.agent_id}-jobs`}
                   onCreated={(job) => setJobs((current) => [job, ...current])}
                   state={jobState}
-                />
-              </>
-            ) : null}
+                /> : null}</InstancePage> : null}
+            {activePage === "cloud" ? <EmptyFeature icon={Cloud} title="Henüz bulut hesabı bağlı değil" text="AWS, Azure ve GCP keşif bağlantıları Spike 8 kapsamında burada yönetilecek." /> : null}
+            {activePage === "audit" ? <EmptyFeature icon={ShieldCheck} title="Denetim kaynakları ayrıştırıldı" text="İş ve alarm olayları kendi sayfalarında tutuluyor; birleşik denetim zaman çizelgesi bu sayfada sunulacak." /> : null}
+            {activePage === "settings" ? <SettingsPage /> : null}
           </div>
         </main>
       </div>
     </div>
   )
+}
+
+function InstancePage({ instances, selected, onSelect, children }: { instances: InventoryInstance[]; selected: InventoryInstance | null; onSelect: (instance: InventoryInstance) => void; children: ReactNode }) {
+  return <div className="instance-workspace"><Card aria-label="Sunucu seçimi" className="instance-picker"><div><strong>Sunucu seçin</strong><span>Bu sayfadaki veriler seçilen agent için gösterilir.</span></div><div className="instance-picker-list">{instances.map((instance) => <button aria-pressed={selected?.agent_id === instance.agent_id} className={selected?.agent_id === instance.agent_id ? "active" : ""} key={instance.agent_id} onClick={() => onSelect(instance)} type="button"><Server size={16} /><span><strong>{instance.hostname}</strong><small>{instance.os_name} {instance.os_version}</small></span><Badge className={instance.status === "connected" ? "healthy" : "warning"}>{instance.status === "connected" ? "Bağlı" : "Eski veri"}</Badge></button>)}</div>{instances.length === 0 ? <p className="picker-empty">Bu çalışma alanı için kayıtlı sunucu yok.</p> : null}</Card>{children}</div>
+}
+
+function EmptyFeature({ icon: Icon, title, text }: { icon: ComponentType<{ size?: number }>; title: string; text: string }) {
+  return <Card className="empty-feature page-card"><span><Icon size={24} /></span><h2>{title}</h2><p>{text}</p></Card>
+}
+
+function SettingsPage() {
+  return <div className="settings-grid"><Card className="settings-card"><div><h2>Görünüm</h2><p>Operasyon yüzeyi için grafit veya gece temasını seçin.</p></div><ThemeToggle /></Card><Card className="settings-card"><div><h2>Hub çalışma modu</h2><p>Bu önizleme süreç içi bellek deposu ve yerel bağlantı kullanıyor.</p></div><Badge className="environment">Yerel önizleme</Badge></Card></div>
 }
 
 function Metric({ label, value, detail, trend, alert = false }: { label: string; value: string; detail: string; trend: string; alert?: boolean }) {
@@ -411,7 +456,7 @@ function Alert({ level, title, host, meta }: { level: "Kritik" | "Uyarı"; title
   )
 }
 
-function AlarmCenter({ incidents, onClose, onIncidentUpdated }: { incidents: AlertIncident[]; onClose: () => void; onIncidentUpdated: (incident: AlertIncident) => void }) {
+function AlarmCenter({ incidents, onIncidentUpdated }: { incidents: AlertIncident[]; onIncidentUpdated: (incident: AlertIncident) => void }) {
   const [rules, setRules] = useState<AlertRule[]>([])
   const [windows, setWindows] = useState<MaintenanceWindow[]>([])
   const [actor, setActor] = useState("")
@@ -463,7 +508,7 @@ function AlarmCenter({ incidents, onClose, onIncidentUpdated }: { incidents: Ale
 
   return (
     <Card aria-label="Alarm merkezi" className="alarm-center" id="alarm-center">
-      <div className="card-header alarm-center-header"><div><h2>Alarm merkezi</h2><p>Kurallar, bakım pencereleri ve olay yaşam döngüsü</p></div><button aria-label="Alarm merkezini kapat" className="icon-button" onClick={onClose} type="button"><X size={17} /></button></div>
+      <div className="card-header alarm-center-header"><div><h2>Alarm merkezi</h2><p>Kurallar, bakım pencereleri ve olay yaşam döngüsü</p></div></div>
       <div className="alarm-credentials"><label><span>Operatör</span><input onChange={(event) => setActor(event.target.value)} placeholder="Ad veya kimlik" value={actor} /></label><label><span>Operatör token'ı</span><input autoComplete="current-password" onChange={(event) => setOperatorToken(event.target.value)} placeholder="••••••••" type="password" value={operatorToken} /></label>{message ? <p aria-live="polite">{message}</p> : null}</div>
       <div className="alarm-center-grid">
         <section><h3>Olaylar</h3><div className="incident-list">{incidents.length === 0 ? <p className="alarm-empty">Henüz olay yok.</p> : incidents.map((incident) => <div className={`incident-row ${incident.severity}`} key={incident.id}><div><Badge className={`incident-status ${incident.status}`}>{incidentStatusLabel(incident.status)}</Badge><strong>{incident.rule_name}</strong><span>{incident.agent_id}</span><small>{incident.message}</small></div>{incident.status === "open" ? <button aria-label={`${incident.id} olayını onayla`} disabled={!actor || !operatorToken} onClick={() => acknowledge(incident)} type="button">Onayla</button> : null}</div>)}</div></section>

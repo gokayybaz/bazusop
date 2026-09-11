@@ -6,11 +6,13 @@ import { App } from "./app"
 describe("bazUSOP shell", () => {
   beforeEach(() => {
     window.localStorage.clear()
+    window.history.replaceState({}, "", "/")
     delete document.documentElement.dataset.theme
 	vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
 	  ok: true,
 	  json: async () => ({ instances: [] }),
 	}))
+	vi.stubGlobal("scrollTo", vi.fn())
   })
 
   afterEach(() => vi.unstubAllGlobals())
@@ -25,7 +27,21 @@ describe("bazUSOP shell", () => {
     expect(screen.getByLabelText("Filo özeti").children).toHaveLength(3)
     expect(screen.getByRole("region", { name: "Operasyon alarmları" })).toBeInTheDocument()
     expect(screen.getByRole("img", { name: "Son 24 saatte filo kaynak kullanımı" })).toBeInTheDocument()
+    expect(screen.queryByRole("table", { name: "Sunucu sağlığı" })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Filo" }))
+    expect(screen.getByRole("heading", { name: "Sunucu filosu" })).toBeInTheDocument()
     expect(screen.getByRole("table", { name: "Sunucu sağlığı" })).toBeInTheDocument()
+  })
+
+  it("opens application pages directly from their URL", () => {
+    window.history.replaceState({}, "", "/settings")
+
+    render(<App />)
+
+    expect(screen.getByRole("heading", { name: "Ayarlar" })).toBeInTheDocument()
+    expect(screen.getByText("Görünüm")).toBeInTheDocument()
+    expect(screen.queryByRole("region", { name: "Operasyon alarmları" })).not.toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Ayarlar" })).toHaveAttribute("aria-current", "page")
   })
 
   it("shows managed alarm incidents and opens the alarm center", async () => {
@@ -38,6 +54,7 @@ describe("bazUSOP shell", () => {
 	expect(await screen.findByText("Disk kritik eşiği")).toBeInTheDocument()
 	expect(screen.getByRole("button", { name: "Alarmlar 1" })).toBeInTheDocument()
 	fireEvent.click(screen.getByRole("button", { name: "Alarmlar 1" }))
+	expect(window.location.pathname).toBe("/alerts")
 	expect(screen.getByRole("region", { name: "Alarm merkezi" })).toBeInTheDocument()
 	expect(screen.getByRole("button", { name: "incident-01 olayını onayla" })).toBeInTheDocument()
   })
@@ -126,16 +143,21 @@ describe("bazUSOP shell", () => {
 
 	render(<App />)
 
+	fireEvent.click(screen.getByRole("button", { name: "Filo" }))
 	expect(await screen.findByText("edge-01.example.com")).toBeInTheDocument()
 	expect(screen.getByText("Ubuntu 24.04")).toBeInTheDocument()
 	expect(screen.getByText("8 çekirdek · 16 GiB")).toBeInTheDocument()
 	expect(screen.getByText("10.0.0.8")).toBeInTheDocument()
 
-	fireEvent.click(screen.getByRole("button", { name: "edge-01.example.com ayrıntılarını aç" }))
+	fireEvent.click(screen.getByRole("button", { name: "edge-01.example.com metriklerini aç" }))
 
+	expect(window.location.pathname).toBe("/metrics")
 	expect(await screen.findByRole("region", { name: "edge-01.example.com telemetrisi" })).toBeInTheDocument()
 	expect(screen.getByText("47.8%")).toBeInTheDocument()
 	expect(screen.getByRole("img", { name: "Son 24 saat CPU ve bellek kullanımı" })).toBeInTheDocument()
+	expect(screen.queryByRole("region", { name: "edge-01.example.com servisleri" })).not.toBeInTheDocument()
+
+	fireEvent.click(screen.getByRole("button", { name: "Servisler" }))
 	expect(await screen.findByRole("region", { name: "edge-01.example.com servisleri" })).toBeInTheDocument()
 	expect(screen.getByText("NGINX Web Server")).toBeInTheDocument()
 	expect(screen.getByText("Queue Worker")).toBeInTheDocument()
@@ -143,6 +165,7 @@ describe("bazUSOP shell", () => {
 	fireEvent.click(screen.getByRole("button", { name: "Başarısız servisleri göster" }))
 	expect(screen.queryByText("NGINX Web Server")).not.toBeInTheDocument()
 	expect(screen.getByText("Queue Worker")).toBeInTheDocument()
+	fireEvent.click(screen.getByRole("button", { name: "Loglar" }))
 	expect(await screen.findByRole("region", { name: "edge-01.example.com logları" })).toBeInTheDocument()
 	expect(screen.getByText("worker process started")).toBeInTheDocument()
 	expect(screen.getByText("upstream timeout")).toBeInTheDocument()
@@ -151,6 +174,7 @@ describe("bazUSOP shell", () => {
 	fireEvent.click(screen.getByRole("button", { name: "Hata loglarını göster" }))
 	expect(screen.queryByText("worker process started")).not.toBeInTheDocument()
 	expect(screen.getByText("upstream timeout")).toBeInTheDocument()
+	fireEvent.click(screen.getByRole("button", { name: "İşler" }))
 	expect(await screen.findByRole("region", { name: "edge-01.example.com işleri" })).toBeInTheDocument()
 	expect(screen.getByText("Servisi yeniden başlat")).toBeInTheDocument()
 

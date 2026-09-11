@@ -23,6 +23,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   Ed25519 ile imzalanır ve sıralı audit olaylarıyla uçtan uca izlenir.
 - CPU, bellek, disk ve agent erişilebilirlik kuralları olay açar; olaylar onaylanır,
   koşul normale dönünce çözülür ve bakım pencerelerinde yeni alarm bastırılır.
+- Arayüz; genel bakış, filo, servisler, metrikler, loglar, işler, alarmlar,
+  bulut hesapları, denetim izi ve ayarlar için ayrı, doğrudan açılabilir sayfalar sunar.
 - Docker Compose geliştirme ortamı ve production odaklı Kubernetes/Helm chart'ı
   bulunur.
 
@@ -94,7 +96,8 @@ kapatılır.
 
 Alarm kuralları ve bakım pencereleri aynı operatör token'ıyla yönetilir. Telemetri
 kuralları her kabul edilen örnekte; erişilebilirlik kuralları 30 saniyede bir
-değerlendirilir. Aktif olaylar dashboard ve alarm merkezinde görünür.
+değerlendirilir. Aktif olayların özeti genel bakışta, yaşam döngüsü ise ayrı
+`/alerts` sayfasındaki alarm merkezinde görünür.
 
 Şu anda CA private key'i ve tüketilmiş bootstrap-token durumu hub sürecindedir.
 Bu nedenle enrollment trafiği için tek replika kullanılmalıdır; ortak KMS/Secret

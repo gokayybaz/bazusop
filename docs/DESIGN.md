@@ -46,6 +46,28 @@ durum, amber uyarı, kırmızı kritik durum içindir. Pastel dekorasyon kullan�
 - Dashboard üç KPI ile başlar; ana alan sekiz kolon operasyon görünümü ve dört
   kolon alarm paneline ayrılır.
 
+## Bilgi mimarisi
+
+Arayüz tek bir uzun dashboard değildir. Ortak sidebar ve üst bar korunurken her
+operasyon alanı kendi URL'sinde, yalnızca kendi görevine ait içeriği gösterir:
+
+| Sayfa | URL | Sorumluluk |
+| --- | --- | --- |
+| Genel bakış | `/` | Filo özeti, kaynak eğilimi ve açık alarm özeti |
+| Filo | `/fleet` | Sunucu envanteri ve metrik görünümüne geçiş |
+| Servisler | `/services` | Sunucu bazlı servis envanteri ve filtreleme |
+| Metrikler | `/metrics` | Sunucu bazlı telemetri ve zaman serisi |
+| Loglar | `/logs` | Geçmiş arama ve canlı log akışı |
+| İşler | `/jobs` | Uzak aksiyon oluşturma ve denetim olayları |
+| Alarmlar | `/alerts` | Kural, bakım penceresi ve olay yaşam döngüsü |
+| Bulut hesapları | `/cloud` | Cloud provider bağlantıları ve keşif |
+| Denetim izi | `/audit` | Birleşik operasyon zaman çizelgesi |
+| Ayarlar | `/settings` | Hub ve arayüz tercihleri |
+
+Tarayıcının geri/ileri hareketleri desteklenir ve her sayfa doğrudan URL ile
+açılabilir. Bir sunucu seçimi operasyon sayfaları arasında korunur; servis,
+metrik, log ve iş içerikleri aynı anda üst üste gösterilmez.
+
 ## Veri görselleştirme
 
 - Değişken kaynak kullanımında area chart tercih edilir.
