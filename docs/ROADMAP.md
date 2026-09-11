@@ -15,6 +15,7 @@ Every spike follows the same delivery loop:
 | 0 — Foundation | Go hub, embedded React shell and CI-ready commands | Health API and product shell tests pass; one hub binary is produced |
 | 1 — Enrollment | Linux and Windows agents securely enroll with the hub | One-time token becomes a renewable agent identity |
 | 2 — Inventory | Agents report normalized host and operating-system facts | Enrolled hosts appear in the instance inventory |
+| 2.1 — Deployment baseline | Hub runs consistently on Docker and Kubernetes | Compose smoke test and Helm lint/render pass with health and scaling policies |
 | 3 — Telemetry | CPU, memory, disk and network samples reach TimescaleDB | Instance detail renders current and historical metrics |
 | 4 — Services | systemd and Windows Service state is collected | Services can be filtered and inspected per instance |
 | 5 — Logs | journald, file and Windows Event logs are searchable | Live tail and bounded historical search work |
@@ -30,4 +31,5 @@ Every spike follows the same delivery loop:
 - The hub is a modular monolith and serves the embedded React application.
 - PostgreSQL owns relational state; TimescaleDB owns time-series samples.
 - Remote actions are allowlisted, attributable and auditable by default.
-
+- Hub replicas remain stateless for inventory traffic; shared enrollment CA and
+  token-consumption state are required before enrollment traffic is horizontally scaled.

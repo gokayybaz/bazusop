@@ -38,3 +38,35 @@ token issuance are the next hardening step before production use.
 
 Authenticated agents report host facts with `PUT /api/v1/agents/inventory`.
 Operators read the normalized fleet from `GET /api/v1/instances`.
+
+## Containers
+
+The production image is built in separate Node and Go stages, then runs as a
+non-root user with a read-only-compatible Alpine runtime and an image healthcheck.
+
+```bash
+docker compose up --build
+```
+
+Compose starts the hub and PostgreSQL 18, waits for database health and lets the
+hub apply its embedded migrations. Override `POSTGRES_PASSWORD`,
+`BAZUSOP_ENROLLMENT_TOKEN` and `BAZUSOP_PORT` outside local development.
+
+## Kubernetes and Helm
+
+The chart in `deploy/helm/bazusop` expects an existing Kubernetes Secret named
+`bazusop-secrets` with `database-url` and `enrollment-token` keys.
+
+```bash
+helm upgrade --install bazusop deploy/helm/bazusop --namespace bazusop --create-namespace
+```
+
+The chart includes non-root and read-only container security, resource requests,
+readiness/liveness probes, rolling updates, topology spreading, a disruption
+budget and an optional autoscaling/v2 HPA. TLS can be mounted from an existing
+Secret with `tls.enabled=true`.
+
+`replicaCount` defaults to one because the enrollment CA and token-consumption
+state are process-local in the current spike. PostgreSQL-backed inventory traffic
+is stateless and ready for replication, but HPA should remain disabled until the
+shared enrollment identity store lands in the scale hardening phase.

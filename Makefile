@@ -1,4 +1,4 @@
-.PHONY: build build-web test test-go test-web dev-web clean
+.PHONY: build build-web test test-go test-web dev-web container compose-up compose-down helm-lint clean
 
 GOCACHE ?= /tmp/bazusop-go-cache
 
@@ -20,6 +20,17 @@ test-web:
 dev-web:
 	cd web && npm run dev
 
+container:
+	docker build --tag bazusop:local .
+
+compose-up:
+	docker compose up --detach --build
+
+compose-down:
+	docker compose down
+
+helm-lint:
+	docker run --rm -v "$(CURDIR):/work" alpine/helm:3.18.6 lint /work/deploy/helm/bazusop
+
 clean:
 	rm -rf bin web/dist internal/webui/dist/assets
-
