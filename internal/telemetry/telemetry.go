@@ -37,7 +37,7 @@ func NewService(store Store) *Service {
 
 func (service *Service) Report(ctx context.Context, agentID string, sample Sample) error {
 	sample.AgentID = strings.TrimSpace(agentID)
-	sample.RecordedAt = sample.RecordedAt.UTC()
+	sample.RecordedAt = sample.RecordedAt.UTC().Truncate(time.Microsecond)
 	if sample.AgentID == "" || sample.RecordedAt.IsZero() || !validPercent(sample.CPUPercent) || !validPercent(sample.MemoryPercent) || !validPercent(sample.DiskPercent) || sample.NetworkRXBytes > math.MaxInt64 || sample.NetworkTXBytes > math.MaxInt64 {
 		return ErrInvalidSample
 	}

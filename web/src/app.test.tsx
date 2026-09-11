@@ -28,6 +28,19 @@ describe("bazUSOP shell", () => {
     expect(screen.getByRole("table", { name: "Sunucu sağlığı" })).toBeInTheDocument()
   })
 
+  it("shows managed alarm incidents and opens the alarm center", async () => {
+	vi.mocked(fetch).mockImplementation((input) => {
+	  const url = String(input)
+	  if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [{ id: "incident-01", rule_id: "rule-01", rule_name: "Disk kritik eşiği", agent_id: "db-01", severity: "critical", status: "open", message: "Disk 96.0%; eşik 90.0%", latest_value: 96, opened_at: "2026-09-11T08:00:00Z" }] }) } as Response)
+	  return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+	})
+	render(<App />)
+	expect(await screen.findByText("Disk kritik eşiği")).toBeInTheDocument()
+	fireEvent.click(screen.getByRole("button", { name: "Alarm merkezini aç" }))
+	expect(screen.getByRole("region", { name: "Alarm merkezi" })).toBeInTheDocument()
+	expect(screen.getByRole("button", { name: "incident-01 olayını onayla" })).toBeInTheDocument()
+  })
+
   it("lets the operator select and persist a dark theme variant", () => {
     render(<App />)
 
@@ -59,6 +72,9 @@ describe("bazUSOP shell", () => {
 		  status: "connected",
 		}],
 	  }),
+	} as Response).mockResolvedValueOnce({
+	  ok: true,
+	  json: async () => ({ incidents: [] }),
 	} as Response).mockResolvedValueOnce({
 	  ok: true,
 	  json: async () => ({

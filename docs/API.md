@@ -91,6 +91,8 @@ mTLS gerekir. Yüzdeler `0–100` aralığında olmalıdır.
 
 Aynı agent ve timestamp yeniden gönderilirse örnek idempotent biçimde güncellenir.
 Başarı `204`, geçersiz örnek `400` döner.
+Alarm değerlendirmesi yalnız agent'ın en yeni örneğinde yapılır; sonradan gelen
+tarihsel örnek aktif olay yaşam döngüsünü geriye götürmez.
 
 ### `GET /api/v1/instances/{agent_id}/telemetry`
 
@@ -234,3 +236,40 @@ yazma denemesi `409` döner.
 ```json
 {"sequence":2,"type":"output","message":"nginx durduruldu"}
 ```
+
+### `GET|POST /api/v1/alert-rules`
+
+Listeleme `{ "rules": [...] }` zarfıyla herkese açıktır; oluşturma operatör bearer
+token'ı ister. `metric` kuralları `cpu`, `memory` veya `disk` ve `1–100` eşiği;
+`reachability` kuralları `60–86400` saniyelik `stale_after_seconds` değeri kabul
+eder. Önem `warning` veya `critical` olur.
+
+```json
+{"name":"Yüksek CPU","kind":"metric","metric":"cpu","threshold":90,"stale_after_seconds":0,"severity":"critical","enabled":true}
+```
+
+### `GET|POST /api/v1/maintenance-windows`
+
+Listeleme `{ "windows": [...] }` döner; oluşturma operatör bearer token'ı ister.
+`agent_id` boşsa pencere tüm agent'ları, doluysa yalnız ilgili agent'ı bastırır.
+Başlangıç dahil, bitiş hariç zaman aralığında yeni olay açılmaz.
+
+```json
+{"name":"Kernel bakımı","agent_id":"agent-01","starts_at":"2026-09-11T21:00:00Z","ends_at":"2026-09-11T22:00:00Z","created_by":"gokay"}
+```
+
+### `GET /api/v1/incidents`
+
+En yeni olayları `{ "incidents": [...] }` zarfında döndürür. `limit` değeri
+`1–500`, varsayılan `100` olur. Durumlar `open`, `acknowledged`, `resolved`;
+önemler `warning`, `critical` değerleridir.
+
+### `POST /api/v1/incidents/{incident_id}/acknowledge`
+
+Operatör bearer token'ı ve `{ "actor": "gokay" }` gövdesi ister. Yalnız açık olay
+onaylanabilir; terminal/önceden onaylı olay `409`, bilinmeyen olay `404` döner.
+
+### `GET /api/v1/incidents/{incident_id}/events`
+
+Olayın `opened`, `acknowledged`, `resolved` yaşam döngüsünü zaman sırasıyla
+`{ "events": [...] }` zarfında verir. Bilinmeyen olay `404` döner.

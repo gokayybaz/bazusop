@@ -50,6 +50,8 @@ bir TLS Secret’tan read-only mount edilir.
 6. Enrollment state ve iş imza anahtarı paylaşılmadan HPA’yı açma.
 7. Ingress kullanılıyorsa agent mTLS trafiğinin client sertifikasını hub’a kadar
    koruduğunu doğrula.
+8. Kritik CPU/bellek/disk ve erişilebilirlik eşiklerini gerçek baseline'a göre
+   ayarla; planlı çalışmadan önce kapsamı doğru bakım penceresini oluştur.
 
 ## Sağlık ve sorun giderme
 
@@ -72,6 +74,12 @@ bir TLS Secret’tan read-only mount edilir.
   kalıcı depolamaz ve başarılı oluşturmadan sonra bellekten temizler.
 - İş `running` durumunda kalıyorsa agent event sequence'inin teslimden sonra 2 ile
   başlayıp kesintisiz arttığını ve terminal olay gönderdiğini kontrol et.
+- Metrik alarmı açılmıyorsa kuralın etkin olduğunu, metric adını ve agent'ın yeni
+  telemetri gönderdiğini kontrol et. Erişilebilirlik kuralları 30 saniyede bir
+  değerlendirilir.
+- Beklenen olay bakım sırasında görünmüyorsa aktif global veya agent kapsamlı
+  pencereyi kontrol et. Bakım penceresi yalnız yeni açılışı bastırır; önceden açık
+  olayı otomatik kapatmaz.
 - `426` enrollment yanıtı, uzak isteğin TLS olmadan geldiğini gösterir.
 
 Operator token rotasyonu sırasında eski token'la yeni iş oluşturmayı durdurun,

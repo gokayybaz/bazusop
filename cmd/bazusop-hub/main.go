@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gokayybaz/bazusop/internal/alerting"
 	"github.com/gokayybaz/bazusop/internal/config"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
@@ -45,6 +46,7 @@ func main() {
 	var serviceInventoryStore serviceinventory.Store = serviceinventory.NewMemoryStore()
 	var logStore logstream.Store = logstream.NewMemoryStore()
 	var jobStore jobs.Store = jobs.NewMemoryStore()
+	var alertStore alerting.Store = alerting.NewMemoryStore()
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		postgresStore, err := postgresstore.Open(
@@ -63,6 +65,7 @@ func main() {
 		serviceInventoryStore = postgresStore
 		logStore = postgresStore
 		jobStore = postgresStore
+		alertStore = postgresStore
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
 	}
@@ -75,6 +78,7 @@ func main() {
 		logger.Error("could not initialize job signing authority", "error", err)
 		os.Exit(1)
 	}
+	alertService := alerting.NewService(alertStore)
 	if configuration.OperatorToken == "" {
 		logger.Warn("BAZUSOP_OPERATOR_TOKEN is not set; remote job creation is disabled")
 	}
@@ -87,6 +91,7 @@ func main() {
 			server.WithServiceInventory(serviceInventoryService),
 			server.WithLogs(logService),
 			server.WithJobs(jobService, configuration.OperatorToken),
+			server.WithAlerts(alertService, configuration.OperatorToken),
 		),
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig: &tls.Config{
@@ -102,6 +107,7 @@ func main() {
 
 	shutdownSignal, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
+	go evaluateReachability(shutdownSignal, logger, inventoryService, alertService)
 
 	go func() {
 		logger.Info("bazUSOP hub listening", "address", httpServer.Addr)
@@ -124,5 +130,27 @@ func main() {
 	if err := httpServer.Shutdown(shutdownContext); err != nil {
 		logger.Error("graceful shutdown failed", "error", err)
 		os.Exit(1)
+	}
+}
+
+func evaluateReachability(ctx context.Context, logger *slog.Logger, inventoryService *inventory.Service, alertService *alerting.Service) {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			hosts, err := inventoryService.List(ctx)
+			if err != nil {
+				logger.Error("could not evaluate reachability alerts", "error", err)
+				continue
+			}
+			for _, host := range hosts {
+				if err := alertService.EvaluateReachability(ctx, host.AgentID, host.LastSeenAt); err != nil {
+					logger.Error("could not evaluate host reachability", "agent_id", host.AgentID, "error", err)
+				}
+			}
+		}
 	}
 }

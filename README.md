@@ -21,6 +21,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   sunucu detayında sınırlı geçmiş ve canlı SSE akışı birlikte izlenebilir.
 - Servis yeniden başlatma ve host reboot talepleri operatör token'ıyla onaylanır,
   Ed25519 ile imzalanır ve sıralı audit olaylarıyla uçtan uca izlenir.
+- CPU, bellek, disk ve agent erişilebilirlik kuralları olay açar; olaylar onaylanır,
+  koşul normale dönünce çözülür ve bakım pencerelerinde yeni alarm bastırılır.
 - Docker Compose geliştirme ortamı ve production odaklı Kubernetes/Helm chart'ı
   bulunur.
 
@@ -89,6 +91,10 @@ işi oluşturur. Agent işi mTLS ile teslim alır ve sıralı çıktı/durum ola
 raporlar. İş listesi ve değiştirilemez olay geçmişi sunucu detayında gösterilir.
 `BAZUSOP_OPERATOR_TOKEN` ayarlanmadığında uzak iş oluşturma güvenli biçimde
 kapatılır.
+
+Alarm kuralları ve bakım pencereleri aynı operatör token'ıyla yönetilir. Telemetri
+kuralları her kabul edilen örnekte; erişilebilirlik kuralları 30 saniyede bir
+değerlendirilir. Aktif olaylar dashboard ve alarm merkezinde görünür.
 
 Şu anda CA private key'i ve tüketilmiş bootstrap-token durumu hub sürecindedir.
 Bu nedenle enrollment trafiği için tek replika kullanılmalıdır; ortak KMS/Secret

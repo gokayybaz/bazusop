@@ -29,6 +29,10 @@
    değişmez alanlarını Ed25519 ile imzalayıp `queued` olarak saklar.
 10. Hedef agent işi mTLS ile atomik teslim alır, çıktıyı ve terminal durumu artan
     sequence numaralı audit olayları olarak raporlar.
+11. Kabul edilen telemetri örneği etkin metrik kurallarıyla, hub'ın periyodik
+    taraması host son-görülme zamanını erişilebilirlik kurallarıyla değerlendirir.
+12. İhlal benzersiz aktif olay açar; recovery otomatik çözer, operatör onayı ve
+    tüm geçişler olay geçmişine eklenir. Aktif bakım penceresi yeni açılışı bastırır.
 
 ## Saklama modeli
 
@@ -52,6 +56,11 @@ Geliştirme amaçlı memory store agent başına en yeni 10.000 kaydı tutar.
 tutar. PostgreSQL `FOR UPDATE SKIP LOCKED`, aynı işin eşzamanlı agent poll'larında
 yalnız bir kez teslim edilmesini sağlar. Terminal işler yeniden açılamaz.
 
+`alert_rules` metrik ve erişilebilirlik eşiklerini, `maintenance_windows` zamanlı
+bastırmayı, `alert_incidents` güncel yaşam döngüsünü ve `alert_events` append-only
+geçiş geçmişini tutar. Kısmi unique indeks, aynı kural/agent çifti için eşzamanlı
+yalnız bir aktif olay bulunmasını sağlar.
+
 Canlı tail broker'ı hub sürecindedir. Bu nedenle birden fazla hub replikasında SSE
 istemcisi yalnız bağlandığı replikanın aldığı yeni kayıtları görür. Production
 yatay ölçekleme öncesinde PostgreSQL LISTEN/NOTIFY, NATS veya eşdeğer ortak event
@@ -63,6 +72,10 @@ Inventory, telemetry, servis ve geçmiş log handler'ları süreç durumu taşı
 ortak PostgreSQL/TimescaleDB kullanan hub replikalarında yatay ölçeklenebilir.
 Canlı SSE yayınında yukarıdaki event bus kısıtı geçerlidir. Helm chart HPA,
 topology spread, rolling update ve PDB tanımlar.
+
+Erişilebilirlik değerlendirmesi şu anda her hub replikasında çalışabilir; veritabanı
+unique kısıtı çift aktif olayı engeller. Çok büyük filolarda tarama işi leader
+election veya ayrı scheduler/queue bileşenine taşınmalıdır.
 
 Enrollment CA private key’i ve tüketilmiş bootstrap-token durumu henüz süreç
 içindedir. Bu yüzden varsayılan chart tek replika çalışır ve HPA kapalıdır. Güvenli
@@ -80,6 +93,7 @@ saklanmalı, public key güvenli enrollment/config kanalından agent'a sabitlenm
 - Operasyon oluşturma ayrı bir bearer secret ister; secret yoksa uç kapalıdır.
 - Aksiyon allowlist'i yalnız servis restart ve host reboot'u kabul eder; keyfi shell
   çalıştırma desteklenmez.
+- Alarm kuralı, bakım penceresi ve olay onayı operatör bearer secret'ıyla korunur.
 - JSON gövdeleri 1 MiB ile sınırlıdır ve bilinmeyen alanlar reddedilir.
 - Container non-root ve read-only root filesystem ile çalışmaya uygundur.
 - Kubernetes ServiceAccount token’ı varsayılan olarak pod’a bağlanmaz.

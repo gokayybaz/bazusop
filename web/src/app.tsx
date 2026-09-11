@@ -104,6 +104,24 @@ type JobEvent = {
   occurred_at: string
 }
 
+type AlertIncident = {
+  id: string
+  rule_id: string
+  rule_name: string
+  agent_id: string
+  severity: "warning" | "critical"
+  status: "open" | "acknowledged" | "resolved"
+  message: string
+  latest_value: number
+  opened_at: string
+  acknowledged_at?: string
+  acknowledged_by?: string
+  resolved_at?: string
+}
+
+type AlertRule = { id: string; name: string; kind: "metric" | "reachability"; metric: "cpu" | "memory" | "disk" | ""; threshold: number; stale_after_seconds: number; severity: "warning" | "critical"; enabled: boolean; created_at: string }
+type MaintenanceWindow = { id: string; name: string; agent_id: string; starts_at: string; ends_at: string; created_by: string; created_at: string }
+
 export function App() {
   const [instances, setInstances] = useState<InventoryInstance[]>([])
   const [inventoryState, setInventoryState] = useState<"loading" | "ready" | "error">("loading")
@@ -116,6 +134,9 @@ export function App() {
   const [logState, setLogState] = useState<"idle" | "loading" | "ready" | "error">("idle")
   const [jobs, setJobs] = useState<OperationJob[]>([])
   const [jobState, setJobState] = useState<"idle" | "loading" | "ready" | "error">("idle")
+  const [incidents, setIncidents] = useState<AlertIncident[]>([])
+  const [alertState, setAlertState] = useState<"loading" | "ready" | "error">("loading")
+  const [showAlarmCenter, setShowAlarmCenter] = useState(false)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -132,10 +153,25 @@ export function App() {
         if (error instanceof DOMException && error.name === "AbortError") return
         setInventoryState("error")
       })
+    fetch("/api/v1/incidents?limit=100", { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("incidents unavailable")
+        return response.json() as Promise<{ incidents: AlertIncident[] }>
+      })
+      .then((payload) => {
+        setIncidents(payload.incidents ?? [])
+        setAlertState("ready")
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return
+        setAlertState("error")
+      })
     return () => controller.abort()
   }, [])
 
   const connectedInstances = instances.filter((instance) => instance.status === "connected").length
+  const activeIncidents = incidents.filter((incident) => incident.status !== "resolved")
+  const criticalIncidents = activeIncidents.filter((incident) => incident.severity === "critical").length
 
   function openTelemetry(instance: InventoryInstance) {
     setSelectedInstance(instance)
@@ -245,7 +281,7 @@ export function App() {
                 trend={inventoryState === "ready" ? "Canlı envanter" : "Hub bekleniyor"}
               />
               <Metric label="Ortalama CPU" value="42.8%" detail="24 saatlik filo ortalaması" trend="düne göre −%3,2" />
-              <Metric label="Açık alarmlar" value="3" detail="1 alarm ilgilenilmeyi bekliyor" trend="2 alarm onaylandı" alert />
+              <Metric label="Açık alarmlar" value={alertState === "loading" ? "—" : String(activeIncidents.length)} detail={`${criticalIncidents} kritik alarm`} trend={`${activeIncidents.filter((incident) => incident.status === "acknowledged").length} alarm onaylandı`} alert />
             </section>
 
             <div className="dashboard-grid">
@@ -258,15 +294,18 @@ export function App() {
               </Card>
 
               <Card aria-label="Operasyon alarmları" className="alerts-card">
-                <div className="card-header"><div><h2>Operasyon alarmları</h2><p>İlgilenilmesi gereken sinyaller</p></div><Badge className="critical-count">3 açık</Badge></div>
+                <div className="card-header"><div><h2>Operasyon alarmları</h2><p>İlgilenilmesi gereken sinyaller</p></div><Badge className="critical-count">{activeIncidents.length} açık</Badge></div>
                 <div className="alert-list">
-                  <Alert level="Kritik" title="CPU doygunluğu" host="worker-07" meta="12 dakikadır %91 · 6 dk önce" />
-                  <Alert level="Uyarı" title="Servise ulaşılamıyor" host="worker-07" meta="queue-worker · 14 dk önce" />
-                  <Alert level="Uyarı" title="Bellek baskısı" host="db-replica-02" meta="%79 ve yükseliyor · 28 dk önce" />
+                  {activeIncidents.slice(0, 3).map((incident) => <Alert host={incident.agent_id} key={incident.id} level={incident.severity === "critical" ? "Kritik" : "Uyarı"} meta={`${incident.message} · ${formatLastSeen(incident.opened_at)}`} title={incident.rule_name} />)}
+                  {alertState === "loading" ? <div className="alert-empty">Alarmlar yükleniyor…</div> : null}
+                  {alertState === "error" ? <div className="alert-empty">Alarm verisine ulaşılamıyor.</div> : null}
+                  {alertState === "ready" && activeIncidents.length === 0 ? <div className="alert-empty">Açık alarm yok.</div> : null}
                 </div>
-                <button className="panel-link" type="button">Alarm merkezini aç <ChevronRight size={15} /></button>
+                <button aria-label="Alarm merkezini aç" className="panel-link" onClick={() => setShowAlarmCenter(true)} type="button">Alarm merkezini aç <ChevronRight size={15} /></button>
               </Card>
             </div>
+
+            {showAlarmCenter ? <AlarmCenter incidents={incidents} onClose={() => setShowAlarmCenter(false)} onIncidentUpdated={(updated) => setIncidents((current) => current.map((incident) => incident.id === updated.id ? updated : incident))} /> : null}
 
             <Card className="table-card">
               <div className="card-header">
@@ -363,6 +402,71 @@ function Alert({ level, title, host, meta }: { level: "Kritik" | "Uyarı"; title
     </div>
   )
 }
+
+function AlarmCenter({ incidents, onClose, onIncidentUpdated }: { incidents: AlertIncident[]; onClose: () => void; onIncidentUpdated: (incident: AlertIncident) => void }) {
+  const [rules, setRules] = useState<AlertRule[]>([])
+  const [windows, setWindows] = useState<MaintenanceWindow[]>([])
+  const [actor, setActor] = useState("")
+  const [operatorToken, setOperatorToken] = useState("")
+  const [ruleName, setRuleName] = useState("")
+  const [ruleKind, setRuleKind] = useState<AlertRule["kind"]>("metric")
+  const [metric, setMetric] = useState<AlertRule["metric"]>("cpu")
+  const [threshold, setThreshold] = useState("90")
+  const [staleAfter, setStaleAfter] = useState("300")
+  const [severity, setSeverity] = useState<AlertRule["severity"]>("warning")
+  const [windowName, setWindowName] = useState("")
+  const [windowAgent, setWindowAgent] = useState("")
+  const [windowStart, setWindowStart] = useState("")
+  const [windowEnd, setWindowEnd] = useState("")
+  const [message, setMessage] = useState("")
+
+  useEffect(() => {
+    Promise.all([
+      fetch("/api/v1/alert-rules").then((response) => response.ok ? response.json() as Promise<{ rules: AlertRule[] }> : Promise.reject()),
+      fetch("/api/v1/maintenance-windows").then((response) => response.ok ? response.json() as Promise<{ windows: MaintenanceWindow[] }> : Promise.reject()),
+    ]).then(([rulePayload, windowPayload]) => { setRules(rulePayload.rules ?? []); setWindows(windowPayload.windows ?? []) }).catch(() => setMessage("Alarm yapılandırması yüklenemedi."))
+  }, [])
+
+  const mutationHeaders = () => ({ "Authorization": `Bearer ${operatorToken}`, "Content-Type": "application/json" })
+
+  function createRule(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setMessage("")
+    fetch("/api/v1/alert-rules", { method: "POST", headers: mutationHeaders(), body: JSON.stringify({ name: ruleName, kind: ruleKind, metric: ruleKind === "metric" ? metric : "", threshold: ruleKind === "metric" ? Number(threshold) : 0, stale_after_seconds: ruleKind === "reachability" ? Number(staleAfter) : 0, severity, enabled: true }) })
+      .then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<AlertRule> })
+      .then((rule) => { setRules((current) => [...current, rule]); setRuleName(""); setMessage("Alarm kuralı kaydedildi.") })
+      .catch(() => setMessage("Kural kaydedilemedi; alanları ve operatör token'ını kontrol edin."))
+  }
+
+  function createWindow(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setMessage("")
+    fetch("/api/v1/maintenance-windows", { method: "POST", headers: mutationHeaders(), body: JSON.stringify({ name: windowName, agent_id: windowAgent, starts_at: new Date(windowStart).toISOString(), ends_at: new Date(windowEnd).toISOString(), created_by: actor }) })
+      .then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<MaintenanceWindow> })
+      .then((window) => { setWindows((current) => [...current, window]); setWindowName(""); setMessage("Bakım penceresi kaydedildi.") })
+      .catch(() => setMessage("Bakım penceresi kaydedilemedi; zamanları ve yetki bilgilerini kontrol edin."))
+  }
+
+  function acknowledge(incident: AlertIncident) {
+    setMessage("")
+    fetch(`/api/v1/incidents/${encodeURIComponent(incident.id)}/acknowledge`, { method: "POST", headers: mutationHeaders(), body: JSON.stringify({ actor }) })
+      .then((response) => { if (!response.ok) throw new Error(); return response.json() as Promise<AlertIncident> })
+      .then((updated) => { onIncidentUpdated(updated); setMessage("Olay onaylandı.") })
+      .catch(() => setMessage("Olay onaylanamadı; operatör bilgilerini kontrol edin."))
+  }
+
+  return (
+    <Card aria-label="Alarm merkezi" className="alarm-center">
+      <div className="card-header alarm-center-header"><div><h2>Alarm merkezi</h2><p>Kurallar, bakım pencereleri ve olay yaşam döngüsü</p></div><button aria-label="Alarm merkezini kapat" className="icon-button" onClick={onClose} type="button"><X size={17} /></button></div>
+      <div className="alarm-credentials"><label><span>Operatör</span><input onChange={(event) => setActor(event.target.value)} placeholder="Ad veya kimlik" value={actor} /></label><label><span>Operatör token'ı</span><input autoComplete="current-password" onChange={(event) => setOperatorToken(event.target.value)} placeholder="••••••••" type="password" value={operatorToken} /></label>{message ? <p aria-live="polite">{message}</p> : null}</div>
+      <div className="alarm-center-grid">
+        <section><h3>Olaylar</h3><div className="incident-list">{incidents.length === 0 ? <p className="alarm-empty">Henüz olay yok.</p> : incidents.map((incident) => <div className={`incident-row ${incident.severity}`} key={incident.id}><div><Badge className={`incident-status ${incident.status}`}>{incidentStatusLabel(incident.status)}</Badge><strong>{incident.rule_name}</strong><span>{incident.agent_id}</span><small>{incident.message}</small></div>{incident.status === "open" ? <button aria-label={`${incident.id} olayını onayla`} disabled={!actor || !operatorToken} onClick={() => acknowledge(incident)} type="button">Onayla</button> : null}</div>)}</div></section>
+        <section><h3>Yeni kural</h3><form className="alarm-form" onSubmit={createRule}><label><span>Ad</span><input onChange={(event) => setRuleName(event.target.value)} required value={ruleName} /></label><label><span>Tür</span><select onChange={(event) => setRuleKind(event.target.value as AlertRule["kind"])} value={ruleKind}><option value="metric">Metrik eşiği</option><option value="reachability">Erişilebilirlik</option></select></label>{ruleKind === "metric" ? <><label><span>Metrik</span><select onChange={(event) => setMetric(event.target.value as AlertRule["metric"])} value={metric}><option value="cpu">CPU</option><option value="memory">Bellek</option><option value="disk">Disk</option></select></label><label><span>Eşik (%)</span><input max="100" min="1" onChange={(event) => setThreshold(event.target.value)} required type="number" value={threshold} /></label></> : <label><span>Raporsuz süre (sn)</span><input min="60" onChange={(event) => setStaleAfter(event.target.value)} required type="number" value={staleAfter} /></label>}<label><span>Önem</span><select onChange={(event) => setSeverity(event.target.value as AlertRule["severity"])} value={severity}><option value="warning">Uyarı</option><option value="critical">Kritik</option></select></label><button disabled={!actor || !operatorToken} type="submit">Kuralı kaydet</button></form><div className="compact-list">{rules.map((rule) => <span key={rule.id}><strong>{rule.name}</strong><small>{rule.kind === "metric" ? `${rule.metric.toUpperCase()} > %${rule.threshold}` : `${rule.stale_after_seconds} sn raporsuz`}</small></span>)}</div></section>
+        <section><h3>Bakım penceresi</h3><form className="alarm-form" onSubmit={createWindow}><label><span>Ad</span><input onChange={(event) => setWindowName(event.target.value)} required value={windowName} /></label><label><span>Agent ID (boş = tümü)</span><input onChange={(event) => setWindowAgent(event.target.value)} value={windowAgent} /></label><label><span>Başlangıç</span><input onChange={(event) => setWindowStart(event.target.value)} required type="datetime-local" value={windowStart} /></label><label><span>Bitiş</span><input onChange={(event) => setWindowEnd(event.target.value)} required type="datetime-local" value={windowEnd} /></label><button disabled={!actor || !operatorToken} type="submit">Pencereyi kaydet</button></form><div className="compact-list">{windows.map((window) => <span key={window.id}><strong>{window.name}</strong><small>{window.agent_id || "Tüm agent'lar"} · {formatLastSeen(window.starts_at)}</small></span>)}</div></section>
+      </div>
+    </Card>
+  )
+}
+
+function incidentStatusLabel(status: AlertIncident["status"]) { return { open: "Açık", acknowledged: "Onaylandı", resolved: "Çözüldü" }[status] }
 
 function formatMemory(bytes: number) {
   return `${Math.round(bytes / 1024 / 1024 / 1024)} GiB`

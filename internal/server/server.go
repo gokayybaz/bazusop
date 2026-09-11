@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gokayybaz/bazusop/internal/alerting"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/jobs"
@@ -30,6 +31,7 @@ type handlerOptions struct {
 	logService          *logstream.Service
 	jobService          *jobs.Service
 	operatorToken       string
+	alertService        *alerting.Service
 }
 
 func WithInventory(service *inventory.Service) Option {
@@ -69,6 +71,13 @@ func WithJobs(service *jobs.Service, operatorToken string) Option {
 	}
 }
 
+func WithAlerts(service *alerting.Service, operatorToken string) Option {
+	return func(options *handlerOptions) {
+		options.alertService = service
+		options.operatorToken = operatorToken
+	}
+}
+
 func NewHandler(options ...Option) http.Handler {
 	configuration := handlerOptions{}
 	for _, option := range options {
@@ -90,7 +99,7 @@ func NewHandler(options ...Option) http.Handler {
 	if configuration.telemetryService != nil {
 		mux.HandleFunc("GET /api/v1/instances/{agentID}/telemetry", handleTelemetryHistory(configuration.telemetryService))
 		if configuration.enrollmentAuthority != nil {
-			mux.HandleFunc("POST /api/v1/agents/telemetry", handleTelemetryReport(configuration.enrollmentAuthority, configuration.telemetryService))
+			mux.HandleFunc("POST /api/v1/agents/telemetry", handleTelemetryReport(configuration.enrollmentAuthority, configuration.telemetryService, configuration.alertService))
 		}
 	}
 	if configuration.serviceInventory != nil {
@@ -114,6 +123,15 @@ func NewHandler(options ...Option) http.Handler {
 			mux.HandleFunc("GET /api/v1/agents/jobs/next", handleClaimJob(configuration.enrollmentAuthority, configuration.jobService))
 			mux.HandleFunc("POST /api/v1/agents/jobs/{jobID}/events", handleReportJobEvent(configuration.enrollmentAuthority, configuration.jobService))
 		}
+	}
+	if configuration.alertService != nil {
+		mux.HandleFunc("GET /api/v1/alert-rules", handleListAlertRules(configuration.alertService))
+		mux.HandleFunc("POST /api/v1/alert-rules", handleCreateAlertRule(configuration.alertService, configuration.operatorToken))
+		mux.HandleFunc("GET /api/v1/maintenance-windows", handleListMaintenance(configuration.alertService))
+		mux.HandleFunc("POST /api/v1/maintenance-windows", handleCreateMaintenance(configuration.alertService, configuration.operatorToken))
+		mux.HandleFunc("GET /api/v1/incidents", handleListIncidents(configuration.alertService))
+		mux.HandleFunc("GET /api/v1/incidents/{incidentID}/events", handleAlertEvents(configuration.alertService))
+		mux.HandleFunc("POST /api/v1/incidents/{incidentID}/acknowledge", handleAcknowledgeIncident(configuration.alertService, configuration.operatorToken))
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
 		http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
@@ -235,7 +253,7 @@ func handleListInstances(service *inventory.Service) http.HandlerFunc {
 	}
 }
 
-func handleTelemetryReport(authority *enrollment.Authority, service *telemetry.Service) http.HandlerFunc {
+func handleTelemetryReport(authority *enrollment.Authority, service *telemetry.Service, alerts *alerting.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
 			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
@@ -250,12 +268,30 @@ func handleTelemetryReport(authority *enrollment.Authority, service *telemetry.S
 		if err := decodeJSON(response, request, &sample); err != nil {
 			return
 		}
+		sample.RecordedAt = sample.RecordedAt.UTC().Truncate(time.Microsecond)
 		if err := service.Report(request.Context(), agentID, sample); errors.Is(err, telemetry.ErrInvalidSample) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		} else if err != nil {
 			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
+		}
+		if alerts != nil {
+			upperBound := time.Now().UTC().Add(time.Second)
+			if !sample.RecordedAt.Before(upperBound) {
+				upperBound = sample.RecordedAt.Add(time.Second)
+			}
+			latest, err := service.History(request.Context(), agentID, sample.RecordedAt, upperBound, 1)
+			if err != nil {
+				http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				return
+			}
+			if len(latest) > 0 && latest[len(latest)-1].RecordedAt.Equal(sample.RecordedAt) {
+				if err := alerts.EvaluateTelemetry(request.Context(), agentID, alerting.Telemetry{CPUPercent: sample.CPUPercent, MemoryPercent: sample.MemoryPercent, DiskPercent: sample.DiskPercent}); err != nil {
+					http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+					return
+				}
+			}
 		}
 		response.WriteHeader(http.StatusNoContent)
 	}
@@ -490,6 +526,168 @@ func handleCreateJob(service *jobs.Service, operatorToken string) http.HandlerFu
 		}
 		writeJSON(response, http.StatusCreated, job)
 	}
+}
+
+func handleCreateAlertRule(service *alerting.Service, operatorToken string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if !authorizeOperator(response, request, operatorToken) {
+			return
+		}
+		var value alerting.RuleRequest
+		if err := decodeJSON(response, request, &value); err != nil {
+			return
+		}
+		rule, err := service.CreateRule(request.Context(), value)
+		if errors.Is(err, alerting.ErrInvalidAlert) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(response, http.StatusCreated, rule)
+	}
+}
+
+func handleListAlertRules(service *alerting.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		values, err := service.ListRules(request.Context())
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Rules []alerting.Rule `json:"rules"`
+		}{values})
+	}
+}
+
+func handleCreateMaintenance(service *alerting.Service, operatorToken string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if !authorizeOperator(response, request, operatorToken) {
+			return
+		}
+		var value alerting.MaintenanceRequest
+		if err := decodeJSON(response, request, &value); err != nil {
+			return
+		}
+		window, err := service.CreateMaintenance(request.Context(), value)
+		if errors.Is(err, alerting.ErrInvalidAlert) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(response, http.StatusCreated, window)
+	}
+}
+
+func handleListMaintenance(service *alerting.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		values, err := service.ListMaintenance(request.Context())
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Windows []alerting.MaintenanceWindow `json:"windows"`
+		}{values})
+	}
+}
+
+func handleListIncidents(service *alerting.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		limit := 100
+		if value := request.URL.Query().Get("limit"); value != "" {
+			parsed, err := strconv.Atoi(value)
+			if err != nil {
+				http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+			limit = parsed
+		}
+		values, err := service.ListIncidents(request.Context(), limit)
+		if errors.Is(err, alerting.ErrInvalidAlert) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Incidents []alerting.Incident `json:"incidents"`
+		}{values})
+	}
+}
+
+func handleAlertEvents(service *alerting.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		values, err := service.ListEvents(request.Context(), request.PathValue("incidentID"))
+		if errors.Is(err, alerting.ErrNotFound) {
+			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, alerting.ErrInvalidAlert) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Events []alerting.Event `json:"events"`
+		}{values})
+	}
+}
+
+func handleAcknowledgeIncident(service *alerting.Service, operatorToken string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if !authorizeOperator(response, request, operatorToken) {
+			return
+		}
+		var body struct {
+			Actor string `json:"actor"`
+		}
+		if err := decodeJSON(response, request, &body); err != nil {
+			return
+		}
+		incident, err := service.Acknowledge(request.Context(), request.PathValue("incidentID"), body.Actor)
+		if errors.Is(err, alerting.ErrInvalidAlert) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, alerting.ErrNotFound) {
+			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		if errors.Is(err, alerting.ErrConflict) {
+			http.Error(response, http.StatusText(http.StatusConflict), http.StatusConflict)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(response, http.StatusOK, incident)
+	}
+}
+
+func authorizeOperator(response http.ResponseWriter, request *http.Request, operatorToken string) bool {
+	if operatorToken == "" {
+		http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+		return false
+	}
+	if !validBearerToken(request.Header.Get("Authorization"), operatorToken) {
+		response.Header().Set("WWW-Authenticate", "Bearer")
+		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		return false
+	}
+	return true
 }
 
 func validBearerToken(authorization, expected string) bool {
