@@ -39,6 +39,18 @@ token issuance are the next hardening step before production use.
 Authenticated agents report host facts with `PUT /api/v1/agents/inventory`.
 Operators read the normalized fleet from `GET /api/v1/instances`.
 
+Agents send CPU, memory, disk and network samples to
+`POST /api/v1/agents/telemetry`. Instance history is available from
+`GET /api/v1/instances/{agent_id}/telemetry`. Set
+`BAZUSOP_TIMESCALE_ENABLED=true` when `DATABASE_URL` points to TimescaleDB;
+samples then use a hypertable with a 30-day retention policy.
+
+Detailed references:
+
+- [API contract](docs/API.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Operations guide](docs/OPERATIONS.md)
+
 ## Containers
 
 The production image is built in separate Node and Go stages, then runs as a

@@ -5,9 +5,12 @@ import (
 	"errors"
 	"net"
 	"net/http"
+	"strconv"
+	"time"
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/telemetry"
 	"github.com/gokayybaz/bazusop/internal/webui"
 )
 
@@ -16,6 +19,7 @@ type Option func(*handlerOptions)
 type handlerOptions struct {
 	enrollmentAuthority *enrollment.Authority
 	inventoryService    *inventory.Service
+	telemetryService    *telemetry.Service
 }
 
 func WithInventory(service *inventory.Service) Option {
@@ -27,6 +31,12 @@ func WithInventory(service *inventory.Service) Option {
 func WithEnrollment(authority *enrollment.Authority) Option {
 	return func(options *handlerOptions) {
 		options.enrollmentAuthority = authority
+	}
+}
+
+func WithTelemetry(service *telemetry.Service) Option {
+	return func(options *handlerOptions) {
+		options.telemetryService = service
 	}
 }
 
@@ -46,6 +56,12 @@ func NewHandler(options ...Option) http.Handler {
 		mux.HandleFunc("GET /api/v1/instances", handleListInstances(configuration.inventoryService))
 		if configuration.enrollmentAuthority != nil {
 			mux.HandleFunc("PUT /api/v1/agents/inventory", handleInventoryReport(configuration.enrollmentAuthority, configuration.inventoryService))
+		}
+	}
+	if configuration.telemetryService != nil {
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/telemetry", handleTelemetryHistory(configuration.telemetryService))
+		if configuration.enrollmentAuthority != nil {
+			mux.HandleFunc("POST /api/v1/agents/telemetry", handleTelemetryReport(configuration.enrollmentAuthority, configuration.telemetryService))
 		}
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
@@ -165,6 +181,80 @@ func handleListInstances(service *inventory.Service) http.HandlerFunc {
 		writeJSON(response, http.StatusOK, struct {
 			Instances []inventory.Host `json:"instances"`
 		}{Instances: instances})
+	}
+}
+
+func handleTelemetryReport(authority *enrollment.Authority, service *telemetry.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
+			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		agentID, err := authority.Authenticate(request.TLS.PeerCertificates[0])
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		var sample telemetry.Sample
+		if err := decodeJSON(response, request, &sample); err != nil {
+			return
+		}
+		if err := service.Report(request.Context(), agentID, sample); errors.Is(err, telemetry.ErrInvalidSample) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		} else if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func handleTelemetryHistory(service *telemetry.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		to := time.Now().UTC()
+		from := to.Add(-24 * time.Hour)
+		limit := 288
+		var err error
+		if value := request.URL.Query().Get("from"); value != "" {
+			from, err = time.Parse(time.RFC3339, value)
+			if err != nil {
+				http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+		}
+		if value := request.URL.Query().Get("to"); value != "" {
+			to, err = time.Parse(time.RFC3339, value)
+			if err != nil {
+				http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+		}
+		if value := request.URL.Query().Get("limit"); value != "" {
+			limit, err = strconv.Atoi(value)
+			if err != nil {
+				http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+				return
+			}
+		}
+
+		samples, err := service.History(request.Context(), request.PathValue("agentID"), from, to, limit)
+		if errors.Is(err, telemetry.ErrInvalidSample) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		var latest *telemetry.Sample
+		if len(samples) > 0 {
+			latest = &samples[len(samples)-1]
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Latest  *telemetry.Sample  `json:"latest"`
+			Samples []telemetry.Sample `json:"samples"`
+		}{Latest: latest, Samples: samples})
 	}
 }
 

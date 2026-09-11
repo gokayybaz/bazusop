@@ -50,3 +50,11 @@ func TestDatabaseURL(t *testing.T) {
 		t.Fatalf("expected configured database URL, got %q", databaseURL)
 	}
 }
+
+func TestTimescaleEnabled(t *testing.T) {
+	t.Setenv("BAZUSOP_TIMESCALE_ENABLED", "true")
+
+	if !config.Load().TimescaleEnabled {
+		t.Fatal("expected TimescaleDB to be enabled")
+	}
+}

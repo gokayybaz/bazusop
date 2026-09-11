@@ -22,3 +22,7 @@ helm upgrade --install bazusop . --namespace bazusop \
 Keep `autoscaling.enabled=false` and one replica until enrollment CA and consumed
 bootstrap-token state are shared across replicas. Inventory endpoints are already
 stateless when `DATABASE_URL` points to PostgreSQL.
+
+Set `timescale.enabled=true` when the configured database provides the TimescaleDB
+extension. The hub then creates the telemetry hypertable and applies a 30-day
+retention policy during startup.

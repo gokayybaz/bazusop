@@ -41,6 +41,9 @@ secrets:
   databaseURLKey: database-url
   enrollmentTokenKey: enrollment-token
 
+timescale:
+  enabled: false
+
 tls:
   enabled: false
   existingSecret: ""

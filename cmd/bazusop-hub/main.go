@@ -16,6 +16,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/server"
 	postgresstore "github.com/gokayybaz/bazusop/internal/storage/postgres"
+	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
 func main() {
@@ -37,9 +38,14 @@ func main() {
 		os.Exit(1)
 	}
 	var inventoryStore inventory.Store = inventory.NewMemoryStore()
+	var telemetryStore telemetry.Store = telemetry.NewMemoryStore()
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		postgresStore, err := postgresstore.Open(startupContext, configuration.DatabaseURL)
+		postgresStore, err := postgresstore.Open(
+			startupContext,
+			configuration.DatabaseURL,
+			postgresstore.WithTimescale(configuration.TimescaleEnabled),
+		)
 		cancel()
 		if err != nil {
 			logger.Error("could not initialize PostgreSQL inventory store", "error", err)
@@ -47,15 +53,18 @@ func main() {
 		}
 		defer postgresStore.Close()
 		inventoryStore = postgresStore
+		telemetryStore = postgresStore
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
 	}
 	inventoryService := inventory.NewService(inventoryStore)
+	telemetryService := telemetry.NewService(telemetryStore)
 	httpServer := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: server.NewHandler(
 			server.WithEnrollment(authority),
 			server.WithInventory(inventoryService),
+			server.WithTelemetry(telemetryService),
 		),
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig: &tls.Config{

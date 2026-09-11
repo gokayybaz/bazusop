@@ -12,6 +12,7 @@ services:
       BAZUSOP_HTTP_ADDR: ":8080"
       BAZUSOP_ENROLLMENT_TOKEN: "${BAZUSOP_ENROLLMENT_TOKEN:-local-compose-token}"
       DATABASE_URL: "postgres://bazusop:${POSTGRES_PASSWORD:-bazusop-dev}@postgres:5432/bazusop?sslmode=disable"
+      BAZUSOP_TIMESCALE_ENABLED: "true"
     ports:
       - "${BAZUSOP_PORT:-8080}:8080"
     depends_on:
@@ -25,7 +26,7 @@ services:
       start_period: 5s
 
   postgres:
-    image: postgres:18-alpine
+    image: timescale/timescaledb:latest-pg18
     restart: unless-stopped
     environment:
       POSTGRES_DB: bazusop

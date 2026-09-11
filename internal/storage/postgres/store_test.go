@@ -12,10 +12,10 @@ func TestInventoryMigrationsAreEmbeddedInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migrations: %v", err)
 	}
-	if len(entries) != 2 {
-		t.Fatalf("expected two inventory migrations, got %d", len(entries))
+	if len(entries) != 4 {
+		t.Fatalf("expected four storage migrations, got %d", len(entries))
 	}
-	if entries[0].Name() != "001_hosts.sql" || entries[1].Name() != "002_hosts_last_seen.sql" {
-		t.Fatalf("unexpected migration order: %s, %s", entries[0].Name(), entries[1].Name())
+	if entries[0].Name() != "001_hosts.sql" || entries[3].Name() != "004_telemetry_lookup.sql" {
+		t.Fatalf("unexpected migration range: %s through %s", entries[0].Name(), entries[3].Name())
 	}
 }

@@ -59,6 +59,22 @@ describe("bazUSOP shell", () => {
 		  status: "connected",
 		}],
 	  }),
+	} as Response).mockResolvedValueOnce({
+	  ok: true,
+	  json: async () => ({
+		latest: {
+		  recorded_at: "2026-09-11T04:05:00Z",
+		  cpu_percent: 47.8,
+		  memory_percent: 63.4,
+		  disk_percent: 71.1,
+		  network_rx_bytes: 2048,
+		  network_tx_bytes: 1024,
+		},
+		samples: [
+		  { recorded_at: "2026-09-11T04:00:00Z", cpu_percent: 42.5, memory_percent: 62.1, disk_percent: 71, network_rx_bytes: 1024, network_tx_bytes: 512 },
+		  { recorded_at: "2026-09-11T04:05:00Z", cpu_percent: 47.8, memory_percent: 63.4, disk_percent: 71.1, network_rx_bytes: 2048, network_tx_bytes: 1024 },
+		],
+	  }),
 	} as Response)
 
 	render(<App />)
@@ -67,5 +83,11 @@ describe("bazUSOP shell", () => {
 	expect(screen.getByText("Ubuntu 24.04")).toBeInTheDocument()
 	expect(screen.getByText("8 cores · 16 GiB")).toBeInTheDocument()
 	expect(screen.getByText("10.0.0.8")).toBeInTheDocument()
+
+	fireEvent.click(screen.getByRole("button", { name: "edge-01.example.com ayrıntılarını aç" }))
+
+	expect(await screen.findByRole("region", { name: "edge-01.example.com telemetrisi" })).toBeInTheDocument()
+	expect(screen.getByText("47.8%")).toBeInTheDocument()
+	expect(screen.getByRole("img", { name: "Son 24 saat CPU ve bellek kullanımı" })).toBeInTheDocument()
   })
 })

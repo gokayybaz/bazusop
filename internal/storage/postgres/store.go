@@ -5,20 +5,31 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
 //go:embed migrations/*.sql
 var migrationFiles embed.FS
 
 type Store struct {
-	pool *pgxpool.Pool
+	pool             *pgxpool.Pool
+	timescaleEnabled bool
 }
 
-func Open(ctx context.Context, databaseURL string) (*Store, error) {
+type Option func(*Store)
+
+func WithTimescale(enabled bool) Option {
+	return func(store *Store) {
+		store.timescaleEnabled = enabled
+	}
+}
+
+func Open(ctx context.Context, databaseURL string, options ...Option) (*Store, error) {
 	configuration, err := pgxpool.ParseConfig(databaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("parse PostgreSQL configuration: %w", err)
@@ -28,6 +39,9 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 		return nil, fmt.Errorf("open PostgreSQL pool: %w", err)
 	}
 	store := &Store{pool: pool}
+	for _, option := range options {
+		option(store)
+	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
 		return nil, fmt.Errorf("ping PostgreSQL: %w", err)
@@ -35,6 +49,12 @@ func Open(ctx context.Context, databaseURL string) (*Store, error) {
 	if err := store.migrate(ctx); err != nil {
 		pool.Close()
 		return nil, err
+	}
+	if store.timescaleEnabled {
+		if err := store.enableTimescale(ctx); err != nil {
+			pool.Close()
+			return nil, err
+		}
 	}
 	return store, nil
 }
@@ -124,6 +144,76 @@ func (store *Store) List(ctx context.Context) ([]inventory.Host, error) {
 	return hosts, nil
 }
 
+func (store *Store) Append(ctx context.Context, sample telemetry.Sample) error {
+	_, err := store.pool.Exec(ctx, `
+		INSERT INTO telemetry_samples (
+			agent_id, recorded_at, cpu_percent, memory_percent, disk_percent,
+			network_rx_bytes, network_tx_bytes
+		) VALUES ($1, $2, $3, $4, $5, $6, $7)
+		ON CONFLICT (agent_id, recorded_at) DO UPDATE SET
+			cpu_percent = EXCLUDED.cpu_percent,
+			memory_percent = EXCLUDED.memory_percent,
+			disk_percent = EXCLUDED.disk_percent,
+			network_rx_bytes = EXCLUDED.network_rx_bytes,
+			network_tx_bytes = EXCLUDED.network_tx_bytes`,
+		sample.AgentID,
+		sample.RecordedAt,
+		sample.CPUPercent,
+		sample.MemoryPercent,
+		sample.DiskPercent,
+		int64(sample.NetworkRXBytes),
+		int64(sample.NetworkTXBytes),
+	)
+	if err != nil {
+		return fmt.Errorf("append telemetry sample: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) History(ctx context.Context, agentID string, from, to time.Time, limit int) ([]telemetry.Sample, error) {
+	rows, err := store.pool.Query(ctx, `
+		SELECT agent_id, recorded_at, cpu_percent, memory_percent, disk_percent,
+			network_rx_bytes, network_tx_bytes
+		FROM (
+			SELECT agent_id, recorded_at, cpu_percent, memory_percent, disk_percent,
+				network_rx_bytes, network_tx_bytes
+			FROM telemetry_samples
+			WHERE agent_id = $1 AND recorded_at >= $2 AND recorded_at <= $3
+			ORDER BY recorded_at DESC
+			LIMIT $4
+		) bounded
+		ORDER BY recorded_at`, agentID, from, to, limit)
+	if err != nil {
+		return nil, fmt.Errorf("query telemetry history: %w", err)
+	}
+	defer rows.Close()
+
+	samples := make([]telemetry.Sample, 0)
+	for rows.Next() {
+		var sample telemetry.Sample
+		var networkRXBytes int64
+		var networkTXBytes int64
+		if err := rows.Scan(
+			&sample.AgentID,
+			&sample.RecordedAt,
+			&sample.CPUPercent,
+			&sample.MemoryPercent,
+			&sample.DiskPercent,
+			&networkRXBytes,
+			&networkTXBytes,
+		); err != nil {
+			return nil, fmt.Errorf("scan telemetry history: %w", err)
+		}
+		sample.NetworkRXBytes = uint64(networkRXBytes)
+		sample.NetworkTXBytes = uint64(networkTXBytes)
+		samples = append(samples, sample)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate telemetry history: %w", err)
+	}
+	return samples, nil
+}
+
 func (store *Store) migrate(ctx context.Context) error {
 	if _, err := store.pool.Exec(ctx, `
 		CREATE TABLE IF NOT EXISTS schema_migrations (
@@ -178,4 +268,18 @@ func (store *Store) migrationApplied(ctx context.Context, name string) (bool, er
 		return false, fmt.Errorf("check migration %s: %w", name, err)
 	}
 	return applied, nil
+}
+
+func (store *Store) enableTimescale(ctx context.Context) error {
+	statements := []string{
+		"CREATE EXTENSION IF NOT EXISTS timescaledb",
+		"SELECT create_hypertable('telemetry_samples', 'recorded_at', if_not_exists => TRUE, migrate_data => TRUE)",
+		"SELECT add_retention_policy('telemetry_samples', INTERVAL '30 days', if_not_exists => TRUE)",
+	}
+	for _, statement := range statements {
+		if _, err := store.pool.Exec(ctx, statement); err != nil {
+			return fmt.Errorf("configure TimescaleDB: %w", err)
+		}
+	}
+	return nil
 }
