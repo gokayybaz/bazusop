@@ -99,3 +99,40 @@ Sorgu parametreleri:
 
 En yeni sınırlı pencere kronolojik sırada `samples` alanında, son örnek ayrıca
 `latest` alanında döner. Veri yoksa `latest` değeri `null` olur.
+
+### `PUT /api/v1/agents/services`
+
+mTLS gerekir. Her rapor agent'ın önceki servis listesini atomik olarak yeniler.
+Agent, envanter raporunu servis snapshot'ından önce göndermelidir.
+
+```json
+{
+  "observed_at": "2026-09-11T05:00:00Z",
+  "services": [
+    {
+      "name": "nginx.service",
+      "display_name": "NGINX Web Server",
+      "state": "running",
+      "startup_type": "enabled"
+    }
+  ]
+}
+```
+
+Linux `active/inactive` ve Windows `started/stopped` durumları ortak
+`running/stopped/failed/unknown` modeline çevrilir. `enabled/automatic`,
+`manual/static`, `disabled/masked` başlangıç değerleri sırasıyla
+`automatic`, `manual`, `disabled` olarak normalize edilir. Bir snapshot en fazla
+5000 servis içerebilir. Başarı `204`, geçersiz veri `400` döner.
+
+### `GET /api/v1/instances/{agent_id}/services`
+
+Sunucunun son servis snapshot'ını ada göre sıralı döndürür:
+
+```json
+{"services":[{"agent_id":"agent-01","name":"nginx.service","display_name":"NGINX Web Server","state":"running","startup_type":"automatic","observed_at":"2026-09-11T05:00:00Z"}]}
+```
+
+İsteğe bağlı `state` parametresi `running`, `stopped`, `failed` veya `unknown`
+değerini kabul eder. `q` parametresi servis adı ve görünen adda büyük/küçük harf
+duyarsız arama yapar. Geçersiz filtre `400` döner.

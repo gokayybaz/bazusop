@@ -15,6 +15,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
 - Normalize edilmiş host envanteri PostgreSQL'de saklanır.
 - CPU, bellek, disk ve ağ telemetrisi PostgreSQL veya TimescaleDB'ye yazılır;
   Timescale etkinse 30 günlük retention policy uygulanır.
+- systemd ve Windows Service snapshot'ları normalize edilerek sunucu bazında
+  aranabilir ve durumlarına göre filtrelenebilir.
 - Docker Compose geliştirme ortamı ve production odaklı Kubernetes/Helm chart'ı
   bulunur.
 
@@ -66,9 +68,11 @@ Uzak plaintext HTTP kayıt istekleri reddedilir; loopback HTTP yalnızca yerel
 geliştirme için açıktır.
 
 Kayıtlı agent'lar envanteri `PUT /api/v1/agents/inventory`, telemetriyi
-`POST /api/v1/agents/telemetry` ile raporlar. UI, filo listesini
+`POST /api/v1/agents/telemetry`, servisleri `PUT /api/v1/agents/services` ile
+raporlar. UI, filo listesini
 `GET /api/v1/instances`, zaman serisini
-`GET /api/v1/instances/{agent_id}/telemetry` üzerinden okur.
+`GET /api/v1/instances/{agent_id}/telemetry`, servisleri
+`GET /api/v1/instances/{agent_id}/services` üzerinden okur.
 
 Şu anda CA private key'i ve tüketilmiş bootstrap-token durumu hub sürecindedir.
 Bu nedenle enrollment trafiği için tek replika kullanılmalıdır; ortak KMS/Secret

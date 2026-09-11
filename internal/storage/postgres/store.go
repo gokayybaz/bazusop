@@ -10,6 +10,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
@@ -212,6 +213,60 @@ func (store *Store) History(ctx context.Context, agentID string, from, to time.T
 		return nil, fmt.Errorf("iterate telemetry history: %w", err)
 	}
 	return samples, nil
+}
+
+func (store *Store) ReplaceServices(ctx context.Context, agentID string, services []serviceinventory.Service) error {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin service snapshot replacement: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	var hostExists int
+	if err := transaction.QueryRow(ctx, "SELECT 1 FROM hosts WHERE agent_id = $1 FOR UPDATE", agentID).Scan(&hostExists); err != nil {
+		return fmt.Errorf("lock service snapshot host: %w", err)
+	}
+	if _, err := transaction.Exec(ctx, "DELETE FROM services WHERE agent_id = $1", agentID); err != nil {
+		return fmt.Errorf("clear previous service snapshot: %w", err)
+	}
+	for _, service := range services {
+		if _, err := transaction.Exec(ctx, `
+			INSERT INTO services (agent_id, name, display_name, state, startup_type, observed_at)
+			VALUES ($1, $2, $3, $4, $5, $6)`,
+			service.AgentID, service.Name, service.DisplayName, service.State, service.StartupType, service.ObservedAt,
+		); err != nil {
+			return fmt.Errorf("insert service snapshot: %w", err)
+		}
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit service snapshot replacement: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) ListServices(ctx context.Context, agentID string, filter serviceinventory.Filter) ([]serviceinventory.Service, error) {
+	rows, err := store.pool.Query(ctx, `
+		SELECT agent_id, name, display_name, state, startup_type, observed_at
+		FROM services
+		WHERE agent_id = $1
+			AND ($2 = '' OR state = $2)
+			AND ($3 = '' OR name ILIKE '%' || $3 || '%' OR display_name ILIKE '%' || $3 || '%')
+		ORDER BY name`, agentID, filter.State, filter.Query)
+	if err != nil {
+		return nil, fmt.Errorf("query service inventory: %w", err)
+	}
+	defer rows.Close()
+	services := make([]serviceinventory.Service, 0)
+	for rows.Next() {
+		var service serviceinventory.Service
+		if err := rows.Scan(&service.AgentID, &service.Name, &service.DisplayName, &service.State, &service.StartupType, &service.ObservedAt); err != nil {
+			return nil, fmt.Errorf("scan service inventory: %w", err)
+		}
+		services = append(services, service)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate service inventory: %w", err)
+	}
+	return services, nil
 }
 
 func (store *Store) migrate(ctx context.Context) error {

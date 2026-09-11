@@ -10,6 +10,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 	"github.com/gokayybaz/bazusop/internal/webui"
 )
@@ -20,6 +21,7 @@ type handlerOptions struct {
 	enrollmentAuthority *enrollment.Authority
 	inventoryService    *inventory.Service
 	telemetryService    *telemetry.Service
+	serviceInventory    *serviceinventory.Manager
 }
 
 func WithInventory(service *inventory.Service) Option {
@@ -37,6 +39,12 @@ func WithEnrollment(authority *enrollment.Authority) Option {
 func WithTelemetry(service *telemetry.Service) Option {
 	return func(options *handlerOptions) {
 		options.telemetryService = service
+	}
+}
+
+func WithServiceInventory(service *serviceinventory.Manager) Option {
+	return func(options *handlerOptions) {
+		options.serviceInventory = service
 	}
 }
 
@@ -62,6 +70,12 @@ func NewHandler(options ...Option) http.Handler {
 		mux.HandleFunc("GET /api/v1/instances/{agentID}/telemetry", handleTelemetryHistory(configuration.telemetryService))
 		if configuration.enrollmentAuthority != nil {
 			mux.HandleFunc("POST /api/v1/agents/telemetry", handleTelemetryReport(configuration.enrollmentAuthority, configuration.telemetryService))
+		}
+	}
+	if configuration.serviceInventory != nil {
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/services", handleListServices(configuration.serviceInventory))
+		if configuration.enrollmentAuthority != nil {
+			mux.HandleFunc("PUT /api/v1/agents/services", handleServiceReport(configuration.enrollmentAuthority, configuration.serviceInventory))
 		}
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
@@ -255,6 +269,53 @@ func handleTelemetryHistory(service *telemetry.Service) http.HandlerFunc {
 			Latest  *telemetry.Sample  `json:"latest"`
 			Samples []telemetry.Sample `json:"samples"`
 		}{Latest: latest, Samples: samples})
+	}
+}
+
+func handleServiceReport(authority *enrollment.Authority, service *serviceinventory.Manager) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
+			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		agentID, err := authority.Authenticate(request.TLS.PeerCertificates[0])
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+			return
+		}
+		var snapshot serviceinventory.Snapshot
+		if err := decodeJSON(response, request, &snapshot); err != nil {
+			return
+		}
+		if err := service.Report(request.Context(), agentID, snapshot); errors.Is(err, serviceinventory.ErrInvalidSnapshot) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		} else if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		response.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func handleListServices(service *serviceinventory.Manager) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		filter := serviceinventory.Filter{
+			State: serviceinventory.State(request.URL.Query().Get("state")),
+			Query: request.URL.Query().Get("q"),
+		}
+		services, err := service.List(request.Context(), request.PathValue("agentID"), filter)
+		if errors.Is(err, serviceinventory.ErrInvalidSnapshot) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Services []serviceinventory.Service `json:"services"`
+		}{Services: services})
 	}
 }
 

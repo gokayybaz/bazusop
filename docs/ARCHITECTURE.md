@@ -20,7 +20,9 @@
    sertifikadan çıkarılır.
 4. Inventory raporu PostgreSQL’de agent ID üzerinden upsert edilir.
 5. Telemetry örneği `(agent_id, recorded_at)` anahtarıyla idempotent yazılır.
-6. UI fleet ve zaman serisini salt-okunur API uçlarından alır.
+6. Servis snapshot'ı ortak durum modeline çevrilir ve önceki snapshot'ı transaction
+   içinde atomik olarak değiştirir.
+7. UI filo, zaman serisi ve servis listesini salt-okunur API uçlarından alır.
 
 ## Saklama modeli
 
@@ -28,6 +30,11 @@
 tablosunun primary key’i agent ve timestamp bileşimidir. Timescale etkinleştirildiğinde
 `recorded_at` partition anahtarıyla hypertable’a dönüştürülür ve 30 günlük retention
 policy uygulanır.
+
+`services` tablosu `(agent_id, name)` anahtarıyla son bilinen snapshot'ı tutar.
+Snapshot yenilenirken aynı agent'ın eski satırları ve yeni satırları tek transaction
+içinde değiştirilir; okuyucu kısmi liste görmez. State ve startup type alanları
+systemd ile Windows Service Manager farklarını ortak modele indirger.
 
 ## Ölçekleme
 

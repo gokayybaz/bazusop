@@ -54,6 +54,9 @@ bir TLS Secret’tan read-only mount edilir.
   başlamaz; logdaki `could not initialize PostgreSQL inventory store` mesajını ve
   bağlantı/extension yetkilerini kontrol et.
 - Telemetry yazımı `400` dönüyorsa timestamp ve `0–100` yüzde sınırlarını kontrol et.
+- Servis snapshot'ı `500` dönüyorsa agent'ın önce envanter raporu gönderdiğini ve
+  `hosts` kaydının bulunduğunu kontrol et. `400` için servis state/startup type
+  eşlemesini ve 5000 kayıt sınırını kontrol et.
 - Agent yazma uçları `401` dönüyorsa client certificate chain, süre ve SPIFFE URI
   SAN değerini kontrol et.
 - `426` enrollment yanıtı, uzak isteğin TLS olmadan geldiğini gösterir.

@@ -75,6 +75,14 @@ describe("bazUSOP shell", () => {
 		  { recorded_at: "2026-09-11T04:05:00Z", cpu_percent: 47.8, memory_percent: 63.4, disk_percent: 71.1, network_rx_bytes: 2048, network_tx_bytes: 1024 },
 		],
 	  }),
+	} as Response).mockResolvedValueOnce({
+	  ok: true,
+	  json: async () => ({
+		services: [
+		  { agent_id: "agent-01", name: "nginx.service", display_name: "NGINX Web Server", state: "running", startup_type: "automatic", observed_at: "2026-09-11T04:05:00Z" },
+		  { agent_id: "agent-01", name: "queue-worker.service", display_name: "Queue Worker", state: "failed", startup_type: "automatic", observed_at: "2026-09-11T04:05:00Z" },
+		],
+	  }),
 	} as Response)
 
 	render(<App />)
@@ -89,5 +97,12 @@ describe("bazUSOP shell", () => {
 	expect(await screen.findByRole("region", { name: "edge-01.example.com telemetrisi" })).toBeInTheDocument()
 	expect(screen.getByText("47.8%")).toBeInTheDocument()
 	expect(screen.getByRole("img", { name: "Son 24 saat CPU ve bellek kullanımı" })).toBeInTheDocument()
+	expect(await screen.findByRole("region", { name: "edge-01.example.com servisleri" })).toBeInTheDocument()
+	expect(screen.getByText("NGINX Web Server")).toBeInTheDocument()
+	expect(screen.getByText("Queue Worker")).toBeInTheDocument()
+
+	fireEvent.click(screen.getByRole("button", { name: "Başarısız servisleri göster" }))
+	expect(screen.queryByText("NGINX Web Server")).not.toBeInTheDocument()
+	expect(screen.getByText("Queue Worker")).toBeInTheDocument()
   })
 })

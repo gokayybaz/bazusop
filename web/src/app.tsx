@@ -62,12 +62,23 @@ type TelemetryPayload = {
   samples: TelemetrySample[]
 }
 
+type ManagedService = {
+  agent_id: string
+  name: string
+  display_name: string
+  state: "running" | "stopped" | "failed" | "unknown"
+  startup_type: "automatic" | "manual" | "disabled" | "unknown"
+  observed_at: string
+}
+
 export function App() {
   const [instances, setInstances] = useState<InventoryInstance[]>([])
   const [inventoryState, setInventoryState] = useState<"loading" | "ready" | "error">("loading")
   const [selectedInstance, setSelectedInstance] = useState<InventoryInstance | null>(null)
   const [telemetry, setTelemetry] = useState<TelemetryPayload | null>(null)
   const [telemetryState, setTelemetryState] = useState<"idle" | "loading" | "ready" | "error">("idle")
+  const [services, setServices] = useState<ManagedService[]>([])
+  const [serviceState, setServiceState] = useState<"idle" | "loading" | "ready" | "error">("idle")
 
   useEffect(() => {
     const controller = new AbortController()
@@ -93,6 +104,8 @@ export function App() {
     setSelectedInstance(instance)
     setTelemetry(null)
     setTelemetryState("loading")
+    setServices([])
+    setServiceState("loading")
     fetch(`/api/v1/instances/${encodeURIComponent(instance.agent_id)}/telemetry?limit=288`)
       .then((response) => {
         if (!response.ok) throw new Error("telemetry unavailable")
@@ -103,6 +116,16 @@ export function App() {
         setTelemetryState("ready")
       })
       .catch(() => setTelemetryState("error"))
+    fetch(`/api/v1/instances/${encodeURIComponent(instance.agent_id)}/services`)
+      .then((response) => {
+        if (!response.ok) throw new Error("service inventory unavailable")
+        return response.json() as Promise<{ services: ManagedService[] }>
+      })
+      .then((payload) => {
+        setServices(payload.services)
+        setServiceState("ready")
+      })
+      .catch(() => setServiceState("error"))
   }
 
   return (
@@ -215,12 +238,15 @@ export function App() {
             </Card>
 
             {selectedInstance ? (
-              <TelemetryPanel
-                instance={selectedInstance}
-                onClose={() => setSelectedInstance(null)}
-                payload={telemetry}
-                state={telemetryState}
-              />
+              <>
+                <TelemetryPanel
+                  instance={selectedInstance}
+                  onClose={() => setSelectedInstance(null)}
+                  payload={telemetry}
+                  state={telemetryState}
+                />
+                <ServicesPanel key={selectedInstance.agent_id} instance={selectedInstance} services={services} state={serviceState} />
+              </>
             ) : null}
           </div>
         </main>
@@ -340,4 +366,78 @@ function formatBytes(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KiB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MiB`
+}
+
+type ServiceFilter = "all" | ManagedService["state"]
+
+function ServicesPanel({ instance, services, state }: {
+  instance: InventoryInstance
+  services: ManagedService[]
+  state: "idle" | "loading" | "ready" | "error"
+}) {
+  const [filter, setFilter] = useState<ServiceFilter>("all")
+  const [query, setQuery] = useState("")
+  const normalizedQuery = query.trim().toLocaleLowerCase("tr-TR")
+  const visibleServices = services.filter((service) => {
+    const matchesState = filter === "all" || service.state === filter
+    const searchable = `${service.name} ${service.display_name}`.toLocaleLowerCase("tr-TR")
+    return matchesState && (normalizedQuery === "" || searchable.includes(normalizedQuery))
+  })
+  const failedCount = services.filter((service) => service.state === "failed").length
+
+  return (
+    <Card aria-label={`${instance.hostname} servisleri`} className="services-card">
+      <div className="card-header services-header">
+        <div><h2>Servis envanteri</h2><p>{instance.hostname} · {services.length} servis · {failedCount} başarısız</p></div>
+        <label className="service-search">
+          <Search aria-hidden="true" size={15} />
+          <span className="sr-only">Servislerde ara</span>
+          <input aria-label="Servislerde ara" onChange={(event) => setQuery(event.target.value)} placeholder="Servis ara…" type="search" value={query} />
+        </label>
+      </div>
+      <div aria-label="Servis durumu filtresi" className="service-filters" role="group">
+        <ServiceFilterButton active={filter === "all"} label="Tümü" onClick={() => setFilter("all")} />
+        <ServiceFilterButton active={filter === "running"} label="Çalışıyor" onClick={() => setFilter("running")} />
+        <ServiceFilterButton active={filter === "stopped"} label="Durduruldu" onClick={() => setFilter("stopped")} />
+        <ServiceFilterButton active={filter === "failed"} label="Başarısız" onClick={() => setFilter("failed")} accessibleLabel="Başarısız servisleri göster" />
+      </div>
+      {state === "loading" ? <div className="service-state">Servis envanteri yükleniyor…</div> : null}
+      {state === "error" ? <div className="service-state">Servis envanterine şu anda ulaşılamıyor.</div> : null}
+      {state === "ready" && visibleServices.length === 0 ? <div className="service-state">Bu filtreyle eşleşen servis yok.</div> : null}
+      {state === "ready" && visibleServices.length > 0 ? (
+        <div className="table-scroll">
+          <table aria-label={`${instance.hostname} servis listesi`}>
+            <thead><tr><th>Servis</th><th>Durum</th><th>Başlangıç</th><th>Son gözlem</th></tr></thead>
+            <tbody>
+              {visibleServices.map((service) => (
+                <tr key={service.name}>
+                  <td><strong className="service-name">{service.display_name || service.name}</strong><small className="cell-meta">{service.name}</small></td>
+                  <td><Badge className={`service-badge ${service.state}`}><span className="status-dot" />{serviceStateLabel(service.state)}</Badge></td>
+                  <td>{startupTypeLabel(service.startup_type)}</td>
+                  <td className="mono muted">{formatLastSeen(service.observed_at)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : null}
+    </Card>
+  )
+}
+
+function ServiceFilterButton({ active, label, onClick, accessibleLabel }: {
+  active: boolean
+  label: string
+  onClick: () => void
+  accessibleLabel?: string
+}) {
+  return <button aria-label={accessibleLabel} aria-pressed={active} className={active ? "service-filter active" : "service-filter"} onClick={onClick} type="button">{label}</button>
+}
+
+function serviceStateLabel(state: ManagedService["state"]) {
+  return { running: "Çalışıyor", stopped: "Durduruldu", failed: "Başarısız", unknown: "Bilinmiyor" }[state]
+}
+
+function startupTypeLabel(startupType: ManagedService["startup_type"]) {
+  return { automatic: "Otomatik", manual: "Manuel", disabled: "Devre dışı", unknown: "Bilinmiyor" }[startupType]
 }
