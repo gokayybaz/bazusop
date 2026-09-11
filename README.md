@@ -2,83 +2,100 @@
 
 **Unified Server Operations Platform**
 
-bazUSOP is an agent–hub platform for monitoring and operating Linux and
-Windows servers from one control plane.
+bazUSOP, Linux ve Windows sunucularını tek kontrol düzleminden izlemek ve
+yönetmek için geliştirilen agent–hub platformudur. Ürünün ana dili Türkçedir;
+API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngilizce tutulur.
 
-## Development
+## Mevcut yetenekler
+
+- React arayüzü Go hub binary'sine gömülür; dağıtım için tek çalıştırılabilir
+  dosya yeterlidir.
+- Linux ve Windows agent'ları tek kullanımlık token ile kaydolur, hub CA'sının
+  imzaladığı kısa ömürlü mTLS kimliğiyle haberleşir.
+- Normalize edilmiş host envanteri PostgreSQL'de saklanır.
+- CPU, bellek, disk ve ağ telemetrisi PostgreSQL veya TimescaleDB'ye yazılır;
+  Timescale etkinse 30 günlük retention policy uygulanır.
+- Docker Compose geliştirme ortamı ve production odaklı Kubernetes/Helm chart'ı
+  bulunur.
+
+## Hızlı başlangıç
+
+Gereksinimler: Go 1.26+, Node.js 24+ ve npm.
 
 ```bash
 make test
 make build
-BAZUSOP_ENROLLMENT_TOKEN="replace-with-a-one-time-secret" ./bin/bazusop-hub
+BAZUSOP_ENROLLMENT_TOKEN="tek-kullanimlik-guclu-bir-secret" ./bin/bazusop-hub
 ```
 
-The React application is built first and embedded in the Go hub binary.
+React uygulaması önce derlenir, sonra Go hub binary'sine gömülür. Hub varsayılan
+olarak `http://127.0.0.1:8080` adresinden erişilebilir.
 
-Set `BAZUSOP_TLS_CERT_FILE` and `BAZUSOP_TLS_KEY_FILE` together to serve HTTPS.
-The hub then requests and verifies enrolled client certificates for mTLS renewal;
-TLS 1.3 is the minimum supported version.
-
-Set `DATABASE_URL` to a PostgreSQL connection string to persist normalized host
-inventory. The hub applies ordered embedded migrations at startup. Without this
-variable, a process-local in-memory store is used for development.
-
-## Agent enrollment
-
-`POST /api/v1/agents/enroll` exchanges a one-time bootstrap token and a signed
-PKCS#10 CSR for a 24-hour client certificate. The certificate carries a stable
-SPIFFE agent ID and is renewed through `POST /api/v1/agents/renew`, which only
-accepts the enrolled mTLS client identity. Linux and Windows are accepted as
-normalized operating-system families. Remote enrollment over plaintext HTTP is
-rejected; loopback HTTP remains available for local development.
-
-The current spike keeps the token-consumption state and certificate authority in
-the running hub process. Durable PostgreSQL-backed enrollment state and operator
-token issuance are the next hardening step before production use.
-
-Authenticated agents report host facts with `PUT /api/v1/agents/inventory`.
-Operators read the normalized fleet from `GET /api/v1/instances`.
-
-Agents send CPU, memory, disk and network samples to
-`POST /api/v1/agents/telemetry`. Instance history is available from
-`GET /api/v1/instances/{agent_id}/telemetry`. Set
-`BAZUSOP_TIMESCALE_ENABLED=true` when `DATABASE_URL` points to TimescaleDB;
-samples then use a hypertable with a 30-day retention policy.
-
-Detailed references:
-
-- [API contract](docs/API.md)
-- [Architecture](docs/ARCHITECTURE.md)
-- [Operations guide](docs/OPERATIONS.md)
-
-## Containers
-
-The production image is built in separate Node and Go stages, then runs as a
-non-root user with a read-only-compatible Alpine runtime and an image healthcheck.
+Tam geliştirme ortamını TimescaleDB ile başlatmak için:
 
 ```bash
+POSTGRES_PASSWORD=yerel-parola \
+BAZUSOP_ENROLLMENT_TOKEN=yerel-token \
 docker compose up --build
 ```
 
-Compose starts the hub and PostgreSQL 18, waits for database health and lets the
-hub apply its embedded migrations. Override `POSTGRES_PASSWORD`,
-`BAZUSOP_ENROLLMENT_TOKEN` and `BAZUSOP_PORT` outside local development.
+`BAZUSOP_PORT`, dışarı açılan hub portunu değiştirir. Compose verisi
+`postgres-data` volume'ünde kalıcıdır.
 
-## Kubernetes and Helm
+## Yapılandırma özeti
 
-The chart in `deploy/helm/bazusop` expects an existing Kubernetes Secret named
-`bazusop-secrets` with `database-url` and `enrollment-token` keys.
+| Değişken | Açıklama |
+| --- | --- |
+| `BAZUSOP_HTTP_ADDR` | Hub dinleme adresi; varsayılan `:8080` |
+| `BAZUSOP_ENROLLMENT_TOKEN` | İlk kayıt için tek kullanımlık bootstrap secret |
+| `DATABASE_URL` | PostgreSQL/TimescaleDB bağlantı dizesi |
+| `BAZUSOP_TIMESCALE_ENABLED` | `true` ise hypertable ve retention yapılandırılır |
+| `BAZUSOP_TLS_CERT_FILE` | Hub TLS sertifikasının yolu |
+| `BAZUSOP_TLS_KEY_FILE` | Hub TLS private key'inin yolu |
+
+TLS cert ve key birlikte verilmelidir. Hub TLS 1.3 kullanır ve kayıtlı client
+sertifikalarını mTLS için doğrular. `DATABASE_URL` verilmezse envanter ve telemetri
+yalnızca geliştirme amaçlı süreç içi bellekte tutulur.
+
+## Agent kayıt ve veri akışı
+
+`POST /api/v1/agents/enroll`, tek kullanımlık bootstrap token ve imzalı PKCS#10
+CSR karşılığında 24 saatlik client sertifikası üretir. Sertifika kararlı bir SPIFFE
+agent ID taşır. Yenileme `POST /api/v1/agents/renew` üzerinden mTLS ile yapılır.
+Uzak plaintext HTTP kayıt istekleri reddedilir; loopback HTTP yalnızca yerel
+geliştirme için açıktır.
+
+Kayıtlı agent'lar envanteri `PUT /api/v1/agents/inventory`, telemetriyi
+`POST /api/v1/agents/telemetry` ile raporlar. UI, filo listesini
+`GET /api/v1/instances`, zaman serisini
+`GET /api/v1/instances/{agent_id}/telemetry` üzerinden okur.
+
+Şu anda CA private key'i ve tüketilmiş bootstrap-token durumu hub sürecindedir.
+Bu nedenle enrollment trafiği için tek replika kullanılmalıdır; ortak KMS/Secret
+ve PostgreSQL tabanlı token durumu sonraki ölçek sertleştirmesinde ele alınacaktır.
+
+## Kubernetes ve Helm
+
+Chart, `database-url` ve `enrollment-token` anahtarlarını içeren mevcut bir
+`bazusop-secrets` Secret'ı bekler:
 
 ```bash
-helm upgrade --install bazusop deploy/helm/bazusop --namespace bazusop --create-namespace
+helm upgrade --install bazusop deploy/helm/bazusop \
+  --namespace bazusop --create-namespace
 ```
 
-The chart includes non-root and read-only container security, resource requests,
-readiness/liveness probes, rolling updates, topology spreading, a disruption
-budget and an optional autoscaling/v2 HPA. TLS can be mounted from an existing
-Secret with `tls.enabled=true`.
+Chart; non-root/read-only container güvenliği, resource request/limit,
+readiness/liveness probe, rolling update, topology spread, PDB ve isteğe bağlı
+`autoscaling/v2` HPA sağlar. Doğrudan hub TLS'i mevcut bir Secret'tan
+`tls.enabled=true` ile bağlanabilir.
 
-`replicaCount` defaults to one because the enrollment CA and token-consumption
-state are process-local in the current spike. PostgreSQL-backed inventory traffic
-is stateless and ready for replication, but HPA should remain disabled until the
-shared enrollment identity store lands in the scale hardening phase.
+## Dokümantasyon
+
+- [API sözleşmesi](docs/API.md)
+- [Mimari](docs/ARCHITECTURE.md)
+- [Operasyon rehberi](docs/OPERATIONS.md)
+- [Tasarım sistemi](docs/DESIGN.md)
+- [Teslimat yol haritası](docs/ROADMAP.md)
+
+Her spike TDD döngüsüyle ilerler: önce kırmızı kabul testi, ardından en küçük
+dikey dilim, refactor, tam test/build doğrulaması ve ayrı commit + push.

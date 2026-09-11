@@ -13,6 +13,7 @@ function initialTheme(): Theme {
 export function ThemeToggle() {
   const [theme, setTheme] = useState<Theme>(initialTheme)
   const nextTheme = theme === "graphite" ? "midnight" : "graphite"
+  const nextThemeLabel = nextTheme === "midnight" ? "Gece" : "Grafit"
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -22,10 +23,10 @@ export function ThemeToggle() {
 
   return (
     <button
-      aria-label={`Use ${nextTheme} theme`}
+      aria-label={`${nextThemeLabel} temasını kullan`}
       className="theme-toggle"
       onClick={() => setTheme(nextTheme)}
-      title={`Use ${nextTheme} theme`}
+      title={`${nextThemeLabel} temasını kullan`}
       type="button"
     >
       <span className="theme-toggle-track" aria-hidden="true">

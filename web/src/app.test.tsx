@@ -18,24 +18,24 @@ describe("bazUSOP shell", () => {
   it("presents the unified operations overview", () => {
     render(<App />)
 
-    expect(screen.getByRole("heading", { name: "Operations overview" })).toBeInTheDocument()
-    expect(screen.getByText("Instances")).toBeInTheDocument()
-    expect(screen.getByText("Average CPU")).toBeInTheDocument()
-    expect(screen.getByText("Open alerts")).toBeInTheDocument()
-    expect(screen.getByLabelText("Fleet summary").children).toHaveLength(3)
-    expect(screen.getByRole("region", { name: "Operational alerts" })).toBeInTheDocument()
-    expect(screen.getByRole("img", { name: "Fleet resource utilization over 24 hours" })).toBeInTheDocument()
-    expect(screen.getByRole("table", { name: "Instance health" })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Operasyon özeti" })).toBeInTheDocument()
+    expect(screen.getByText("Sunucular")).toBeInTheDocument()
+    expect(screen.getByText("Ortalama CPU")).toBeInTheDocument()
+    expect(screen.getByText("Açık alarmlar")).toBeInTheDocument()
+    expect(screen.getByLabelText("Filo özeti").children).toHaveLength(3)
+    expect(screen.getByRole("region", { name: "Operasyon alarmları" })).toBeInTheDocument()
+    expect(screen.getByRole("img", { name: "Son 24 saatte filo kaynak kullanımı" })).toBeInTheDocument()
+    expect(screen.getByRole("table", { name: "Sunucu sağlığı" })).toBeInTheDocument()
   })
 
   it("lets the operator select and persist a dark theme variant", () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Use midnight theme" }))
+    fireEvent.click(screen.getByRole("button", { name: "Gece temasını kullan" }))
 
     expect(document.documentElement.dataset.theme).toBe("midnight")
     expect(window.localStorage.getItem("bazusop-theme")).toBe("midnight")
-    expect(screen.getByRole("button", { name: "Use graphite theme" })).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Grafit temasını kullan" })).toBeInTheDocument()
   })
 
   it("renders enrolled instances returned by the inventory API", async () => {
@@ -81,7 +81,7 @@ describe("bazUSOP shell", () => {
 
 	expect(await screen.findByText("edge-01.example.com")).toBeInTheDocument()
 	expect(screen.getByText("Ubuntu 24.04")).toBeInTheDocument()
-	expect(screen.getByText("8 cores · 16 GiB")).toBeInTheDocument()
+	expect(screen.getByText("8 çekirdek · 16 GiB")).toBeInTheDocument()
 	expect(screen.getByText("10.0.0.8")).toBeInTheDocument()
 
 	fireEvent.click(screen.getByRole("button", { name: "edge-01.example.com ayrıntılarını aç" }))

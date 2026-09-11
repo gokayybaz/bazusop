@@ -1,17 +1,17 @@
 # bazUSOP Helm chart
 
-Create the application secret before installing the chart:
+Chart'ı kurmadan önce uygulama Secret'ını oluşturun:
 
 ```bash
 kubectl create namespace bazusop
 kubectl -n bazusop create secret generic bazusop-secrets \
   --from-literal=database-url='postgres://user:password@postgres.example/bazusop' \
-  --from-literal=enrollment-token='replace-with-a-random-one-time-secret'
+  --from-literal=enrollment-token='rastgele-tek-kullanimlik-guclu-bir-secret'
 helm upgrade --install bazusop . --namespace bazusop
 ```
 
-For direct hub TLS and agent mTLS, create a TLS secret and enable the chart's TLS
-mount:
+Doğrudan hub TLS'i ve agent mTLS'i için bir TLS Secret oluşturup mount'u
+etkinleştirin:
 
 ```bash
 kubectl -n bazusop create secret tls bazusop-tls --cert=hub.crt --key=hub.key
@@ -19,10 +19,10 @@ helm upgrade --install bazusop . --namespace bazusop \
   --set tls.enabled=true --set tls.existingSecret=bazusop-tls
 ```
 
-Keep `autoscaling.enabled=false` and one replica until enrollment CA and consumed
-bootstrap-token state are shared across replicas. Inventory endpoints are already
-stateless when `DATABASE_URL` points to PostgreSQL.
+Enrollment CA ve tüketilmiş bootstrap-token durumu replikalar arasında
+paylaşılana kadar `autoscaling.enabled=false` ve tek replika kullanın.
+`DATABASE_URL` PostgreSQL'e işaret ettiğinde envanter ve telemetri handler'ları
+süreç durumu taşımaz.
 
-Set `timescale.enabled=true` when the configured database provides the TimescaleDB
-extension. The hub then creates the telemetry hypertable and applies a 30-day
-retention policy during startup.
+Veritabanı TimescaleDB extension'ı sağlıyorsa `timescale.enabled=true` ayarlayın.
+Hub başlangıçta telemetri hypertable'ını ve 30 günlük retention policy'yi kurar.

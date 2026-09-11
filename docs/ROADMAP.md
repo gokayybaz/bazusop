@@ -1,35 +1,36 @@
-# Delivery roadmap
+# Teslimat yol haritası
 
-Every spike follows the same delivery loop:
+Her spike aynı teslimat döngüsünü izler:
 
-1. Write an executable acceptance test and observe it fail.
-2. Implement the smallest coherent vertical slice.
-3. Refactor while keeping the suite green.
-4. Run tests and production builds.
-5. Commit and push the completed spike.
+1. Çalıştırılabilir kabul testini yaz ve kırıldığını gözle.
+2. En küçük tutarlı dikey dilimi geliştir.
+3. Testleri yeşil tutarak refactor et.
+4. Tam testleri ve production build'lerini çalıştır.
+5. Tamamlanan spike'ı ayrı commit et ve pushla.
 
-## Spikes
+## Spike'lar
 
-| Spike | Outcome | Acceptance signal |
+| Spike | Çıktı | Kabul sinyali |
 | --- | --- | --- |
-| 0 — Foundation | Go hub, embedded React shell and CI-ready commands | Health API and product shell tests pass; one hub binary is produced |
-| 1 — Enrollment | Linux and Windows agents securely enroll with the hub | One-time token becomes a renewable agent identity |
-| 2 — Inventory | Agents report normalized host and operating-system facts | Enrolled hosts appear in the instance inventory |
-| 2.1 — Deployment baseline | Hub runs consistently on Docker and Kubernetes | Compose smoke test and Helm lint/render pass with health and scaling policies |
-| 3 — Telemetry | CPU, memory, disk and network samples reach TimescaleDB | Instance detail renders current and historical metrics |
-| 4 — Services | systemd and Windows Service state is collected | Services can be filtered and inspected per instance |
-| 5 — Logs | journald, file and Windows Event logs are searchable | Live tail and bounded historical search work |
-| 6 — Jobs | Approved operational actions run through signed jobs | Restart/reboot job has streamed output and a complete audit trail |
-| 7 — Alerting | Metric and availability rules create managed incidents | Alert lifecycle and maintenance windows are testable |
-| 8 — Cloud discovery | AWS, Azure and GCP inventory reconciles with agents | Provider instances and agent identities are linked safely |
-| 9 — Scale and release | Role-split hub, retention, packaging and upgrades | Load targets pass; deb/rpm/MSI/container artifacts are signed |
+| 0 — Temel | Go hub, gömülü React shell ve CI komutları | Sağlık API'si/UI testleri geçer; tek binary üretilir |
+| 1 — Kayıt | Linux ve Windows agent'ları hub'a güvenli kaydolur | Tek kullanımlık token yenilenebilir agent kimliğine dönüşür |
+| 2 — Envanter | Agent'lar normalize host ve OS bilgisi raporlar | Kayıtlı host'lar instance envanterinde görünür |
+| 2.1 — Dağıtım temeli | Hub Docker ve Kubernetes'te tutarlı çalışır | Compose smoke ve Helm lint/render kontrolleri geçer |
+| 3 — Telemetri | CPU, bellek, disk ve ağ örnekleri TimescaleDB'ye ulaşır | Instance detayı güncel ve geçmiş metrikleri gösterir |
+| 3.1 — Türkçe temel | UI ve dokümanlar Türkçe-öncelikli olur | Dil/erişilebilirlik sözleşmesi ve production build geçer |
+| 4 — Servisler | systemd ve Windows Service durumu toplanır | Servisler instance bazında filtrelenir ve incelenir |
+| 5 — Loglar | journald, dosya ve Windows Event logları aranır | Canlı tail ve sınırlı geçmiş arama çalışır |
+| 6 — İşler | Onaylı operasyon aksiyonları imzalı işler olarak çalışır | Restart/reboot çıktısı akar ve audit trail tamamlanır |
+| 7 — Alarm | Metrik/erişilebilirlik kuralları yönetilen olay üretir | Alarm yaşam döngüsü ve bakım pencereleri test edilir |
+| 8 — Bulut keşfi | AWS, Azure ve GCP envanteri agent'larla uzlaştırılır | Provider instance ile agent kimliği güvenle eşleşir |
+| 9 — Ölçek ve sürüm | Rol ayrımı, retention, paketleme ve yükseltme | Yük hedefleri geçer; deb/rpm/MSI/container imzalanır |
 
-## Architectural constraints
+## Mimari kısıtlar
 
-- Agents initiate outbound connections; no inbound agent port is required.
-- Agent identity uses mTLS after one-time enrollment.
-- The hub is a modular monolith and serves the embedded React application.
-- PostgreSQL owns relational state; TimescaleDB owns time-series samples.
-- Remote actions are allowlisted, attributable and auditable by default.
-- Hub replicas remain stateless for inventory traffic; shared enrollment CA and
-  token-consumption state are required before enrollment traffic is horizontally scaled.
+- Agent bağlantıyı dışarı doğru başlatır; inbound agent portu gerekmez.
+- Tek kullanımlık kayıttan sonra agent kimliği mTLS kullanır.
+- Hub modular monolith'tir ve gömülü React uygulamasını sunar.
+- İlişkisel durum PostgreSQL'in, zaman serileri TimescaleDB'nin sorumluluğudur.
+- Uzak aksiyonlar allowlist ile sınırlı, kimlikli ve denetlenebilir olmalıdır.
+- Ortak enrollment CA ve token-consumption durumu tamamlanmadan enrollment
+  trafiği yatay ölçeklenmez.

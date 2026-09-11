@@ -1,61 +1,63 @@
-# bazUSOP design system
+# bazUSOP tasarım sistemi
 
-## Product character
+## Ürün karakteri
 
-bazUSOP communicates technical reliability, operational control and calm under
-pressure. It is a working surface for infrastructure teams, not a social or
-entertainment product. The visual density resembles a simplified BI console:
-important state is visible immediately, while decoration stays quiet.
+bazUSOP; teknik güvenilirlik, operasyonel kontrol ve baskı altında sakinlik
+hissi verir. Sosyal veya eğlence ürünü değil, altyapı ekiplerinin yoğun kullandığı
+bir çalışma yüzeyidir. Kritik durum ilk bakışta anlaşılır; dekorasyon sessiz kalır.
 
-## Color system
+Arayüzün ve kullanıcı dokümantasyonunun ana dili Türkçedir. API yolları, JSON
+alanları, log anahtarları ve kod tanımlayıcıları İngilizce kalır. Gelecekteki
+İngilizce seçeneği aynı kavram sözlüğünü kullanan ayrı bir locale katmanı olarak
+eklenecek; yeni metinler bileşen davranışına gömülü varsayımlar üretmemelidir.
 
-Dark is the operational theme. Operators can select the neutral **Graphite**
-palette or the cooler **Midnight** palette; neither introduces a white canvas.
+## Renk sistemi
 
-| Token | Dark | Purpose |
+Karanlık tema operasyon yüzeyinin temelidir. Operatör nötr **Grafit** veya daha
+soğuk **Gece** paletini seçebilir; iki seçenek de beyaz canvas kullanmaz.
+
+| Token | Karanlık değer | Kullanım |
 | --- | --- | --- |
-| Background | `#121212` | Primary application canvas |
-| Card | `#1E1E1E` | Panels and KPI surfaces |
-| Border | `#2C2C2E` | Dividers, grids and table rows |
-| Data accent | `#00E5FF` | Primary charts, key values and actions |
-| Critical | `#FF453A` | Critical alerts and destructive state |
-| Healthy | `#32D74B` | Live and normal state |
-| Primary text | `#FFFFFF` | Titles and important values |
-| Secondary text | `#98989D` | Labels and metadata |
+| Arka plan | `#121212` | Ana uygulama yüzeyi |
+| Kart | `#1E1E1E` | Panel ve KPI yüzeyleri |
+| Çerçeve | `#2C2C2E` | Ayırıcı, grid ve tablo satırları |
+| Veri vurgusu | `#00E5FF` | Birincil grafik, değer ve aksiyon |
+| Kritik | `#FF453A` | Kritik alarm ve yıkıcı durum |
+| Sağlıklı | `#32D74B` | Canlı ve normal durum |
+| Birincil metin | `#FFFFFF` | Başlık ve önemli değer |
+| İkincil metin | `#98989D` | Etiket ve metadata |
 
-Accent colors are semantic and sparse. Cyan is reserved for data and active
-control, green for healthy/live state, amber for warnings and red for critical
-conditions. Pastel decoration is not part of the product language.
+Vurgu renkleri semantik ve seyrektir: cyan veri/aktif kontrol, yeşil sağlıklı
+durum, amber uyarı, kırmızı kritik durum içindir. Pastel dekorasyon kullanılmaz.
 
-## Typography
+## Tipografi
 
-- Interface and body: Inter/system sans, regular, 14px minimum.
-- Page title: Inter/system sans, semibold, 24–32px.
-- KPIs and machine values: JetBrains Mono/Fira Code/system mono, bold, 32px.
-- Secondary metadata may use 12–13px when it is not operationally critical.
+- Arayüz ve gövde: Inter/system sans, regular, en az 14px.
+- Sayfa başlığı: Inter/system sans, semibold, 24–32px.
+- KPI ve makine değerleri: JetBrains Mono/Fira Code/system mono, bold, 32px.
+- Operasyonel önemi düşük metadata 12–13px olabilir.
 
-## Geometry and spacing
+## Geometri ve boşluk
 
-- Use a 12-column responsive grid.
-- Space in 8px multiples: 8, 16, 24 and 32px.
-- Cards use a 16px radius, 20px internal padding and a subtle 1px border.
-- Tables use quiet row dividers and a `#252525` dark-theme hover surface.
-- The dashboard starts with three KPIs. The main workspace divides into an
-  eight-column operational view and a four-column alerts panel.
+- 12 kolonlu responsive grid kullanılır.
+- Boşluklar 8px katlarıdır: 8, 16, 24 ve 32px.
+- Kartlar 16px radius, 20px iç boşluk ve ince tam çevre çerçevesi kullanır.
+- Tablolarda sakin satır ayırıcıları ve `#252525` hover yüzeyi kullanılır.
+- Dashboard üç KPI ile başlar; ana alan sekiz kolon operasyon görünümü ve dört
+  kolon alarm paneline ayrılır.
 
-## Data visualization
+## Veri görselleştirme
 
-- Prefer area charts when showing volatile resource usage.
-- Use subtle `#2C2C2E` grid lines without heavy chart frames.
-- Use cyan for the primary series and green for healthy comparison or area fill.
-- Always pair color with text, shape or status labels; color is never the sole signal.
+- Değişken kaynak kullanımında area chart tercih edilir.
+- Ağır grafik çerçevesi yerine ince `#2C2C2E` grid çizgileri kullanılır.
+- Birincil seri cyan, sağlıklı karşılaştırma veya dolgu yeşildir.
+- Renk daima metin, şekil veya durum etiketiyle desteklenir; tek sinyal değildir.
 
-## Alerts and interaction
+## Alarm ve etkileşim kuralları
 
-- Colored leading borders are not used anywhere in the interface. Alert severity
-  is communicated with a restrained surface tint, a subtle full-perimeter border,
-  status text and icon color.
-- Motion uses 150–180ms easing and respects `prefers-reduced-motion`.
-- Focus, hover and selected states must remain distinguishable in both themes.
-- Operational actions use domain icons such as servers, terminals, services and
-  activity signals; decorative or metaphorically vague icons are avoided.
+- Renkli sol kenarlık hiçbir bileşende kullanılmaz. Önem derecesi sakin yüzey
+  tonu, ince tam çevre çerçevesi, durum metni ve ikon rengiyle anlatılır.
+- Hareket 150–180ms easing kullanır ve `prefers-reduced-motion` tercihine uyar.
+- Focus, hover ve seçili durumlar her iki temada da ayırt edilebilir olmalıdır.
+- Sunucu, terminal, servis ve aktivite gibi alan ikonları kullanılır; belirsiz
+  dekoratif ikonlardan kaçınılır.

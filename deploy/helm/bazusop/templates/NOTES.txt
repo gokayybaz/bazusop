@@ -1,4 +1,4 @@
-1. Forward the hub service locally:
+1. Hub servisini yerel makineye yönlendirin:
    kubectl port-forward service/{{ include "bazusop.fullname" . }} 8080:{{ .Values.service.port }}
 
-2. Open http://127.0.0.1:8080
+2. http://127.0.0.1:8080 adresini açın.
