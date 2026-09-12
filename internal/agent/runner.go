@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
@@ -15,6 +16,7 @@ type HubClient interface {
 	EnsureIdentity(context.Context, string, string) (Identity, error)
 	ReportInventory(context.Context, Identity, inventory.Facts) error
 	ReportTelemetry(context.Context, Identity, telemetry.Sample) error
+	ReportServices(context.Context, Identity, serviceinventory.Snapshot) error
 }
 
 type FactCollector interface {
@@ -25,10 +27,15 @@ type MetricCollector interface {
 	Collect() (telemetry.Sample, error)
 }
 
+type ManagedServiceCollector interface {
+	Collect(context.Context) (serviceinventory.Snapshot, error)
+}
+
 type Runner struct {
 	Hub             HubClient
 	Collector       FactCollector
 	Telemetry       MetricCollector
+	Services        ManagedServiceCollector
 	ReportInterval  time.Duration
 	Logger          *slog.Logger
 	Hostname        string
@@ -36,7 +43,7 @@ type Runner struct {
 }
 
 func (runner Runner) Run(ctx context.Context) error {
-	if runner.Hub == nil || runner.Collector == nil || runner.Telemetry == nil || runner.Logger == nil || runner.ReportInterval <= 0 {
+	if runner.Hub == nil || runner.Collector == nil || runner.Telemetry == nil || runner.Services == nil || runner.Logger == nil || runner.ReportInterval <= 0 {
 		return fmt.Errorf("agent runner is incomplete")
 	}
 	if err := runner.report(ctx); err != nil {
@@ -77,6 +84,14 @@ func (runner Runner) report(ctx context.Context) error {
 		reportErrors = append(reportErrors, err)
 	} else {
 		runner.Logger.Info("telemetry reported", "agent_id", identity.AgentID, "recorded_at", sample.RecordedAt)
+	}
+	serviceSnapshot, servicesErr := runner.Services.Collect(ctx)
+	if servicesErr != nil {
+		reportErrors = append(reportErrors, fmt.Errorf("collect managed services: %w", servicesErr))
+	} else if err := runner.Hub.ReportServices(ctx, identity, serviceSnapshot); err != nil {
+		reportErrors = append(reportErrors, err)
+	} else {
+		runner.Logger.Info("services reported", "agent_id", identity.AgentID, "observed_at", serviceSnapshot.ObservedAt, "count", len(serviceSnapshot.Services))
 	}
 	return errors.Join(reportErrors...)
 }

@@ -20,6 +20,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
@@ -119,6 +120,13 @@ func (client *Client) ReportInventory(ctx context.Context, identity Identity, fa
 func (client *Client) ReportTelemetry(ctx context.Context, identity Identity, sample telemetry.Sample) error {
 	if err := client.request(ctx, http.MethodPost, "/api/v1/agents/telemetry", sample, &identity, http.StatusNoContent, nil); err != nil {
 		return fmt.Errorf("report telemetry: %w", err)
+	}
+	return nil
+}
+
+func (client *Client) ReportServices(ctx context.Context, identity Identity, snapshot serviceinventory.Snapshot) error {
+	if err := client.request(ctx, http.MethodPut, "/api/v1/agents/services", snapshot, &identity, http.StatusNoContent, nil); err != nil {
+		return fmt.Errorf("report services: %w", err)
 	}
 	return nil
 }

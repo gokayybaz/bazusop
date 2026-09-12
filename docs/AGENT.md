@@ -2,8 +2,9 @@
 
 `bazusop-agent`, Linux veya Windows hostundan hub'a yalnız outbound HTTPS
 bağlantısı kurar. Host/OS/CPU/bellek/IP envanteriyle birlikte CPU kullanımı,
-bellek kullanımı, kök disk doluluğu ve toplam ağ byte sayaçlarını toplar. Servis,
-log ve uzak iş çalıştırıcıları ayrı spike'larda bu çalışma döngüsüne bağlanacaktır.
+bellek kullanımı, kök disk doluluğu, toplam ağ byte sayaçları ve yönetilen servis
+durumlarını toplar. Log ve uzak iş çalıştırıcıları ayrı spike'larda bu çalışma
+döngüsüne bağlanacaktır.
 
 ## Güvenli kayıt
 
@@ -83,13 +84,19 @@ geliştirme kolaylığıdır; envanter ucu mTLS istediğinden tam agent akışı
 TLS'i kullanılmalıdır.
 
 Agent başlangıçta hemen, ardından `BAZUSOP_AGENT_REPORT_INTERVAL` periyodunda
-envanter ve telemetri göndermeyi dener. CPU'nun ilk örneği boot'tan itibaren
+envanter, telemetri ve servis snapshot'ı göndermeyi dener. CPU'nun ilk örneği boot'tan itibaren
 ortalama kullanımdır; sonraki örnekler iki sistem sayacı arasındaki deltadan
 hesaplanır. Bellek kullanılabilir kapasiteden, disk işletim sisteminin kök
 volume'ünden hesaplanır; ağ alanları kümülatif alınan/gönderilen byte sayaçlarıdır.
 Bir collector hatası diğer rapor türünü engellemez. Hub geçici olarak
 erişilemiyorsa hata JSON loga yazılır; process kapanmadan aynı periyotta tekrar
 dener.
+
+Linux collector, `systemctl list-units` ve `list-unit-files` toplu çıktılarını
+birleştirir; her servis için ayrı process açmaz. Windows collector Service Control
+Manager'dan servis durumunu ve başlangıç tipini okur. Geçici durumlar `unknown`,
+başarısız Windows exit code'u veya systemd `failed` durumu `failed` olarak
+raporlanır. Snapshot hub'da önceki servis listesini atomik olarak değiştirir.
 
 `401` için sırasıyla client sertifika süresini, agent state dosyalarını, hub'ın
 agent CA durumunu ve reverse proxy'nin client sertifikasını hub'a kadar koruduğunu

@@ -14,17 +14,19 @@ import (
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/server"
+	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
-func TestClientEnrollsPersistsIdentityAndReportsInventoryOverMTLS(t *testing.T) {
+func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	authority, err := enrollment.NewAuthority("bootstrap-secret")
 	if err != nil {
 		t.Fatal(err)
 	}
 	inventoryService := inventory.NewService(inventory.NewMemoryStore())
 	telemetryService := telemetry.NewService(telemetry.NewMemoryStore())
-	handler := server.NewHandler(server.WithEnrollment(authority), server.WithInventory(inventoryService), server.WithTelemetry(telemetryService))
+	serviceInventory := serviceinventory.NewService(serviceinventory.NewMemoryStore())
+	handler := server.NewHandler(server.WithEnrollment(authority), server.WithInventory(inventoryService), server.WithTelemetry(telemetryService), server.WithServiceInventory(serviceInventory))
 
 	directory := t.TempDir()
 	configuration := Config{
@@ -63,6 +65,14 @@ func TestClientEnrollsPersistsIdentityAndReportsInventoryOverMTLS(t *testing.T) 
 	samples, err := telemetryService.History(context.Background(), identity.AgentID, recordedAt.Add(-time.Second), recordedAt.Add(time.Second), 10)
 	if err != nil || len(samples) != 1 || samples[0].CPUPercent != 12.5 {
 		t.Fatalf("expected reported telemetry, samples=%#v err=%v", samples, err)
+	}
+	serviceSnapshot := serviceinventory.Snapshot{ObservedAt: recordedAt, Services: []serviceinventory.Fact{{Name: "nginx.service", DisplayName: "NGINX", State: "running", StartupType: "automatic"}}}
+	if err := client.ReportServices(context.Background(), identity, serviceSnapshot); err != nil {
+		t.Fatalf("report services: %v", err)
+	}
+	services, err := serviceInventory.List(context.Background(), identity.AgentID, serviceinventory.Filter{})
+	if err != nil || len(services) != 1 || services[0].Name != "nginx.service" {
+		t.Fatalf("expected reported services, services=%#v err=%v", services, err)
 	}
 	loaded, err := NewIdentityStore(configuration.StateDir).Load()
 	if err != nil || loaded.AgentID != identity.AgentID {

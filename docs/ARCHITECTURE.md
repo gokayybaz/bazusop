@@ -6,8 +6,8 @@
   binary’den sunar.
 - **Agent:** Ayrı Go binary'si olarak Linux/Windows hostunda çalışır, tüm
   bağlantıları dışarı doğru başlatır. Ed25519 private key ve kısa ömürlü mTLS
-  sertifikasını yerel state dizininde korur; envanter ve host telemetrisini
-  başlangıçta ve periyodik gönderir.
+  sertifikasını yerel state dizininde korur; envanter, host telemetrisi ve
+  yönetilen servis snapshot'ını başlangıçta ve periyodik gönderir.
 - **PostgreSQL:** agent inventory ve diğer ilişkisel kontrol düzlemi verisinin
   kaynağıdır.
 - **TimescaleDB:** telemetry örneklerini PostgreSQL uyumlu hypertable üzerinde

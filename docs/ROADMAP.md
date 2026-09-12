@@ -32,6 +32,7 @@ Her spike aynı teslimat döngüsünü izler:
 | 10.2 — Ortak enrollment güven kökü | PostgreSQL'de kalıcı agent CA ve atomik tek-kullanımlık token kayıtları | Hub restart'ı agent kimliğini bozmaz; iki replika aynı CA'yı kullanır ve token yalnız bir kez tüketilir |
 | 10.3 — Native agent servisi | Linux deb/rpm ve Windows MSI ile yönetilen agent yaşam döngüsü | systemd/Windows Service otomatik başlangıca kurulur; kimlik dizini korunur; üç hedefin paketleri üretilir |
 | 10.4 — Gerçek agent telemetrisi | Linux/Windows agent CPU, bellek, kök disk ve ağ sayaçlarını periyodik gönderir | İlk örnek hemen ulaşır; CPU sonraki örneklerde sayaç deltasıdır; envanter hatası telemetriyi durdurmaz |
+| 10.5 — Gerçek servis envanteri | Agent systemd ve Windows SCM servislerini ortak modele taşır | Runtime/startup durumu ilk çevrimde mTLS ile görünür; collector hataları diğer raporları durdurmaz |
 
 ## Mimari kısıtlar
 

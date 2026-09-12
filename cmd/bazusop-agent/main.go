@@ -39,6 +39,7 @@ func main() {
 	runner := agent.Runner{
 		Hub: client, Collector: agent.NewCollector(buildIdentity.Version),
 		Telemetry:      agent.NewTelemetryCollector(),
+		Services:       agent.NewServiceCollector(),
 		ReportInterval: configuration.ReportInterval, Logger: logger,
 		Hostname: hostname, OperatingSystem: runtime.GOOS,
 	}
