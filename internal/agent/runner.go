@@ -35,7 +35,7 @@ type ManagedServiceCollector interface {
 
 type HostLogCollector interface {
 	Collect(context.Context) (logstream.Batch, error)
-	Commit()
+	Commit() error
 }
 
 type AgentJobProcessor interface {
@@ -113,11 +113,16 @@ func (runner Runner) report(ctx context.Context) error {
 		if err := runner.Hub.ReportLogs(ctx, identity, logBatch); err != nil {
 			reportErrors = append(reportErrors, err)
 		} else {
-			runner.Logs.Commit()
-			runner.Logger.Info("logs reported", "agent_id", identity.AgentID, "count", len(logBatch.Entries))
+			if err := runner.Logs.Commit(); err != nil {
+				reportErrors = append(reportErrors, err)
+			} else {
+				runner.Logger.Info("logs reported", "agent_id", identity.AgentID, "count", len(logBatch.Entries))
+			}
 		}
 	} else {
-		runner.Logs.Commit()
+		if err := runner.Logs.Commit(); err != nil {
+			reportErrors = append(reportErrors, err)
+		}
 	}
 	if err := runner.Jobs.ProcessNext(ctx, identity); err != nil {
 		reportErrors = append(reportErrors, fmt.Errorf("process remote job: %w", err))

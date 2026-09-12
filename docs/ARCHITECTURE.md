@@ -48,8 +48,10 @@ saklar ve systemd restart sonrası sağlık ucu başarısızsa atomik rollback u
 6. Servis snapshot'ı ortak durum modeline çevrilir ve önceki snapshot'ı transaction
    içinde atomik olarak değiştirir.
 7. Agent platform loglarını ortak önem modeline çevirir; batch cursor'u yalnız
-   hub kabulünden sonra ilerler. Hub'da log batch'i ve PostgreSQL notification
-   sinyali atomik commit edilir; her hub
+   hub kabulünden sonra state dizinine atomik checkpoint olarak yazar. Native
+   kaynak kimliğiyle türetilen kararlı log ID'si yeniden gönderimi idempotent
+   yapar. Hub'da yalnız yeni loglar ve PostgreSQL notification sinyali atomik
+   commit edilir; her hub
    replikası kalıcı kayıtları agent'a özel SSE abonelerine yayınlar.
 8. UI filo, zaman serisi, servis listesi ve logları salt-okunur API uçlarından alır.
 9. Operatör bearer token ile izinli bir restart/reboot talebi oluşturur; hub işin

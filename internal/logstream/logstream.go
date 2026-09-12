@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 )
 
 var ErrInvalidLogs = errors.New("invalid logs")
+var entryIDPattern = regexp.MustCompile(`^[a-f0-9]{32}$`)
 
 const (
 	MaxBatchEntries      = 1000
@@ -44,6 +46,7 @@ type Entry struct {
 	Source     string    `json:"source"`
 	Severity   Severity  `json:"severity"`
 	Message    string    `json:"message"`
+	SourceID   string    `json:"-"`
 }
 
 type Batch struct {
@@ -62,7 +65,7 @@ type Query struct {
 }
 
 type Store interface {
-	AppendLogs(context.Context, []Entry) error
+	AppendLogs(context.Context, []Entry) ([]Entry, error)
 	SearchLogs(context.Context, Query) ([]Entry, error)
 }
 
@@ -96,20 +99,27 @@ func (service *Service) Ingest(ctx context.Context, agentID string, batch Batch)
 		if candidate.OccurredAt.IsZero() || !collectorValid || !severityValid || source == "" || len(source) > 512 || message == "" || len(message) > 64*1024 {
 			return ErrInvalidLogs
 		}
-		id, err := newID()
-		if err != nil {
-			return err
+		id := strings.TrimSpace(candidate.ID)
+		if id == "" {
+			var err error
+			id, err = newID()
+			if err != nil {
+				return err
+			}
+		} else if !entryIDPattern.MatchString(id) {
+			return ErrInvalidLogs
 		}
 		entries = append(entries, Entry{
 			ID: id, AgentID: agentID, OccurredAt: candidate.OccurredAt.UTC(),
 			Collector: collector, Source: source, Severity: severity, Message: message,
 		})
 	}
-	if err := service.store.AppendLogs(ctx, entries); err != nil {
+	stored, err := service.store.AppendLogs(ctx, entries)
+	if err != nil {
 		return err
 	}
 	if _, shared := service.store.(SharedLiveStore); !shared {
-		for _, entry := range entries {
+		for _, entry := range stored {
 			service.publish(entry)
 		}
 	}
@@ -225,12 +235,25 @@ type MemoryStore struct {
 
 func NewMemoryStore() *MemoryStore { return &MemoryStore{entries: make(map[string][]Entry)} }
 
-func (store *MemoryStore) AppendLogs(_ context.Context, entries []Entry) error {
+func (store *MemoryStore) AppendLogs(_ context.Context, entries []Entry) ([]Entry, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	affected := make(map[string]struct{})
+	existingKeys := make(map[string]struct{})
+	for _, values := range store.entries {
+		for _, entry := range values {
+			existingKeys[entry.ID+"\x00"+entry.OccurredAt.UTC().Format(time.RFC3339Nano)] = struct{}{}
+		}
+	}
+	stored := make([]Entry, 0, len(entries))
 	for _, entry := range entries {
+		key := entry.ID + "\x00" + entry.OccurredAt.UTC().Format(time.RFC3339Nano)
+		if _, duplicate := existingKeys[key]; duplicate {
+			continue
+		}
+		existingKeys[key] = struct{}{}
 		store.entries[entry.AgentID] = append(store.entries[entry.AgentID], entry)
+		stored = append(stored, entry)
 		affected[entry.AgentID] = struct{}{}
 	}
 	for agentID := range affected {
@@ -246,7 +269,7 @@ func (store *MemoryStore) AppendLogs(_ context.Context, entries []Entry) error {
 		}
 		store.entries[agentID] = values
 	}
-	return nil
+	return stored, nil
 }
 
 func (store *MemoryStore) SearchLogs(_ context.Context, query Query) ([]Entry, error) {

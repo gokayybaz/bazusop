@@ -210,7 +210,7 @@ func (collector fakeLogCollector) Collect(context.Context) (logstream.Batch, err
 	return collector.batch, collector.err
 }
 
-func (fakeLogCollector) Commit() {}
+func (fakeLogCollector) Commit() error { return nil }
 
 type fakeJobProcessor struct {
 	processed chan Identity

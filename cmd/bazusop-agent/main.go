@@ -40,7 +40,7 @@ func main() {
 		Hub: client, Collector: agent.NewCollector(buildIdentity.Version),
 		Telemetry:      agent.NewTelemetryCollector(),
 		Services:       agent.NewServiceCollector(),
-		Logs:           agent.NewLogCollector(configuration.ReportInterval),
+		Logs:           agent.NewLogCollector(configuration.ReportInterval, agent.NewFileLogCheckpointStore(configuration.StateDir)),
 		Jobs:           agent.NewJobExecutor(client, agent.NewFileJobStateStore(configuration.StateDir)),
 		ReportInterval: configuration.ReportInterval, Logger: logger,
 		Hostname: hostname, OperatingSystem: runtime.GOOS,

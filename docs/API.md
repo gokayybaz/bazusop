@@ -177,6 +177,7 @@ mTLS gerekir. Tek istekte 1–1000 kayıt kabul edilir; her mesaj en fazla 64 Ki
 {
   "entries": [
     {
+      "id": "9c21909f341ed320b44c738f4eecb3d7",
       "occurred_at": "2026-09-11T05:10:00Z",
       "collector": "journald",
       "source": "nginx.service",
@@ -189,8 +190,11 @@ mTLS gerekir. Tek istekte 1–1000 kayıt kabul edilir; her mesaj en fazla 64 Ki
 
 `collector`; `journald`, `file` veya `windows_event` olur. Önem derecesi
 `debug`, `info`, `warn`, `error` veya `critical` ortak değerine normalize edilir.
-Hub her kayda benzersiz `id` ve doğrulanmış sertifikadan `agent_id` ekler. Başarı
-`204`, geçersiz batch `400` döner.
+Agent `id` alanına 32 karakterlik küçük harf hex kararlı kimlik gönderir; eski
+istemciler alanı bırakırsa hub benzersiz kimlik üretir. Hub doğrulanmış
+sertifikadan `agent_id` ekler. Aynı `(id, occurred_at)` yeniden gönderimi başarılı
+bir no-op'tur ve canlı akışta tekrar yayımlanmaz. Başarı `204`, geçersiz batch
+`400` döner.
 
 ### `GET /api/v1/instances/{agent_id}/logs`
 

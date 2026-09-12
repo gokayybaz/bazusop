@@ -18,18 +18,39 @@ func newSharedTestStore() *sharedTestStore {
 	return &sharedTestStore{MemoryStore: NewMemoryStore(), subscribers: make(map[string][]chan Entry)}
 }
 
-func (store *sharedTestStore) AppendLogs(ctx context.Context, entries []Entry) error {
-	if err := store.MemoryStore.AppendLogs(ctx, entries); err != nil {
-		return err
+func (store *sharedTestStore) AppendLogs(ctx context.Context, entries []Entry) ([]Entry, error) {
+	stored, err := store.MemoryStore.AppendLogs(ctx, entries)
+	if err != nil {
+		return nil, err
 	}
 	store.mu.RLock()
 	defer store.mu.RUnlock()
-	for _, entry := range entries {
+	for _, entry := range stored {
 		for _, subscriber := range store.subscribers[entry.AgentID] {
 			subscriber <- entry
 		}
 	}
-	return nil
+	return stored, nil
+}
+
+func TestIngestWithStableIDIsIdempotentForHistoryAndLiveStream(t *testing.T) {
+	manager := NewService(NewMemoryStore())
+	stream, err := manager.Subscribe(t.Context(), "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().UTC()
+	batch := Batch{Entries: []Entry{{ID: "0123456789abcdef0123456789abcdef", OccurredAt: now, Collector: "journald", Source: "app.service", Severity: "info", Message: "started"}}}
+	if err := manager.Ingest(t.Context(), "agent-01", batch); err != nil {
+		t.Fatal(err)
+	}
+	if err := manager.Ingest(t.Context(), "agent-01", batch); err != nil {
+		t.Fatalf("duplicate ingest: %v", err)
+	}
+	entries, err := manager.Search(t.Context(), Query{AgentID: "agent-01", From: now.Add(-time.Second), To: now.Add(time.Second), Limit: 10})
+	if err != nil || len(entries) != 1 || len(stream) != 1 {
+		t.Fatalf("duplicate was stored or published: entries=%#v live=%d err=%v", entries, len(stream), err)
+	}
 }
 
 func (store *sharedTestStore) SubscribeLogs(ctx context.Context, agentID string) (<-chan Entry, error) {
@@ -161,6 +182,9 @@ func TestIngestAndSearchRejectInvalidInputs(t *testing.T) {
 	manager := NewService(NewMemoryStore())
 	if err := manager.Ingest(context.Background(), "agent-01", Batch{Entries: []Entry{{Collector: "syslog", Severity: "loud"}}}); !errors.Is(err, ErrInvalidLogs) {
 		t.Fatalf("expected invalid batch, got %v", err)
+	}
+	if err := manager.Ingest(context.Background(), "agent-01", Batch{Entries: []Entry{{ID: "not-a-stable-id", OccurredAt: time.Now(), Collector: "file", Source: "app.log", Severity: "info", Message: "started"}}}); !errors.Is(err, ErrInvalidLogs) {
+		t.Fatalf("expected invalid entry ID, got %v", err)
 	}
 	if _, err := manager.Search(context.Background(), Query{AgentID: "agent-01", From: time.Now(), To: time.Now().Add(-time.Minute), Limit: 10}); !errors.Is(err, ErrInvalidLogs) {
 		t.Fatalf("expected invalid query, got %v", err)

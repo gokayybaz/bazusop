@@ -5,9 +5,11 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"crypto/x509/pkix"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -135,6 +137,11 @@ func (client *Client) ReportServices(ctx context.Context, identity Identity, sna
 }
 
 func (client *Client) ReportLogs(ctx context.Context, identity Identity, batch logstream.Batch) error {
+	entries := append([]logstream.Entry(nil), batch.Entries...)
+	for index := range entries {
+		entries[index].ID = deterministicLogID(identity.AgentID, entries[index])
+	}
+	batch.Entries = entries
 	batches, err := splitLogBatch(batch)
 	if err != nil {
 		return err
@@ -145,6 +152,12 @@ func (client *Client) ReportLogs(ctx context.Context, identity Identity, batch l
 		}
 	}
 	return nil
+}
+
+func deterministicLogID(agentID string, entry logstream.Entry) string {
+	digest := sha256.New()
+	_, _ = fmt.Fprintf(digest, "%s\x00%s\x00%s\x00%s\x00%s\x00%s\x00%s", agentID, entry.SourceID, entry.OccurredAt.UTC().Format(time.RFC3339Nano), entry.Collector, entry.Source, entry.Severity, entry.Message)
+	return hex.EncodeToString(digest.Sum(nil)[:16])
 }
 
 func (client *Client) ClaimNextJob(ctx context.Context, identity Identity) (*jobs.Job, error) {

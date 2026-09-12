@@ -403,37 +403,38 @@ func (store *Store) ListServices(ctx context.Context, agentID string, filter ser
 	return services, nil
 }
 
-func (store *Store) AppendLogs(ctx context.Context, entries []logstream.Entry) error {
+func (store *Store) AppendLogs(ctx context.Context, entries []logstream.Entry) ([]logstream.Entry, error) {
 	transaction, err := store.pool.Begin(ctx)
 	if err != nil {
-		return fmt.Errorf("begin log batch: %w", err)
+		return nil, fmt.Errorf("begin log batch: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
-	rows := make([][]any, 0, len(entries))
+	stored := make([]logstream.Entry, 0, len(entries))
 	for _, entry := range entries {
-		rows = append(rows, []any{entry.ID, entry.AgentID, entry.OccurredAt, entry.Collector, entry.Source, entry.Severity, entry.Message})
+		tag, err := transaction.Exec(ctx, `
+			INSERT INTO log_entries (id,agent_id,occurred_at,collector,source,severity,message)
+			VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id,occurred_at) DO NOTHING`,
+			entry.ID, entry.AgentID, entry.OccurredAt, entry.Collector, entry.Source, entry.Severity, entry.Message)
+		if err != nil {
+			return nil, fmt.Errorf("append log entry: %w", err)
+		}
+		if tag.RowsAffected() == 1 {
+			stored = append(stored, entry)
+		}
 	}
-	if _, err := transaction.CopyFrom(
-		ctx,
-		pgx.Identifier{"log_entries"},
-		[]string{"id", "agent_id", "occurred_at", "collector", "source", "severity", "message"},
-		pgx.CopyFromRows(rows),
-	); err != nil {
-		return fmt.Errorf("append log batch: %w", err)
-	}
-	payloads, err := encodeLogNotificationBatches(entries)
+	payloads, err := encodeLogNotificationBatches(stored)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for _, payload := range payloads {
 		if _, err := transaction.Exec(ctx, "SELECT pg_notify($1, $2)", logNotificationChannel, payload); err != nil {
-			return fmt.Errorf("notify live log batch: %w", err)
+			return nil, fmt.Errorf("notify live log batch: %w", err)
 		}
 	}
 	if err := transaction.Commit(ctx); err != nil {
-		return fmt.Errorf("commit log batch: %w", err)
+		return nil, fmt.Errorf("commit log batch: %w", err)
 	}
-	return nil
+	return stored, nil
 }
 
 func encodeLogNotificationBatches(entries []logstream.Entry) ([]string, error) {

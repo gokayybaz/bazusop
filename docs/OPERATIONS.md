@@ -89,7 +89,9 @@ başlatmaz.
 Agent deb/rpm paketi `/etc/bazusop/agent.env` mevcut değilken servisi başlatmaz,
 ancak boot için etkinleştirir. Dosyayı root sahipliğinde `0600` izinle hazırlayıp
 `systemctl start bazusop-agent` çalıştırın. Agent state dizini `0700` olarak
-korunur ve paket kaldırıldığında silinmez. Windows agent MSI otomatik başlangıçlı
+korunur ve paket kaldırıldığında silinmez. Kimlik dosyalarıyla birlikte
+`log-checkpoint.json` da restart sonrası log devamlılığı için korunmalı ve başka
+bir agent kimliğiyle paylaşılmamalıdır. Windows agent MSI otomatik başlangıçlı
 `bazusop-agent` servisini kaydeder; makine kapsamlı agent ortam değişkenleri
 tanımlandıktan sonra servis elle ilk kez başlatılır.
 

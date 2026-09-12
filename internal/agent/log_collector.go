@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,20 +18,26 @@ import (
 )
 
 type LogCollector struct {
-	mu      sync.Mutex
-	collect func(context.Context, time.Time, time.Time, int) ([]logstream.Entry, error)
-	now     func() time.Time
-	cursor  time.Time
-	pending time.Time
-	batch   logstream.Batch
+	mu          sync.Mutex
+	collect     func(context.Context, time.Time, time.Time, int) ([]logstream.Entry, error)
+	now         func() time.Time
+	cursor      time.Time
+	pending     time.Time
+	batch       logstream.Batch
+	store       LogCheckpointStore
+	initialized bool
 }
 
-func NewLogCollector(lookback time.Duration) *LogCollector {
+func NewLogCollector(lookback time.Duration, stores ...LogCheckpointStore) *LogCollector {
 	if lookback <= 0 {
 		lookback = time.Minute
 	}
 	now := time.Now().UTC()
-	return &LogCollector{collect: collectPlatformLogs, now: time.Now, cursor: now.Add(-lookback)}
+	collector := &LogCollector{collect: collectPlatformLogs, now: time.Now, cursor: now.Add(-lookback)}
+	if len(stores) > 0 {
+		collector.store = stores[0]
+	}
+	return collector
 }
 
 func (collector *LogCollector) Collect(ctx context.Context) (logstream.Batch, error) {
@@ -39,6 +46,9 @@ func (collector *LogCollector) Collect(ctx context.Context) (logstream.Batch, er
 	}
 	collector.mu.Lock()
 	defer collector.mu.Unlock()
+	if err := collector.initialize(); err != nil {
+		return logstream.Batch{}, err
+	}
 	if collector.cursor.IsZero() {
 		return logstream.Batch{}, errors.New("log collector is incomplete")
 	}
@@ -70,21 +80,52 @@ func (collector *LogCollector) Collect(ctx context.Context) (logstream.Batch, er
 	return collector.batch, nil
 }
 
-func (collector *LogCollector) Commit() {
+func (collector *LogCollector) Commit() error {
 	if collector == nil {
-		return
+		return nil
 	}
 	collector.mu.Lock()
 	defer collector.mu.Unlock()
 	if collector.pending.IsZero() {
-		return
+		return nil
+	}
+	if collector.store != nil {
+		if err := collector.store.Save(collector.pending); err != nil {
+			return fmt.Errorf("persist log checkpoint: %w", err)
+		}
 	}
 	collector.cursor = collector.pending
 	collector.pending = time.Time{}
 	collector.batch = logstream.Batch{}
+	return nil
+}
+
+func (collector *LogCollector) initialize() error {
+	if collector.initialized {
+		return nil
+	}
+	collector.initialized = true
+	if collector.store == nil {
+		return nil
+	}
+	cursor, err := collector.store.Load()
+	if os.IsNotExist(err) {
+		return nil
+	}
+	if err != nil {
+		collector.initialized = false
+		return fmt.Errorf("load log checkpoint: %w", err)
+	}
+	if cursor.After(collector.now().UTC()) {
+		collector.initialized = false
+		return errors.New("stored log checkpoint is in the future")
+	}
+	collector.cursor = cursor
+	return nil
 }
 
 type journalRecord struct {
+	Cursor     string          `json:"__CURSOR"`
 	Timestamp  string          `json:"__REALTIME_TIMESTAMP"`
 	Unit       string          `json:"_SYSTEMD_UNIT"`
 	Identifier string          `json:"SYSLOG_IDENTIFIER"`
@@ -112,7 +153,7 @@ func parseJournalEntries(output []byte) ([]logstream.Entry, error) {
 		source := firstNonEmpty(record.Unit, record.Identifier, record.Command, "journald")
 		entries = append(entries, logstream.Entry{
 			OccurredAt: time.Unix(0, micros*int64(time.Microsecond)).UTC(), Collector: logstream.CollectorJournald,
-			Source: truncateUTF8(source, 512), Severity: syslogSeverity(record.Priority), Message: truncateUTF8(message, 64*1024),
+			Source: truncateUTF8(source, 512), Severity: syslogSeverity(record.Priority), Message: truncateUTF8(message, 64*1024), SourceID: record.Cursor,
 		})
 	}
 	return entries, nil
@@ -155,6 +196,7 @@ type windowsEventRecord struct {
 	Level            int       `json:"Level"`
 	LevelDisplayName string    `json:"LevelDisplayName"`
 	Message          string    `json:"Message"`
+	RecordID         int64     `json:"RecordId"`
 }
 
 func parseWindowsEventEntries(output []byte) ([]logstream.Entry, error) {
@@ -172,7 +214,7 @@ func parseWindowsEventEntries(output []byte) ([]logstream.Entry, error) {
 		entries = append(entries, logstream.Entry{
 			OccurredAt: record.TimeCreated.UTC(), Collector: logstream.CollectorWindowsEvent,
 			Source:   truncateUTF8(firstNonEmpty(record.ProviderName, "Windows Event Log"), 512),
-			Severity: windowsEventSeverity(record.Level, record.LevelDisplayName), Message: truncateUTF8(message, 64*1024),
+			Severity: windowsEventSeverity(record.Level, record.LevelDisplayName), Message: truncateUTF8(message, 64*1024), SourceID: strconv.FormatInt(record.RecordID, 10),
 		})
 	}
 	return entries, nil

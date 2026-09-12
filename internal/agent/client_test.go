@@ -175,6 +175,16 @@ func TestClientSplitsLargeLogBatchBelowHubRequestLimit(t *testing.T) {
 	}
 }
 
+func TestDeterministicLogIDIsStableAndAgentScoped(t *testing.T) {
+	entry := logstream.Entry{OccurredAt: time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC), Collector: "journald", Source: "app.service", Severity: "info", Message: "started", SourceID: "cursor-01"}
+	first := deterministicLogID("agent-01", entry)
+	otherSource := entry
+	otherSource.SourceID = "cursor-02"
+	if first != deterministicLogID("agent-01", entry) || first == deterministicLogID("agent-02", entry) || first == deterministicLogID("agent-01", otherSource) || len(first) != 32 {
+		t.Fatalf("unexpected deterministic IDs: %q", first)
+	}
+}
+
 func handlerTransport(t *testing.T, handler http.Handler) func(*http.Request, *tls.Config) (*http.Response, error) {
 	t.Helper()
 	return func(request *http.Request, tlsConfiguration *tls.Config) (*http.Response, error) {

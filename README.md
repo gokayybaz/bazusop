@@ -137,7 +137,9 @@ kurulum ve güven modeli için [agent rehberine](docs/AGENT.md) bakın.
 Kayıtlı agent'lar envanteri `PUT /api/v1/agents/inventory`, telemetriyi
 `POST /api/v1/agents/telemetry`, servisleri `PUT /api/v1/agents/services` ile
 raporlar; journald veya Windows Event batch'leri `POST /api/v1/agents/logs`
-yolunu kullanır. UI, filo listesini
+yolunu kullanır. Agent başarılı log tesliminden sonra cursor'u state dizinindeki
+`log-checkpoint.json` dosyasına atomik yazar. Yeniden gönderilen kayıtlar kararlı
+kimlikleri sayesinde hub geçmişinde ve canlı akışta çoğalmaz. UI, filo listesini
 `GET /api/v1/instances`, zaman serisini
 `GET /api/v1/instances/{agent_id}/telemetry`, servisleri
 `GET /api/v1/instances/{agent_id}/services` üzerinden okur.

@@ -2,12 +2,82 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/logstream"
 )
+
+type testLogCheckpointStore struct {
+	cursor  time.Time
+	saveErr error
+}
+
+func (store *testLogCheckpointStore) Load() (time.Time, error) { return store.cursor, nil }
+
+func (store *testLogCheckpointStore) Save(cursor time.Time) error {
+	if store.saveErr != nil {
+		return store.saveErr
+	}
+	store.cursor = cursor
+	return nil
+}
+
+func TestLogCollectorLoadsAndCommitsPersistentCheckpoint(t *testing.T) {
+	start := time.Date(2026, time.September, 12, 12, 0, 0, 0, time.UTC)
+	end := start.Add(time.Minute)
+	store := NewFileLogCheckpointStore(t.TempDir())
+	if err := store.Save(start); err != nil {
+		t.Fatal(err)
+	}
+	collector := NewLogCollector(time.Hour, store)
+	collector.now = func() time.Time { return end }
+	collector.collect = func(_ context.Context, since, until time.Time, _ int) ([]logstream.Entry, error) {
+		if !since.Equal(start) || !until.Equal(end) {
+			t.Fatalf("collector ignored persistent checkpoint: %s %s", since, until)
+		}
+		return []logstream.Entry{}, nil
+	}
+	if _, err := collector.Collect(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if err := collector.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	checkpoint, err := store.Load()
+	if err != nil || !checkpoint.Equal(end) {
+		t.Fatalf("checkpoint was not committed: %s %v", checkpoint, err)
+	}
+}
+
+func TestLogCollectorRetriesBatchWhenCheckpointCommitFails(t *testing.T) {
+	start := time.Date(2026, time.September, 12, 12, 0, 0, 0, time.UTC)
+	end := start.Add(time.Minute)
+	store := &testLogCheckpointStore{cursor: start, saveErr: errors.New("disk full")}
+	calls := 0
+	collector := NewLogCollector(time.Hour, store)
+	collector.now = func() time.Time { return end }
+	collector.collect = func(context.Context, time.Time, time.Time, int) ([]logstream.Entry, error) {
+		calls++
+		return []logstream.Entry{{OccurredAt: end, Collector: "journald", Source: "app.service", Severity: "info", Message: "started"}}, nil
+	}
+	first, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := collector.Commit(); err == nil {
+		t.Fatal("expected checkpoint commit failure")
+	}
+	retry, err := collector.Collect(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 1 || !reflect.DeepEqual(first, retry) || !store.cursor.Equal(start) {
+		t.Fatalf("failed commit did not preserve retry batch: calls=%d first=%#v retry=%#v cursor=%s", calls, first, retry, store.cursor)
+	}
+}
 
 func TestLogCollectorAdvancesCursorOnlyAfterSuccessfulCollection(t *testing.T) {
 	start := time.Date(2026, time.September, 12, 12, 0, 0, 0, time.UTC)

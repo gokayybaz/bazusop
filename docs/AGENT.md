@@ -102,9 +102,12 @@ Linux log collector `journalctl` JSON çıktısını, Windows collector ise Syst
 Application Event kanallarını okur. Syslog priority ve Windows event level
 değerleri ortak `debug/info/warn/error/critical` önem modeline çevrilir; her batch
 en fazla 1000 kayıt taşır. Cursor yalnız hub batch'i kabul ettikten sonra ilerler,
-bu nedenle geçici gönderim hatasında aynı batch yeniden denenir. Cursor process
-belleğindedir; agent restart'ı ilk rapor aralığını yeniden okuyabileceği için log
-teslimi en az bir kez semantiğindedir ve nadir tekrarlar mümkün kabul edilir.
+bu nedenle geçici gönderim hatasında aynı batch yeniden denenir. Kabul edilen
+cursor state dizinindeki `log-checkpoint.json` dosyasına `0600` izinle atomik
+yazılır ve agent restart sonrasında buradan devam eder. Journald cursor'u veya
+Windows Event `RecordId` değeriyle kapsamlanan kararlı kayıt kimliği, hub kabulü
+ile checkpoint yazımı arasındaki çökme penceresinde yeniden gönderilen logun
+geçmişte ya da canlı SSE akışında çoğalmasını önler.
 
 ## Uzak operasyon işleri
 
