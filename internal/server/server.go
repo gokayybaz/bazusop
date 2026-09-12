@@ -43,6 +43,9 @@ type RuntimeConfiguration struct {
 	TimescaleEnabled       bool   `json:"timescale_enabled"`
 	TelemetryRetentionDays int    `json:"telemetry_retention_days"`
 	LogRetentionDays       int    `json:"log_retention_days"`
+	Version                string `json:"version"`
+	Commit                 string `json:"commit"`
+	BuildDate              string `json:"build_date"`
 }
 
 type accessRole uint8

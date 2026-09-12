@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/tls"
 	"errors"
+	"flag"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -22,9 +24,17 @@ import (
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	postgresstore "github.com/gokayybaz/bazusop/internal/storage/postgres"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
+	"github.com/gokayybaz/bazusop/internal/version"
 )
 
 func main() {
+	showVersion := flag.Bool("version", false, "sürüm ve build kimliğini göster")
+	flag.Parse()
+	if *showVersion {
+		fmt.Println(version.Current())
+		return
+	}
+
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	configuration := config.Load()
 	if err := configuration.Validate(); err != nil {
@@ -90,6 +100,7 @@ func main() {
 	}
 	alertService := alerting.NewService(alertStore)
 	cloudInventoryService := cloudinventory.NewService(cloudInventoryStore, inventoryService)
+	buildIdentity := version.Current()
 	if configuration.OperatorToken == "" && configuration.AdminToken == "" {
 		logger.Warn("BAZUSOP_OPERATOR_TOKEN and BAZUSOP_ADMIN_TOKEN are not set; authorized mutations are disabled")
 	}
@@ -112,6 +123,9 @@ func main() {
 				Storage: storageMode, TimescaleEnabled: configuration.TimescaleEnabled && storageMode == "postgresql",
 				TelemetryRetentionDays: configuration.TelemetryRetentionDays,
 				LogRetentionDays:       configuration.LogRetentionDays,
+				Version:                buildIdentity.Version,
+				Commit:                 buildIdentity.Commit,
+				BuildDate:              buildIdentity.BuildDate,
 			}),
 		),
 		ReadHeaderTimeout: 5 * time.Second,

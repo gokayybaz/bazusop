@@ -36,7 +36,7 @@ describe("bazUSOP shell", () => {
   it("opens application pages directly from their URL", async () => {
     window.history.replaceState({}, "", "/settings")
 	vi.mocked(fetch).mockImplementation((input) => {
-	  if (String(input).endsWith("/api/v1/system/configuration")) return Promise.resolve({ ok: true, json: async () => ({ storage: "postgresql", timescale_enabled: true, telemetry_retention_days: 30, log_retention_days: 14 }) } as Response)
+	  if (String(input).endsWith("/api/v1/system/configuration")) return Promise.resolve({ ok: true, json: async () => ({ storage: "postgresql", timescale_enabled: true, telemetry_retention_days: 30, log_retention_days: 14, version: "0.3.0", commit: "abc123def456", build_date: "2026-09-12T09:30:00Z" }) } as Response)
 	  return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
 	})
 
@@ -46,6 +46,8 @@ describe("bazUSOP shell", () => {
     expect(screen.getByText("Görünüm")).toBeInTheDocument()
 	expect(await screen.findByText("Telemetri: 30 gün")).toBeInTheDocument()
 	expect(screen.getByText("Loglar: 14 gün")).toBeInTheDocument()
+	expect(screen.getByText("0.3.0")).toBeInTheDocument()
+	expect(screen.getByText("abc123def456")).toBeInTheDocument()
     expect(screen.queryByRole("region", { name: "Operasyon alarmları" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Ayarlar" })).toHaveAttribute("aria-current", "page")
   })

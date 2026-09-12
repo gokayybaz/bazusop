@@ -12,6 +12,19 @@
 - **React UI:** inventory ve telemetry verisini hub API’sinden okuyan operasyon
   yüzeyidir.
 
+## Build ve sürüm kimliği
+
+Hub'ın sürüm, Git commit ve UTC build tarihi derleme sırasında linker alanlarına
+yazılır. Aynı kimlik `--version` CLI çıktısından ve secret içermeyen runtime API
+üzerinden okunur; böylece operatör indirilen arşiv ile çalışan pod/binary'yi
+karşılaştırabilir. Geliştirme build'leri açıkça `dev/unknown` kimliği taşır.
+
+Release hattı gömülü React çıktısını bir kez üretir ve Go'nun cross-compile
+desteğiyle Linux amd64/arm64 ile Windows amd64 binary'lerini oluşturur. Dağıtım
+birimi sürümlü arşiv ve SHA-256 manifestidir. Native service paketleri, yayıncı
+imzası ve kontrollü yükseltme/rollback bir sonraki sürümleme diliminin güven
+sınırıdır.
+
 ## Veri akışı
 
 1. Agent tek kullanımlık token ve CSR ile enrollment ister.

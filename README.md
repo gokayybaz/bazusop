@@ -28,7 +28,7 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
 - Arayüz; genel bakış, filo, servisler, metrikler, loglar, işler, alarmlar,
   bulut hesapları, denetim izi ve ayarlar için ayrı, doğrudan açılabilir sayfalar sunar.
 - Ayarlar sayfası etkin storage/Timescale modunu ve telemetri-log retention
-  değerlerini secret bilgisi göstermeden hub'dan okur.
+  değerlerini ve çalışan hub'ın sürüm kimliğini secret bilgisi göstermeden okur.
 - Serin nötr açık ve grafit koyu tema arasında geçiş yapılabilir; cihaz tercihi
   tarayıcıda korunur ve tüm operasyon sayfalarına uygulanır.
 - AWS, Azure ve GCP hesaplarıyla gelen instance snapshot'ları PostgreSQL'de tutulur;
@@ -53,6 +53,12 @@ BAZUSOP_LOG_RETENTION_DAYS=14 \
 
 React uygulaması önce derlenir, sonra Go hub binary'sine gömülür. Hub varsayılan
 olarak `http://127.0.0.1:8080` adresinden erişilebilir.
+
+Binary'nin kaynak kimliğini yapılandırma yüklemeden görmek için:
+
+```bash
+./bin/bazusop-hub --version
+```
 
 Tam geliştirme ortamını TimescaleDB ile başlatmak için:
 
@@ -136,6 +142,22 @@ Chart; non-root/read-only container güvenliği, resource request/limit,
 readiness/liveness probe, rolling update, topology spread, PDB ve isteğe bağlı
 `autoscaling/v2` HPA sağlar. Doğrudan hub TLS'i mevcut bir Secret'tan
 `tls.enabled=true` ile bağlanabilir.
+
+## Sürüm arşivleri
+
+SemVer sürümüne ait Linux `amd64`/`arm64` ve Windows `amd64` arşivlerini ve
+SHA-256 manifestini yerelde üretmek için:
+
+```bash
+make release VERSION=0.3.0
+cd dist/bazusop-0.3.0
+shasum -a 256 -c checksums.txt
+```
+
+`v*` etiketi pushlandığında GitHub Actions önce tüm testleri çalıştırır, sonra aynı
+arşivleri yeni GitHub Release'e ekler. Her binary sürüm, commit ve UTC build
+tarihini hem `--version` çıktısında hem Ayarlar sayfasında taşır. Native
+deb/rpm/MSI paketleri ile kriptografik imzalama Spike 9.3.2 kapsamındadır.
 
 ## Dokümantasyon
 

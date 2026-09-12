@@ -35,6 +35,32 @@ POSTGRES_PASSWORD=yerel-parola BAZUSOP_ENROLLMENT_TOKEN=yerel-token BAZUSOP_OPER
 Compose TimescaleDB PostgreSQL 18 imajını kullanır, database health bekler ve hub
 başlangıcında migration’ları uygular.
 
+## Sürüm üretimi ve doğrulama
+
+SemVer sürüm arşivlerini üret:
+
+```bash
+make release VERSION=0.3.0
+```
+
+Komut `dist/bazusop-0.3.0/` altında Linux amd64/arm64 için `tar.gz`, Windows
+amd64 için `zip` ve tüm arşivleri kapsayan `checksums.txt` üretir. Var olan bir
+sürüm dizininin üzerine yazmaz. İndirilen dosyayı Linux/macOS üzerinde doğrula:
+
+```bash
+cd dist/bazusop-0.3.0
+shasum -a 256 -c checksums.txt
+```
+
+Çalışan build kimliği `bazusop-hub --version`,
+`GET /api/v1/system/configuration` veya Ayarlar sayfasından karşılaştırılabilir.
+Release build'inde sürüm, kaynak commit'i ve UTC build tarihi linker üzerinden
+binary'ye yazılır. `v*` Git etiketi workflow'u testten geçmeyen sürümü yayımlamaz.
+
+Bu dilimde checksum bütünlük kontrolü sağlar; yayıncı kimliğini kanıtlayan imza
+değildir. deb/rpm/MSI ve container imzası ile yükseltme/rollback kabulü Spike
+9.3.2'de eklenmeden üretim dağıtım kanalı güvenilir kabul edilmemelidir.
+
 İki bağımsız store üzerinden gerçek `LISTEN/NOTIFY` entegrasyon testini çalıştırmak için:
 
 ```bash

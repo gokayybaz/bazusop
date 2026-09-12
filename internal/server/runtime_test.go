@@ -13,6 +13,7 @@ func TestRuntimeConfigurationExposesSafeRetentionState(t *testing.T) {
 	t.Parallel()
 	handler := server.NewHandler(server.WithRuntimeConfiguration(server.RuntimeConfiguration{
 		Storage: "postgresql", TimescaleEnabled: true, TelemetryRetentionDays: 90, LogRetentionDays: 21,
+		Version: "0.3.0", Commit: "abc123def456", BuildDate: "2026-09-12T09:30:00Z",
 	}))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/system/configuration", nil))
@@ -25,5 +26,8 @@ func TestRuntimeConfigurationExposesSafeRetentionState(t *testing.T) {
 	}
 	if configuration.Storage != "postgresql" || !configuration.TimescaleEnabled || configuration.TelemetryRetentionDays != 90 || configuration.LogRetentionDays != 21 {
 		t.Fatalf("unexpected runtime configuration: %#v", configuration)
+	}
+	if configuration.Version != "0.3.0" || configuration.Commit != "abc123def456" || configuration.BuildDate != "2026-09-12T09:30:00Z" {
+		t.Fatalf("unexpected build identity: %#v", configuration)
 	}
 }

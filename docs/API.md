@@ -40,11 +40,15 @@ Secret içermeyen etkin çalışma ve saklama yapılandırmasını döndürür:
   "storage": "postgresql",
   "timescale_enabled": true,
   "telemetry_retention_days": 30,
-  "log_retention_days": 14
+  "log_retention_days": 14,
+  "version": "0.3.0",
+  "commit": "abc123def456",
+  "build_date": "2026-09-12T09:30:00Z"
 }
 ```
 
-Bu uç salt-okunurdur ve Ayarlar sayfasının çalışma modunu doğrulamasını sağlar.
+Bu uç salt-okunurdur ve Ayarlar sayfasının çalışma modu ile deploy edilen build'i
+doğrulamasını sağlar. Secret veya kullanıcı kimlik bilgisi içermez.
 
 ### `POST /api/v1/agents/enroll`
 

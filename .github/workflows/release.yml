@@ -1,0 +1,32 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - run: npm ci
+        working-directory: web
+      - run: make test
+      - name: Sürüm arşivlerini oluştur
+        run: BUILD_DATE="$(git show -s --format=%cI "$GITHUB_SHA")" COMMIT="$GITHUB_SHA" ./scripts/build-release.sh "${GITHUB_REF_NAME#v}"
+      - name: GitHub sürümünü yayımla
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" "dist/bazusop-${GITHUB_REF_NAME#v}"/* --verify-tag --generate-notes --title "bazUSOP ${GITHUB_REF_NAME}"

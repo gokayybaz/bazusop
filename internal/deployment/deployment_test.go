@@ -56,6 +56,31 @@ func TestHelmChartDefinesScalableSafeWorkload(t *testing.T) {
 	}
 }
 
+func TestReleaseBuildProducesVersionedCrossPlatformArtifacts(t *testing.T) {
+	t.Parallel()
+
+	makefile := readProjectFile(t, "Makefile")
+	for _, required := range []string{"LDFLAGS", "release:"} {
+		if !strings.Contains(makefile, required) {
+			t.Errorf("Makefile release build must contain %q", required)
+		}
+	}
+
+	releaseScript := readProjectFile(t, "scripts/build-release.sh")
+	for _, required := range []string{"linux amd64", "linux arm64", "windows amd64", "checksums.txt", "sha256", "github.com/gokayybaz/bazusop/internal/version", ".Version=$version", ".Commit=$commit", ".BuildDate=$build_date"} {
+		if !strings.Contains(releaseScript, required) {
+			t.Errorf("release script must contain %q", required)
+		}
+	}
+
+	workflow := readProjectFile(t, ".github/workflows/release.yml")
+	for _, required := range []string{"tags:", "v*", "make test", "build-release.sh", "gh release create"} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("release workflow must contain %q", required)
+		}
+	}
+}
+
 func readProjectFile(t *testing.T, name string) string {
 	t.Helper()
 
