@@ -27,6 +27,10 @@ import (
 func main() {
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil))
 	configuration := config.Load()
+	if err := configuration.Validate(); err != nil {
+		logger.Error("invalid configuration", "error", err)
+		os.Exit(1)
+	}
 	bootstrapToken := configuration.EnrollmentToken
 	if bootstrapToken == "" {
 		var err error
@@ -49,12 +53,14 @@ func main() {
 	var jobStore jobs.Store = jobs.NewMemoryStore()
 	var alertStore alerting.Store = alerting.NewMemoryStore()
 	var cloudInventoryStore cloudinventory.Store = cloudinventory.NewMemoryStore()
+	storageMode := "memory"
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		postgresStore, err := postgresstore.Open(
 			startupContext,
 			configuration.DatabaseURL,
 			postgresstore.WithTimescale(configuration.TimescaleEnabled),
+			postgresstore.WithRetention(configuration.TelemetryRetentionDays, configuration.LogRetentionDays),
 		)
 		cancel()
 		if err != nil {
@@ -69,6 +75,7 @@ func main() {
 		jobStore = postgresStore
 		alertStore = postgresStore
 		cloudInventoryStore = postgresStore
+		storageMode = "postgresql"
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
 	}
@@ -101,6 +108,11 @@ func main() {
 			server.WithAlerts(alertService, configuration.OperatorToken),
 			server.WithCloudInventory(cloudInventoryService, configuration.OperatorToken),
 			server.WithAdminToken(configuration.AdminToken),
+			server.WithRuntimeConfiguration(server.RuntimeConfiguration{
+				Storage: storageMode, TimescaleEnabled: configuration.TimescaleEnabled && storageMode == "postgresql",
+				TelemetryRetentionDays: configuration.TelemetryRetentionDays,
+				LogRetentionDays:       configuration.LogRetentionDays,
+			}),
 		),
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig: &tls.Config{

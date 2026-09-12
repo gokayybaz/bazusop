@@ -13,6 +13,11 @@ import (
 
 var ErrInvalidLogs = errors.New("invalid logs")
 
+const (
+	MaxBatchEntries      = 1000
+	LiveSubscriberBuffer = MaxBatchEntries
+)
+
 type Collector string
 
 const (
@@ -79,7 +84,7 @@ func NewService(store Store) *Service {
 
 func (service *Service) Ingest(ctx context.Context, agentID string, batch Batch) error {
 	agentID = strings.TrimSpace(agentID)
-	if agentID == "" || len(batch.Entries) == 0 || len(batch.Entries) > 1000 {
+	if agentID == "" || len(batch.Entries) == 0 || len(batch.Entries) > MaxBatchEntries {
 		return ErrInvalidLogs
 	}
 	entries := make([]Entry, 0, len(batch.Entries))
@@ -145,7 +150,7 @@ func (service *Service) Subscribe(ctx context.Context, agentID string) (<-chan E
 	if shared, ok := service.store.(SharedLiveStore); ok {
 		return shared.SubscribeLogs(ctx, agentID)
 	}
-	stream := make(chan Entry, 256)
+	stream := make(chan Entry, LiveSubscriberBuffer)
 	service.mu.Lock()
 	if service.subscribers[agentID] == nil {
 		service.subscribers[agentID] = make(map[chan Entry]struct{})

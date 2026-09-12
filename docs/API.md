@@ -31,6 +31,21 @@ Liveness/readiness için süreç sağlığını verir:
 {"service":"bazusop-hub","status":"ok"}
 ```
 
+### `GET /api/v1/system/configuration`
+
+Secret içermeyen etkin çalışma ve saklama yapılandırmasını döndürür:
+
+```json
+{
+  "storage": "postgresql",
+  "timescale_enabled": true,
+  "telemetry_retention_days": 30,
+  "log_retention_days": 14
+}
+```
+
+Bu uç salt-okunurdur ve Ayarlar sayfasının çalışma modunu doğrulamasını sağlar.
+
 ### `POST /api/v1/agents/enroll`
 
 ```json

@@ -10,6 +10,8 @@
 | `BAZUSOP_ADMIN_TOKEN` | Üretimde evet | Alarm politikası, bakım ve bulut bağlantısı yönetim secret'ı; yoksa operator token kullanılır |
 | `DATABASE_URL` | Üretimde evet | PostgreSQL bağlantı dizesi |
 | `BAZUSOP_TIMESCALE_ENABLED` | Hayır | `true` ise extension, hypertable ve retention kurulur |
+| `BAZUSOP_TELEMETRY_RETENTION_DAYS` | Hayır | Telemetri saklama günü; varsayılan `30`, aralık `1–3650` |
+| `BAZUSOP_LOG_RETENTION_DAYS` | Hayır | Log saklama günü; varsayılan `14`, aralık `1–3650` |
 | `BAZUSOP_TLS_CERT_FILE` | Uzak agent için evet | Hub server sertifikası |
 | `BAZUSOP_TLS_KEY_FILE` | Uzak agent için evet | Hub server private key’i |
 
@@ -51,8 +53,9 @@ bir TLS Secret’tan read-only mount edilir.
 Üretim başlangıç kontrol listesi:
 
 1. PostgreSQL yedekleme ve PITR politikasını doğrula.
-2. Timescale extension yetkisini ve 30 günlük retention'ı doğrula.
-   Telemetri 30 gün, loglar 14 gün saklanır.
+2. Timescale extension yetkisini ve retention değerlerini doğrula. Varsayılan
+   olarak telemetri 30 gün, loglar 14 gün saklanır. Değer değişikliği hub
+   başlangıcında advisory lock altında mevcut policy'yi güvenle yeniler.
 3. TLS secret rotasyonunu planla.
 4. Enrollment, operator ve admin token'larını ayrı, yüksek entropili değerlerle oluştur;
    secret erişimini sınırla ve rotasyon prosedürünü test et.
@@ -102,3 +105,15 @@ bir TLS Secret’tan read-only mount edilir.
 Token rotasyonu sırasında eski token'la yeni mutasyonları durdurun, Secret/env
 değerini değiştirip hub pod'larını yeniden başlatın ve her rolle kontrollü bir test
 işlemi yapın. Mevcut imzalı işler rotasyondan etkilenmez.
+
+## Yük kabul hedefi
+
+CI testi, yasal maksimum 1000 kayıtlık tek log batch'inin süreç-içi broker'da 32
+eşzamanlı aboneye kayıpsız ve bir saniyeden kısa sürede fan-out edilmesini bekler.
+Her abone tamponu bir maksimum batch'i taşır; daha yavaş istemciler geçmiş arama
+ucuyla arayı kapatır. Bu eşik kapasite planlama benchmark'ı değil, regresyon
+korumasıdır. Yarış koşulu kontrolü için:
+
+```bash
+GOCACHE=/tmp/bazusop-go-cache go test -race ./internal/logstream ./internal/storage/postgres
+```

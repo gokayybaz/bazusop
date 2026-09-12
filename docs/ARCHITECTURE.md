@@ -41,8 +41,10 @@
 
 `hosts` tablosu agent başına tek normalize edilmiş kayıt tutar. `telemetry_samples`
 tablosunun primary key’i agent ve timestamp bileşimidir. Timescale etkinleştirildiğinde
-`recorded_at` partition anahtarıyla hypertable’a dönüştürülür ve 30 günlük retention
-policy uygulanır.
+`recorded_at` partition anahtarıyla hypertable’a dönüştürülür. Telemetri ve log
+retention değerleri gün cinsinden yapılandırılır; varsayılanlar sırasıyla 30 ve
+14 gündür. Hub, mevcut policy'leri advisory lock altında kaldırıp güncel değerlerle
+yeniden kurduğu için rolling başlangıçlarda replikalar birbiriyle yarışmaz.
 
 `services` tablosu `(agent_id, name)` anahtarıyla son bilinen snapshot'ı tutar.
 Snapshot yenilenirken aynı agent'ın eski satırları ve yeni satırları tek transaction
@@ -51,8 +53,13 @@ systemd ile Windows Service Manager farklarını ortak modele indirger.
 
 `log_entries` tablosu `(id, occurred_at)` bileşik anahtarıyla Timescale hypertable
 olarak çalışır; agent/zaman ve agent/önem/zaman indeksleri sınırlı geçmiş aramayı
-destekler. Timescale etkinse loglar için 14 günlük retention policy uygulanır.
-Geliştirme amaçlı memory store agent başına en yeni 10.000 kaydı tutar.
+destekler. Timescale etkinse loglar için varsayılan 14 günlük, yapılandırılabilir
+retention policy uygulanır. Geliştirme amaçlı memory store agent başına en yeni
+10.000 kaydı tutar.
+
+Canlı broker tamponu bir maksimum ingest batch'ini, yani 1000 kaydı taşır. CI yük
+kabulü tek batch'i 32 eşzamanlı aboneye bir saniye altında kayıpsız dağıtmayı
+doğrular; bu üretim kapasite tahmini değil regresyon sınırıdır.
 
 `jobs` tablosu imzalı komutu, son sequence değerini ve yaşam döngüsü durumunu;
 `job_events` tablosu onay, teslim, çıktı ve sonucu append-only audit izi olarak

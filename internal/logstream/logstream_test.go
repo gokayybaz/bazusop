@@ -123,6 +123,39 @@ func TestServicesUseSharedStoreForCrossReplicaLiveLogs(t *testing.T) {
 	}
 }
 
+func TestMaximumBatchFansOutWithoutLossWithinLoadTarget(t *testing.T) {
+	t.Parallel()
+	manager := NewService(NewMemoryStore())
+	const subscriberCount = 32
+	streams := make([]<-chan Entry, 0, subscriberCount)
+	for index := 0; index < subscriberCount; index++ {
+		stream, err := manager.Subscribe(t.Context(), "agent-load")
+		if err != nil {
+			t.Fatalf("subscribe %d: %v", index, err)
+		}
+		streams = append(streams, stream)
+	}
+	entries := make([]Entry, 1000)
+	now := time.Now().UTC()
+	for index := range entries {
+		entries[index] = Entry{OccurredAt: now.Add(time.Duration(index) * time.Nanosecond), Collector: "file", Source: "load.log", Severity: "info", Message: "load target"}
+	}
+	started := time.Now()
+	if err := manager.Ingest(t.Context(), "agent-load", Batch{Entries: entries}); err != nil {
+		t.Fatalf("ingest maximum batch: %v", err)
+	}
+	elapsed := time.Since(started)
+	t.Logf("fan-out: %d entries x %d subscribers in %s", len(entries), subscriberCount, elapsed)
+	if elapsed > time.Second {
+		t.Fatalf("fan-out took %s, target is at most 1s", elapsed)
+	}
+	for index, stream := range streams {
+		if received := len(stream); received != len(entries) {
+			t.Errorf("subscriber %d buffered %d entries, want %d", index, received, len(entries))
+		}
+	}
+}
+
 func TestIngestAndSearchRejectInvalidInputs(t *testing.T) {
 	t.Parallel()
 	manager := NewService(NewMemoryStore())

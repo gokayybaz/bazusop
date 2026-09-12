@@ -25,7 +25,7 @@ Her spike aynı teslimat döngüsünü izler:
 | 8 — Bulut keşfi | AWS, Azure ve GCP envanteri agent'larla uzlaştırılır | Provider instance ile agent kimliği güvenle eşleşir |
 | 9.1 — Rol ayrımı | Operasyon ve yönetim mutasyonları ayrı bearer rolleri kullanır | Operator yönetim politikasını değiştiremez; admin iki yetkiyi de taşır |
 | 9.2.1 — Ortak canlı akış | PostgreSQL tabanlı ortak log event bus | Farklı hub replikasından ingest edilen log SSE abonesine ulaşır |
-| 9.2.2 — Saklama ve yük | Yapılandırılabilir retention ve yük hedefleri | Saklama hedefleri ve ingest/SSE yük senaryoları geçer |
+| 9.2.2 — Saklama ve yük | Yapılandırılabilir retention ve fan-out regresyon hedefi | 1–3650 günlük policy doğrulanır; maksimum batch 32 aboneye kayıpsız ulaşır |
 | 9.3 — Sürümleme | Paketleme, imzalama ve kontrollü yükseltme | deb/rpm/MSI/container imzalanır ve yükseltme geri dönüşü test edilir |
 
 ## Mimari kısıtlar

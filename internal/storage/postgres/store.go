@@ -26,18 +26,22 @@ import (
 var migrationFiles embed.FS
 
 type Store struct {
-	pool             *pgxpool.Pool
-	listenerConfig   *pgx.ConnConfig
-	timescaleEnabled bool
-	liveMu           sync.RWMutex
-	liveSubscribers  map[string]map[chan logstream.Entry]struct{}
-	listenerCancel   context.CancelFunc
-	listenerDone     chan struct{}
+	pool                   *pgxpool.Pool
+	listenerConfig         *pgx.ConnConfig
+	timescaleEnabled       bool
+	telemetryRetentionDays int
+	logRetentionDays       int
+	liveMu                 sync.RWMutex
+	liveSubscribers        map[string]map[chan logstream.Entry]struct{}
+	listenerCancel         context.CancelFunc
+	listenerDone           chan struct{}
 }
 
 const (
-	logNotificationChannel     = "bazusop_log_entries"
-	postgresNotifyPayloadLimit = 8000
+	logNotificationChannel        = "bazusop_log_entries"
+	postgresNotifyPayloadLimit    = 8000
+	defaultTelemetryRetentionDays = 30
+	defaultLogRetentionDays       = 14
 )
 
 type Option func(*Store)
@@ -45,6 +49,13 @@ type Option func(*Store)
 func WithTimescale(enabled bool) Option {
 	return func(store *Store) {
 		store.timescaleEnabled = enabled
+	}
+}
+
+func WithRetention(telemetryDays, logDays int) Option {
+	return func(store *Store) {
+		store.telemetryRetentionDays = telemetryDays
+		store.logRetentionDays = logDays
 	}
 }
 
@@ -57,9 +68,17 @@ func Open(ctx context.Context, databaseURL string, options ...Option) (*Store, e
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL pool: %w", err)
 	}
-	store := &Store{pool: pool, listenerConfig: configuration.ConnConfig, liveSubscribers: make(map[string]map[chan logstream.Entry]struct{})}
+	store := &Store{
+		pool: pool, listenerConfig: configuration.ConnConfig,
+		telemetryRetentionDays: defaultTelemetryRetentionDays, logRetentionDays: defaultLogRetentionDays,
+		liveSubscribers: make(map[string]map[chan logstream.Entry]struct{}),
+	}
 	for _, option := range options {
 		option(store)
+	}
+	if err := store.validateRetention(); err != nil {
+		pool.Close()
+		return nil, err
 	}
 	if err := pool.Ping(ctx); err != nil {
 		pool.Close()
@@ -362,7 +381,7 @@ func encodeLogNotificationBatches(entries []logstream.Entry) ([]string, error) {
 }
 
 func (store *Store) SubscribeLogs(ctx context.Context, agentID string) (<-chan logstream.Entry, error) {
-	stream := make(chan logstream.Entry, 256)
+	stream := make(chan logstream.Entry, logstream.LiveSubscriberBuffer)
 	store.liveMu.Lock()
 	if store.liveSubscribers[agentID] == nil {
 		store.liveSubscribers[agentID] = make(map[chan logstream.Entry]struct{})
@@ -1045,13 +1064,51 @@ func (store *Store) enableTimescale(ctx context.Context) error {
 	statements := []string{
 		"CREATE EXTENSION IF NOT EXISTS timescaledb",
 		"SELECT create_hypertable('telemetry_samples', 'recorded_at', if_not_exists => TRUE, migrate_data => TRUE)",
-		"SELECT add_retention_policy('telemetry_samples', INTERVAL '30 days', if_not_exists => TRUE)",
 		"SELECT create_hypertable('log_entries', 'occurred_at', if_not_exists => TRUE, migrate_data => TRUE)",
-		"SELECT add_retention_policy('log_entries', INTERVAL '14 days', if_not_exists => TRUE)",
 	}
 	for _, statement := range statements {
 		if _, err := store.pool.Exec(ctx, statement); err != nil {
 			return fmt.Errorf("configure TimescaleDB: %w", err)
+		}
+	}
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin TimescaleDB retention configuration: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	if _, err := transaction.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtext('bazusop_retention_policy'))"); err != nil {
+		return fmt.Errorf("lock TimescaleDB retention configuration: %w", err)
+	}
+	for _, policy := range store.retentionPolicies() {
+		if _, err := transaction.Exec(ctx, "SELECT remove_retention_policy($1::regclass, if_exists => TRUE)", policy.table); err != nil {
+			return fmt.Errorf("remove %s retention policy: %w", policy.table, err)
+		}
+		if _, err := transaction.Exec(ctx, "SELECT add_retention_policy($1::regclass, drop_after => make_interval(days => $2))", policy.table, policy.days); err != nil {
+			return fmt.Errorf("add %s retention policy: %w", policy.table, err)
+		}
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit TimescaleDB retention configuration: %w", err)
+	}
+	return nil
+}
+
+type retentionPolicy struct {
+	table string
+	days  int
+}
+
+func (store *Store) retentionPolicies() []retentionPolicy {
+	return []retentionPolicy{
+		{table: "telemetry_samples", days: store.telemetryRetentionDays},
+		{table: "log_entries", days: store.logRetentionDays},
+	}
+}
+
+func (store *Store) validateRetention() error {
+	for _, policy := range store.retentionPolicies() {
+		if policy.days < 1 || policy.days > 3650 {
+			return fmt.Errorf("%s retention must be between 1 and 3650 days", policy.table)
 		}
 	}
 	return nil

@@ -18,7 +18,7 @@ func TestContainerAndComposeBaseline(t *testing.T) {
 	}
 
 	compose := readProjectFile(t, "compose.yaml")
-	for _, required := range []string{"postgres:", "healthcheck:", "condition: service_healthy", "DATABASE_URL", "BAZUSOP_ADMIN_TOKEN"} {
+	for _, required := range []string{"postgres:", "healthcheck:", "condition: service_healthy", "DATABASE_URL", "BAZUSOP_ADMIN_TOKEN", "BAZUSOP_TELEMETRY_RETENTION_DAYS", "BAZUSOP_LOG_RETENTION_DAYS"} {
 		if !strings.Contains(compose, required) {
 			t.Errorf("compose.yaml must contain %q", required)
 		}
@@ -30,7 +30,7 @@ func TestHelmChartDefinesScalableSafeWorkload(t *testing.T) {
 
 	readProjectFile(t, "deploy/helm/bazusop/Chart.yaml")
 	deployment := readProjectFile(t, "deploy/helm/bazusop/templates/deployment.yaml")
-	for _, required := range []string{"replicaCount", "readinessProbe", "livenessProbe", "topologySpreadConstraints", "secretKeyRef", "BAZUSOP_ADMIN_TOKEN"} {
+	for _, required := range []string{"replicaCount", "readinessProbe", "livenessProbe", "topologySpreadConstraints", "secretKeyRef", "BAZUSOP_ADMIN_TOKEN", "BAZUSOP_TELEMETRY_RETENTION_DAYS", "BAZUSOP_LOG_RETENTION_DAYS"} {
 		if !strings.Contains(deployment, required) {
 			t.Errorf("deployment template must contain %q", required)
 		}
@@ -41,6 +41,9 @@ func TestHelmChartDefinesScalableSafeWorkload(t *testing.T) {
 	}
 	if !strings.Contains(values, "adminTokenKey: admin-token") {
 		t.Error("chart values must expose the admin token secret key")
+	}
+	if !strings.Contains(values, "telemetryRetentionDays: 30") || !strings.Contains(values, "logRetentionDays: 14") {
+		t.Error("chart values must expose retention defaults")
 	}
 
 	hpa := readProjectFile(t, "deploy/helm/bazusop/templates/hpa.yaml")

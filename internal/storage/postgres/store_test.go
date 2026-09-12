@@ -53,3 +53,20 @@ func TestLogNotificationsStayBelowPostgresPayloadLimit(t *testing.T) {
 		t.Fatalf("decoded %d ids, want %d", decoded, len(entries))
 	}
 }
+
+func TestRetentionPolicyConfiguration(t *testing.T) {
+	t.Parallel()
+	store := &Store{telemetryRetentionDays: defaultTelemetryRetentionDays, logRetentionDays: defaultLogRetentionDays}
+	WithRetention(90, 21)(store)
+
+	policies := store.retentionPolicies()
+	if len(policies) != 2 {
+		t.Fatalf("expected two retention policies, got %d", len(policies))
+	}
+	if policies[0].table != "telemetry_samples" || policies[0].days != 90 {
+		t.Fatalf("unexpected telemetry policy: %#v", policies[0])
+	}
+	if policies[1].table != "log_entries" || policies[1].days != 21 {
+		t.Fatalf("unexpected log policy: %#v", policies[1])
+	}
+}

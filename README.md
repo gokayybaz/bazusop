@@ -14,7 +14,7 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   imzaladığı kısa ömürlü mTLS kimliğiyle haberleşir.
 - Normalize edilmiş host envanteri PostgreSQL'de saklanır.
 - CPU, bellek, disk ve ağ telemetrisi PostgreSQL veya TimescaleDB'ye yazılır;
-  Timescale etkinse 30 günlük retention policy uygulanır.
+  Timescale etkinse varsayılan 30 günlük, yapılandırılabilir retention uygulanır.
 - systemd ve Windows Service snapshot'ları normalize edilerek sunucu bazında
   aranabilir ve durumlarına göre filtrelenebilir.
 - journald, dosya ve Windows Event kayıtları ortak log modelinde aranabilir;
@@ -27,6 +27,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   koşul normale dönünce çözülür ve bakım pencerelerinde yeni alarm bastırılır.
 - Arayüz; genel bakış, filo, servisler, metrikler, loglar, işler, alarmlar,
   bulut hesapları, denetim izi ve ayarlar için ayrı, doğrudan açılabilir sayfalar sunar.
+- Ayarlar sayfası etkin storage/Timescale modunu ve telemetri-log retention
+  değerlerini secret bilgisi göstermeden hub'dan okur.
 - Serin nötr açık ve grafit koyu tema arasında geçiş yapılabilir; cihaz tercihi
   tarayıcıda korunur ve tüm operasyon sayfalarına uygulanır.
 - AWS, Azure ve GCP hesaplarıyla gelen instance snapshot'ları PostgreSQL'de tutulur;
@@ -44,6 +46,8 @@ make build
 BAZUSOP_ENROLLMENT_TOKEN="tek-kullanimlik-guclu-bir-secret" \
 BAZUSOP_OPERATOR_TOKEN="ayri-guclu-bir-operator-secret" \
 BAZUSOP_ADMIN_TOKEN="ayri-guclu-bir-yonetici-secret" \
+BAZUSOP_TELEMETRY_RETENTION_DAYS=30 \
+BAZUSOP_LOG_RETENTION_DAYS=14 \
 ./bin/bazusop-hub
 ```
 
@@ -71,6 +75,8 @@ docker compose up --build
 | `BAZUSOP_ENROLLMENT_TOKEN` | İlk kayıt için tek kullanımlık bootstrap secret |
 | `BAZUSOP_OPERATOR_TOKEN` | İş oluşturma ve olay onaylama yetkisi veren bearer secret |
 | `BAZUSOP_ADMIN_TOKEN` | Politika, bakım ve bulut bağlantısı yönetme yetkisi; yoksa operator token'a geri düşer |
+| `BAZUSOP_TELEMETRY_RETENTION_DAYS` | Timescale telemetri saklama süresi; varsayılan `30`, aralık `1–3650` |
+| `BAZUSOP_LOG_RETENTION_DAYS` | Timescale log saklama süresi; varsayılan `14`, aralık `1–3650` |
 | `DATABASE_URL` | PostgreSQL/TimescaleDB bağlantı dizesi |
 | `BAZUSOP_TIMESCALE_ENABLED` | `true` ise hypertable ve retention yapılandırılır |
 | `BAZUSOP_TLS_CERT_FILE` | Hub TLS sertifikasının yolu |

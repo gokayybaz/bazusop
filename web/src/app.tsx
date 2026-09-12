@@ -87,6 +87,13 @@ type TelemetryPayload = {
   samples: TelemetrySample[]
 }
 
+type RuntimeConfiguration = {
+  storage: "memory" | "postgresql"
+  timescale_enabled: boolean
+  telemetry_retention_days: number
+  log_retention_days: number
+}
+
 type ManagedService = {
   agent_id: string
   name: string
@@ -415,7 +422,17 @@ function EmptyFeature({ icon: Icon, title, text }: { icon: ComponentType<{ size?
 }
 
 function SettingsPage() {
-  return <div className="settings-grid"><Card className="settings-card"><div><h2>Görünüm</h2><p>Operasyon yüzeyi için açık veya koyu temayı seçin.</p></div><ThemeToggle /></Card><Card className="settings-card"><div><h2>Hub çalışma modu</h2><p>Bu önizleme süreç içi bellek deposu ve yerel bağlantı kullanıyor.</p></div><Badge className="environment">Yerel önizleme</Badge></Card></div>
+  const [runtime, setRuntime] = useState<RuntimeConfiguration | null>(null)
+  useEffect(() => {
+    const controller = new AbortController()
+    fetch("/api/v1/system/configuration", { signal: controller.signal })
+      .then((response) => response.ok ? response.json() as Promise<RuntimeConfiguration> : Promise.reject())
+      .then(setRuntime)
+      .catch(() => undefined)
+    return () => controller.abort()
+  }, [])
+  const storageLabel = runtime?.storage === "postgresql" ? (runtime.timescale_enabled ? "TimescaleDB" : "PostgreSQL") : "Süreç içi bellek"
+  return <div className="settings-grid"><Card className="settings-card"><div><h2>Görünüm</h2><p>Operasyon yüzeyi için açık veya koyu temayı seçin.</p></div><ThemeToggle /></Card><Card className="settings-card"><div><h2>Hub çalışma modu</h2><p>Etkin kalıcı depolama ve zaman serisi çalışma modu.</p></div><Badge className="environment">{runtime ? storageLabel : "Yükleniyor"}</Badge></Card><Card className="settings-card retention-card"><div><h2>Saklama politikası</h2><p>TimescaleDB etkin olduğunda otomatik uygulanır.</p></div><div className="retention-values"><span>Telemetri: {runtime?.telemetry_retention_days ?? "—"} gün</span><span>Loglar: {runtime?.log_retention_days ?? "—"} gün</span></div></Card></div>
 }
 
 function CloudInventoryPage() {

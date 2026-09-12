@@ -74,3 +74,39 @@ func TestTimescaleEnabled(t *testing.T) {
 		t.Fatal("expected TimescaleDB to be enabled")
 	}
 }
+
+func TestRetentionDefaults(t *testing.T) {
+	t.Setenv("BAZUSOP_TELEMETRY_RETENTION_DAYS", "")
+	t.Setenv("BAZUSOP_LOG_RETENTION_DAYS", "")
+
+	configuration := config.Load()
+	if configuration.TelemetryRetentionDays != 30 || configuration.LogRetentionDays != 14 {
+		t.Fatalf("unexpected retention defaults: telemetry=%d logs=%d", configuration.TelemetryRetentionDays, configuration.LogRetentionDays)
+	}
+	if err := configuration.Validate(); err != nil {
+		t.Fatalf("validate defaults: %v", err)
+	}
+}
+
+func TestConfiguredRetentionDays(t *testing.T) {
+	t.Setenv("BAZUSOP_TELEMETRY_RETENTION_DAYS", "90")
+	t.Setenv("BAZUSOP_LOG_RETENTION_DAYS", "21")
+
+	configuration := config.Load()
+	if configuration.TelemetryRetentionDays != 90 || configuration.LogRetentionDays != 21 {
+		t.Fatalf("unexpected configured retention: telemetry=%d logs=%d", configuration.TelemetryRetentionDays, configuration.LogRetentionDays)
+	}
+}
+
+func TestInvalidRetentionIsRejected(t *testing.T) {
+	for _, variable := range []string{"BAZUSOP_TELEMETRY_RETENTION_DAYS", "BAZUSOP_LOG_RETENTION_DAYS"} {
+		for _, value := range []string{"invalid", "0", "3651"} {
+			t.Run(variable+"/"+value, func(t *testing.T) {
+				t.Setenv(variable, value)
+				if err := config.Load().Validate(); err == nil {
+					t.Fatalf("expected %s=%q to be rejected", variable, value)
+				}
+			})
+		}
+	}
+}

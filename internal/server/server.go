@@ -25,16 +25,24 @@ import (
 type Option func(*handlerOptions)
 
 type handlerOptions struct {
-	enrollmentAuthority *enrollment.Authority
-	inventoryService    *inventory.Service
-	telemetryService    *telemetry.Service
-	serviceInventory    *serviceinventory.Manager
-	logService          *logstream.Service
-	jobService          *jobs.Service
-	operatorToken       string
-	adminToken          string
-	alertService        *alerting.Service
-	cloudInventory      *cloudinventory.Service
+	enrollmentAuthority  *enrollment.Authority
+	inventoryService     *inventory.Service
+	telemetryService     *telemetry.Service
+	serviceInventory     *serviceinventory.Manager
+	logService           *logstream.Service
+	jobService           *jobs.Service
+	operatorToken        string
+	adminToken           string
+	alertService         *alerting.Service
+	cloudInventory       *cloudinventory.Service
+	runtimeConfiguration *RuntimeConfiguration
+}
+
+type RuntimeConfiguration struct {
+	Storage                string `json:"storage"`
+	TimescaleEnabled       bool   `json:"timescale_enabled"`
+	TelemetryRetentionDays int    `json:"telemetry_retention_days"`
+	LogRetentionDays       int    `json:"log_retention_days"`
 }
 
 type accessRole uint8
@@ -108,6 +116,12 @@ func WithAdminToken(adminToken string) Option {
 	}
 }
 
+func WithRuntimeConfiguration(configuration RuntimeConfiguration) Option {
+	return func(options *handlerOptions) {
+		options.runtimeConfiguration = &configuration
+	}
+}
+
 func NewHandler(options ...Option) http.Handler {
 	configuration := handlerOptions{}
 	for _, option := range options {
@@ -116,6 +130,9 @@ func NewHandler(options ...Option) http.Handler {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", handleHealth)
+	if configuration.runtimeConfiguration != nil {
+		mux.HandleFunc("GET /api/v1/system/configuration", handleRuntimeConfiguration(*configuration.runtimeConfiguration))
+	}
 	if configuration.enrollmentAuthority != nil {
 		mux.HandleFunc("POST /api/v1/agents/enroll", handleEnroll(configuration.enrollmentAuthority))
 		mux.HandleFunc("POST /api/v1/agents/renew", handleRenew(configuration.enrollmentAuthority))
@@ -177,6 +194,12 @@ func NewHandler(options ...Option) http.Handler {
 	})
 	mux.Handle("/", webui.Handler())
 	return mux
+}
+
+func handleRuntimeConfiguration(configuration RuntimeConfiguration) http.HandlerFunc {
+	return func(response http.ResponseWriter, _ *http.Request) {
+		writeJSON(response, http.StatusOK, configuration)
+	}
 }
 
 func handleHealth(response http.ResponseWriter, _ *http.Request) {

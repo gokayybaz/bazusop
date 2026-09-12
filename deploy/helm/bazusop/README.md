@@ -30,4 +30,12 @@ paylaşılana kadar `autoscaling.enabled=false` ve tek replika kullanın.
 süreç durumu taşımaz.
 
 Veritabanı TimescaleDB extension'ı sağlıyorsa `timescale.enabled=true` ayarlayın.
-Hub başlangıçta telemetri hypertable'ını ve 30 günlük retention policy'yi kurar.
+Hub başlangıçta hypertable'ları ve retention policy'lerini kurar. Varsayılan
+telemetri saklama süresi 30, log saklama süresi 14 gündür; örneğin:
+
+```bash
+helm upgrade --install bazusop . --namespace bazusop \
+  --set timescale.enabled=true \
+  --set retention.telemetryRetentionDays=90 \
+  --set retention.logRetentionDays=21
+```

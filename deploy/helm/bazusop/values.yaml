@@ -46,6 +46,10 @@ secrets:
 timescale:
   enabled: false
 
+retention:
+  telemetryRetentionDays: 30
+  logRetentionDays: 14
+
 tls:
   enabled: false
   existingSecret: ""

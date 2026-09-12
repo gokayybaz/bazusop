@@ -33,13 +33,19 @@ describe("bazUSOP shell", () => {
     expect(screen.getByRole("table", { name: "Sunucu sağlığı" })).toBeInTheDocument()
   })
 
-  it("opens application pages directly from their URL", () => {
+  it("opens application pages directly from their URL", async () => {
     window.history.replaceState({}, "", "/settings")
+	vi.mocked(fetch).mockImplementation((input) => {
+	  if (String(input).endsWith("/api/v1/system/configuration")) return Promise.resolve({ ok: true, json: async () => ({ storage: "postgresql", timescale_enabled: true, telemetry_retention_days: 30, log_retention_days: 14 }) } as Response)
+	  return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+	})
 
     render(<App />)
 
     expect(screen.getByRole("heading", { name: "Ayarlar" })).toBeInTheDocument()
     expect(screen.getByText("Görünüm")).toBeInTheDocument()
+	expect(await screen.findByText("Telemetri: 30 gün")).toBeInTheDocument()
+	expect(screen.getByText("Loglar: 14 gün")).toBeInTheDocument()
     expect(screen.queryByRole("region", { name: "Operasyon alarmları" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Ayarlar" })).toHaveAttribute("aria-current", "page")
   })
