@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
@@ -17,7 +18,7 @@ func TestRunnerEnrollsAndReportsInventoryAndTelemetryImmediately(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	hub := &fakeHubClient{
 		identity: testIdentity(t, "agent-test"),
-		reported: make(chan inventory.Facts, 1), metrics: make(chan telemetry.Sample, 1), services: make(chan serviceinventory.Snapshot, 1),
+		reported: make(chan inventory.Facts, 1), metrics: make(chan telemetry.Sample, 1), services: make(chan serviceinventory.Snapshot, 1), logs: make(chan logstream.Batch, 1),
 	}
 	collector := fakeCollector{facts: inventory.Facts{Hostname: "web-01"}}
 	recordedAt := time.Date(2026, time.September, 12, 12, 0, 0, 0, time.UTC)
@@ -25,6 +26,7 @@ func TestRunnerEnrollsAndReportsInventoryAndTelemetryImmediately(t *testing.T) {
 		Hub: hub, Collector: collector,
 		Telemetry:      fakeTelemetryCollector{sample: telemetry.Sample{RecordedAt: recordedAt, CPUPercent: 42}},
 		Services:       fakeServiceCollector{snapshot: serviceinventory.Snapshot{ObservedAt: recordedAt, Services: []serviceinventory.Fact{{Name: "nginx.service", State: "running", StartupType: "automatic"}}}},
+		Logs:           fakeLogCollector{batch: logstream.Batch{Entries: []logstream.Entry{{OccurredAt: recordedAt, Collector: "journald", Source: "nginx.service", Severity: "error", Message: "upstream timeout"}}}},
 		ReportInterval: time.Hour, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Hostname: "web-01", OperatingSystem: "linux",
 	}
 
@@ -37,6 +39,15 @@ func TestRunnerEnrollsAndReportsInventoryAndTelemetryImmediately(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("runner did not report immediately")
+	}
+	select {
+	case batch := <-hub.logs:
+		if len(batch.Entries) != 1 || batch.Entries[0].Message != "upstream timeout" {
+			t.Fatalf("unexpected log batch: %#v", batch)
+		}
+		cancel()
+	case <-time.After(time.Second):
+		t.Fatal("runner did not report logs immediately")
 	}
 	select {
 	case sample := <-hub.metrics:
@@ -63,11 +74,12 @@ func TestRunnerEnrollsAndReportsInventoryAndTelemetryImmediately(t *testing.T) {
 func TestRunnerRetriesAfterInitialHubFailure(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	hub := &fakeHubClient{identity: testIdentity(t, "agent-test"), reported: make(chan inventory.Facts, 1), metrics: make(chan telemetry.Sample, 2), services: make(chan serviceinventory.Snapshot, 2), failures: 1}
+	hub := &fakeHubClient{identity: testIdentity(t, "agent-test"), reported: make(chan inventory.Facts, 1), metrics: make(chan telemetry.Sample, 2), services: make(chan serviceinventory.Snapshot, 2), logs: make(chan logstream.Batch, 2), failures: 1}
 	runner := Runner{
 		Hub: hub, Collector: fakeCollector{facts: inventory.Facts{Hostname: "web-01"}},
 		Telemetry:      fakeTelemetryCollector{sample: telemetry.Sample{RecordedAt: time.Now().UTC()}},
 		Services:       fakeServiceCollector{snapshot: serviceinventory.Snapshot{ObservedAt: time.Now().UTC()}},
+		Logs:           fakeLogCollector{},
 		ReportInterval: 5 * time.Millisecond, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Hostname: "web-01", OperatingSystem: "linux",
 	}
@@ -87,11 +99,12 @@ func TestRunnerRetriesAfterInitialHubFailure(t *testing.T) {
 func TestRunnerReportsTelemetryWhenInventoryCollectionFails(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	hub := &fakeHubClient{identity: testIdentity(t, "agent-test"), reported: make(chan inventory.Facts, 1), metrics: make(chan telemetry.Sample, 1), services: make(chan serviceinventory.Snapshot, 1)}
+	hub := &fakeHubClient{identity: testIdentity(t, "agent-test"), reported: make(chan inventory.Facts, 1), metrics: make(chan telemetry.Sample, 1), services: make(chan serviceinventory.Snapshot, 1), logs: make(chan logstream.Batch, 1)}
 	runner := Runner{
 		Hub: hub, Collector: fakeCollector{err: errors.New("inventory unavailable")},
 		Telemetry:      fakeTelemetryCollector{sample: telemetry.Sample{RecordedAt: time.Now().UTC(), CPUPercent: 25}},
 		Services:       fakeServiceCollector{snapshot: serviceinventory.Snapshot{ObservedAt: time.Now().UTC()}},
+		Logs:           fakeLogCollector{err: errors.New("journal unavailable")},
 		ReportInterval: time.Hour, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Hostname: "web-01", OperatingSystem: "linux",
 	}
@@ -123,6 +136,7 @@ type fakeHubClient struct {
 	reported   chan inventory.Facts
 	metrics    chan telemetry.Sample
 	services   chan serviceinventory.Snapshot
+	logs       chan logstream.Batch
 	failures   int
 }
 
@@ -150,6 +164,11 @@ func (client *fakeHubClient) ReportServices(_ context.Context, _ Identity, snaps
 	return nil
 }
 
+func (client *fakeHubClient) ReportLogs(_ context.Context, _ Identity, batch logstream.Batch) error {
+	client.logs <- batch
+	return nil
+}
+
 type fakeCollector struct {
 	facts inventory.Facts
 	err   error
@@ -172,6 +191,17 @@ type fakeServiceCollector struct {
 	snapshot serviceinventory.Snapshot
 	err      error
 }
+
+type fakeLogCollector struct {
+	batch logstream.Batch
+	err   error
+}
+
+func (collector fakeLogCollector) Collect(context.Context) (logstream.Batch, error) {
+	return collector.batch, collector.err
+}
+
+func (fakeLogCollector) Commit() {}
 
 func (collector fakeServiceCollector) Collect(context.Context) (serviceinventory.Snapshot, error) {
 	return collector.snapshot, collector.err

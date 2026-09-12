@@ -20,11 +20,13 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
 const renewalWindow = time.Hour
+const maxRequestBodyBytes = 1 << 20
 
 type Client struct {
 	configuration Config
@@ -129,6 +131,54 @@ func (client *Client) ReportServices(ctx context.Context, identity Identity, sna
 		return fmt.Errorf("report services: %w", err)
 	}
 	return nil
+}
+
+func (client *Client) ReportLogs(ctx context.Context, identity Identity, batch logstream.Batch) error {
+	batches, err := splitLogBatch(batch)
+	if err != nil {
+		return err
+	}
+	for _, candidate := range batches {
+		if err := client.request(ctx, http.MethodPost, "/api/v1/agents/logs", candidate, &identity, http.StatusNoContent, nil); err != nil {
+			return fmt.Errorf("report logs: %w", err)
+		}
+	}
+	return nil
+}
+
+func splitLogBatch(batch logstream.Batch) ([]logstream.Batch, error) {
+	if len(batch.Entries) == 0 {
+		return []logstream.Batch{}, nil
+	}
+	if len(batch.Entries) > logstream.MaxBatchEntries {
+		return nil, fmt.Errorf("log batch exceeds %d entries", logstream.MaxBatchEntries)
+	}
+	const envelopeBytes = len(`{"entries":[]}`)
+	batches := make([]logstream.Batch, 0, 1)
+	current := logstream.Batch{Entries: make([]logstream.Entry, 0, len(batch.Entries))}
+	currentBytes := envelopeBytes
+	for _, entry := range batch.Entries {
+		encoded, err := json.Marshal(entry)
+		if err != nil {
+			return nil, fmt.Errorf("encode log entry: %w", err)
+		}
+		separatorBytes := 0
+		if len(current.Entries) > 0 {
+			separatorBytes = 1
+		}
+		if currentBytes+separatorBytes+len(encoded) > maxRequestBodyBytes {
+			if len(current.Entries) == 0 {
+				return nil, errors.New("encoded log entry exceeds request limit")
+			}
+			batches = append(batches, current)
+			current = logstream.Batch{Entries: make([]logstream.Entry, 0, len(batch.Entries)-len(current.Entries))}
+			currentBytes = envelopeBytes
+			separatorBytes = 0
+		}
+		current.Entries = append(current.Entries, entry)
+		currentBytes += separatorBytes + len(encoded)
+	}
+	return append(batches, current), nil
 }
 
 func (client *Client) request(ctx context.Context, method, path string, body any, identity *Identity, expectedStatus int, destination any) error {

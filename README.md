@@ -19,6 +19,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   Timescale etkinse varsayılan 30 günlük, yapılandırılabilir retention uygulanır.
 - systemd ve Windows Service snapshot'ları normalize edilerek sunucu bazında
   aranabilir ve durumlarına göre filtrelenebilir.
+- Agent, Linux journald ile Windows System/Application Event kayıtlarını ortak
+  önem modeline çevirip sınırlı mTLS batch'leri halinde periyodik gönderir.
 - journald, dosya ve Windows Event kayıtları ortak log modelinde aranabilir;
   sunucu detayında sınırlı geçmiş ve canlı SSE akışı birlikte izlenebilir.
 - PostgreSQL kullanan hub replikaları canlı log olaylarını `LISTEN/NOTIFY` üzerinden
@@ -132,7 +134,8 @@ kurulum ve güven modeli için [agent rehberine](docs/AGENT.md) bakın.
 
 Kayıtlı agent'lar envanteri `PUT /api/v1/agents/inventory`, telemetriyi
 `POST /api/v1/agents/telemetry`, servisleri `PUT /api/v1/agents/services` ile
-raporlar; log batch'leri `POST /api/v1/agents/logs` yolunu kullanır. UI, filo listesini
+raporlar; journald veya Windows Event batch'leri `POST /api/v1/agents/logs`
+yolunu kullanır. UI, filo listesini
 `GET /api/v1/instances`, zaman serisini
 `GET /api/v1/instances/{agent_id}/telemetry`, servisleri
 `GET /api/v1/instances/{agent_id}/services` üzerinden okur.

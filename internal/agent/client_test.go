@@ -4,15 +4,19 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
@@ -26,7 +30,8 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	inventoryService := inventory.NewService(inventory.NewMemoryStore())
 	telemetryService := telemetry.NewService(telemetry.NewMemoryStore())
 	serviceInventory := serviceinventory.NewService(serviceinventory.NewMemoryStore())
-	handler := server.NewHandler(server.WithEnrollment(authority), server.WithInventory(inventoryService), server.WithTelemetry(telemetryService), server.WithServiceInventory(serviceInventory))
+	logs := logstream.NewService(logstream.NewMemoryStore())
+	handler := server.NewHandler(server.WithEnrollment(authority), server.WithInventory(inventoryService), server.WithTelemetry(telemetryService), server.WithServiceInventory(serviceInventory), server.WithLogs(logs))
 
 	directory := t.TempDir()
 	configuration := Config{
@@ -74,6 +79,14 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	if err != nil || len(services) != 1 || services[0].Name != "nginx.service" {
 		t.Fatalf("expected reported services, services=%#v err=%v", services, err)
 	}
+	logTime := recordedAt.Add(time.Second)
+	if err := client.ReportLogs(context.Background(), identity, logstream.Batch{Entries: []logstream.Entry{{OccurredAt: logTime, Collector: "journald", Source: "nginx.service", Severity: "warn", Message: "retrying upstream"}}}); err != nil {
+		t.Fatalf("report logs: %v", err)
+	}
+	entries, err := logs.Search(context.Background(), logstream.Query{AgentID: identity.AgentID, From: recordedAt, To: logTime.Add(time.Second), Limit: 10})
+	if err != nil || len(entries) != 1 || entries[0].Message != "retrying upstream" {
+		t.Fatalf("expected reported logs, entries=%#v err=%v", entries, err)
+	}
 	loaded, err := NewIdentityStore(configuration.StateDir).Load()
 	if err != nil || loaded.AgentID != identity.AgentID {
 		t.Fatalf("identity was not persisted: %#v %v", loaded, err)
@@ -102,6 +115,41 @@ func TestClientTLSAlwaysVerifiesHub(t *testing.T) {
 		return &http.Response{StatusCode: http.StatusUnauthorized, Status: "401 Unauthorized", Body: http.NoBody}, nil
 	}
 	_, _ = client.EnsureIdentity(context.Background(), "web-01", "linux")
+}
+
+func TestClientSplitsLargeLogBatchBelowHubRequestLimit(t *testing.T) {
+	configuration := Config{HubURL: "https://hub.example.test", StateDir: t.TempDir(), ReportInterval: time.Minute}
+	client, err := NewClient(configuration, NewIdentityStore(configuration.StateDir))
+	if err != nil {
+		t.Fatal(err)
+	}
+	requests, entries := 0, 0
+	client.do = func(request *http.Request, _ *tls.Config) (*http.Response, error) {
+		payload, err := io.ReadAll(request.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(payload) > maxRequestBodyBytes {
+			t.Fatalf("request body exceeds hub limit: %d", len(payload))
+		}
+		var batch logstream.Batch
+		if err := json.Unmarshal(payload, &batch); err != nil {
+			t.Fatal(err)
+		}
+		requests++
+		entries += len(batch.Entries)
+		return &http.Response{StatusCode: http.StatusNoContent, Status: "204 No Content", Body: http.NoBody}, nil
+	}
+	batch := logstream.Batch{Entries: make([]logstream.Entry, 20)}
+	for index := range batch.Entries {
+		batch.Entries[index] = logstream.Entry{OccurredAt: time.Now().UTC(), Collector: "journald", Source: "app.service", Severity: "info", Message: strings.Repeat("x", 60*1024)}
+	}
+	if err := client.ReportLogs(context.Background(), testIdentity(t, "agent-test"), batch); err != nil {
+		t.Fatalf("report logs: %v", err)
+	}
+	if requests < 2 || entries != len(batch.Entries) {
+		t.Fatalf("unexpected split: requests=%d entries=%d", requests, entries)
+	}
 }
 
 func handlerTransport(t *testing.T, handler http.Handler) func(*http.Request, *tls.Config) (*http.Response, error) {

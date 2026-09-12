@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
@@ -17,6 +18,7 @@ type HubClient interface {
 	ReportInventory(context.Context, Identity, inventory.Facts) error
 	ReportTelemetry(context.Context, Identity, telemetry.Sample) error
 	ReportServices(context.Context, Identity, serviceinventory.Snapshot) error
+	ReportLogs(context.Context, Identity, logstream.Batch) error
 }
 
 type FactCollector interface {
@@ -31,11 +33,17 @@ type ManagedServiceCollector interface {
 	Collect(context.Context) (serviceinventory.Snapshot, error)
 }
 
+type HostLogCollector interface {
+	Collect(context.Context) (logstream.Batch, error)
+	Commit()
+}
+
 type Runner struct {
 	Hub             HubClient
 	Collector       FactCollector
 	Telemetry       MetricCollector
 	Services        ManagedServiceCollector
+	Logs            HostLogCollector
 	ReportInterval  time.Duration
 	Logger          *slog.Logger
 	Hostname        string
@@ -43,7 +51,7 @@ type Runner struct {
 }
 
 func (runner Runner) Run(ctx context.Context) error {
-	if runner.Hub == nil || runner.Collector == nil || runner.Telemetry == nil || runner.Services == nil || runner.Logger == nil || runner.ReportInterval <= 0 {
+	if runner.Hub == nil || runner.Collector == nil || runner.Telemetry == nil || runner.Services == nil || runner.Logs == nil || runner.Logger == nil || runner.ReportInterval <= 0 {
 		return fmt.Errorf("agent runner is incomplete")
 	}
 	if err := runner.report(ctx); err != nil {
@@ -92,6 +100,19 @@ func (runner Runner) report(ctx context.Context) error {
 		reportErrors = append(reportErrors, err)
 	} else {
 		runner.Logger.Info("services reported", "agent_id", identity.AgentID, "observed_at", serviceSnapshot.ObservedAt, "count", len(serviceSnapshot.Services))
+	}
+	logBatch, logsErr := runner.Logs.Collect(ctx)
+	if logsErr != nil {
+		reportErrors = append(reportErrors, fmt.Errorf("collect host logs: %w", logsErr))
+	} else if len(logBatch.Entries) > 0 {
+		if err := runner.Hub.ReportLogs(ctx, identity, logBatch); err != nil {
+			reportErrors = append(reportErrors, err)
+		} else {
+			runner.Logs.Commit()
+			runner.Logger.Info("logs reported", "agent_id", identity.AgentID, "count", len(logBatch.Entries))
+		}
+	} else {
+		runner.Logs.Commit()
 	}
 	return errors.Join(reportErrors...)
 }

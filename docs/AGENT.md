@@ -3,8 +3,8 @@
 `bazusop-agent`, Linux veya Windows hostundan hub'a yalnız outbound HTTPS
 bağlantısı kurar. Host/OS/CPU/bellek/IP envanteriyle birlikte CPU kullanımı,
 bellek kullanımı, kök disk doluluğu, toplam ağ byte sayaçları ve yönetilen servis
-durumlarını toplar. Log ve uzak iş çalıştırıcıları ayrı spike'larda bu çalışma
-döngüsüne bağlanacaktır.
+durumlarını ve host loglarını toplar. Uzak iş çalıştırıcısı ayrı bir spike'ta bu
+çalışma döngüsüne bağlanacaktır.
 
 ## Güvenli kayıt
 
@@ -84,7 +84,7 @@ geliştirme kolaylığıdır; envanter ucu mTLS istediğinden tam agent akışı
 TLS'i kullanılmalıdır.
 
 Agent başlangıçta hemen, ardından `BAZUSOP_AGENT_REPORT_INTERVAL` periyodunda
-envanter, telemetri ve servis snapshot'ı göndermeyi dener. CPU'nun ilk örneği boot'tan itibaren
+envanter, telemetri, servis snapshot'ı ve host loglarını göndermeyi dener. CPU'nun ilk örneği boot'tan itibaren
 ortalama kullanımdır; sonraki örnekler iki sistem sayacı arasındaki deltadan
 hesaplanır. Bellek kullanılabilir kapasiteden, disk işletim sisteminin kök
 volume'ünden hesaplanır; ağ alanları kümülatif alınan/gönderilen byte sayaçlarıdır.
@@ -97,6 +97,14 @@ birleştirir; her servis için ayrı process açmaz. Windows collector Service C
 Manager'dan servis durumunu ve başlangıç tipini okur. Geçici durumlar `unknown`,
 başarısız Windows exit code'u veya systemd `failed` durumu `failed` olarak
 raporlanır. Snapshot hub'da önceki servis listesini atomik olarak değiştirir.
+
+Linux log collector `journalctl` JSON çıktısını, Windows collector ise System ve
+Application Event kanallarını okur. Syslog priority ve Windows event level
+değerleri ortak `debug/info/warn/error/critical` önem modeline çevrilir; her batch
+en fazla 1000 kayıt taşır. Cursor yalnız hub batch'i kabul ettikten sonra ilerler,
+bu nedenle geçici gönderim hatasında aynı batch yeniden denenir. Cursor process
+belleğindedir; agent restart'ı ilk rapor aralığını yeniden okuyabileceği için log
+teslimi en az bir kez semantiğindedir ve nadir tekrarlar mümkün kabul edilir.
 
 `401` için sırasıyla client sertifika süresini, agent state dosyalarını, hub'ın
 agent CA durumunu ve reverse proxy'nin client sertifikasını hub'a kadar koruduğunu
