@@ -61,6 +61,12 @@ type Store interface {
 	SearchLogs(context.Context, Query) ([]Entry, error)
 }
 
+// SharedLiveStore lets multiple hub processes share live log delivery through
+// their common durable store while the default memory store stays process-local.
+type SharedLiveStore interface {
+	SubscribeLogs(context.Context, string) (<-chan Entry, error)
+}
+
 type Service struct {
 	store       Store
 	mu          sync.RWMutex
@@ -97,8 +103,10 @@ func (service *Service) Ingest(ctx context.Context, agentID string, batch Batch)
 	if err := service.store.AppendLogs(ctx, entries); err != nil {
 		return err
 	}
-	for _, entry := range entries {
-		service.publish(entry)
+	if _, shared := service.store.(SharedLiveStore); !shared {
+		for _, entry := range entries {
+			service.publish(entry)
+		}
 	}
 	return nil
 }
@@ -133,6 +141,9 @@ func (service *Service) Subscribe(ctx context.Context, agentID string) (<-chan E
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return nil, ErrInvalidLogs
+	}
+	if shared, ok := service.store.(SharedLiveStore); ok {
+		return shared.SubscribeLogs(ctx, agentID)
 	}
 	stream := make(chan Entry, 256)
 	service.mu.Lock()

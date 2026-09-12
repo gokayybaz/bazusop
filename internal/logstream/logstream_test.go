@@ -3,9 +3,42 @@ package logstream
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 )
+
+type sharedTestStore struct {
+	*MemoryStore
+	mu          sync.RWMutex
+	subscribers map[string][]chan Entry
+}
+
+func newSharedTestStore() *sharedTestStore {
+	return &sharedTestStore{MemoryStore: NewMemoryStore(), subscribers: make(map[string][]chan Entry)}
+}
+
+func (store *sharedTestStore) AppendLogs(ctx context.Context, entries []Entry) error {
+	if err := store.MemoryStore.AppendLogs(ctx, entries); err != nil {
+		return err
+	}
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+	for _, entry := range entries {
+		for _, subscriber := range store.subscribers[entry.AgentID] {
+			subscriber <- entry
+		}
+	}
+	return nil
+}
+
+func (store *sharedTestStore) SubscribeLogs(ctx context.Context, agentID string) (<-chan Entry, error) {
+	stream := make(chan Entry, 1)
+	store.mu.Lock()
+	store.subscribers[agentID] = append(store.subscribers[agentID], stream)
+	store.mu.Unlock()
+	return stream, nil
+}
 
 func TestIngestNormalizesAndSearchesBoundedLogs(t *testing.T) {
 	t.Parallel()
@@ -63,6 +96,30 @@ func TestSubscribersReceiveOnlyTheirAgentLogs(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("timed out waiting for live log")
+	}
+}
+
+func TestServicesUseSharedStoreForCrossReplicaLiveLogs(t *testing.T) {
+	t.Parallel()
+	store := newSharedTestStore()
+	ingestingReplica := NewService(store)
+	streamingReplica := NewService(store)
+	stream, err := streamingReplica.Subscribe(t.Context(), "agent-01")
+	if err != nil {
+		t.Fatalf("subscribe through shared store: %v", err)
+	}
+	if err := ingestingReplica.Ingest(t.Context(), "agent-01", Batch{Entries: []Entry{{
+		OccurredAt: time.Now().UTC(), Collector: "file", Source: "app.log", Severity: "info", Message: "cross replica",
+	}}}); err != nil {
+		t.Fatalf("ingest through other replica: %v", err)
+	}
+	select {
+	case entry := <-stream:
+		if entry.Message != "cross replica" {
+			t.Fatalf("unexpected shared entry: %#v", entry)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("timed out waiting for cross-replica log")
 	}
 }
 

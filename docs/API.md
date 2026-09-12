@@ -188,7 +188,9 @@ Yanıt `{ "entries": [...] }` zarfıdır. Aralık ve limit her sorguda doğrulan
 `text/event-stream` yanıtıyla canlı tail açar. Bağlantı önce `ready`, ardından her
 yeni kayıt için `log` olayı gönderir. Her abonelik yalnız URL'deki agent kimliğinin
 kayıtlarını alır. Proxy buffering kapatılmalı, istemci kopunca bağlantı iptal
-edilmelidir.
+edilmelidir. Ortak PostgreSQL kullanan hub replikaları yeni kayıt sinyalini
+`LISTEN/NOTIFY` ile paylaşır; bildirim yalnız kayıt kimliklerini taşır, log içeriği
+kalıcı tablodan okunur. Bellek store'u kullanılan geliştirme modu süreç içidir.
 
 ### `POST /api/v1/instances/{agent_id}/jobs`
 

@@ -22,8 +22,8 @@
 5. Telemetry örneği `(agent_id, recorded_at)` anahtarıyla idempotent yazılır.
 6. Servis snapshot'ı ortak durum modeline çevrilir ve önceki snapshot'ı transaction
    içinde atomik olarak değiştirir.
-7. Log batch'i kalıcı depoya toplu yazıldıktan sonra agent'a özel süreç içi SSE
-   broker'ına yayınlanır.
+7. Log batch'i ve PostgreSQL notification sinyali atomik commit edilir; her hub
+   replikası kalıcı kayıtları agent'a özel SSE abonelerine yayınlar.
 8. UI filo, zaman serisi, servis listesi ve logları salt-okunur API uçlarından alır.
 9. Operatör bearer token ile izinli bir restart/reboot talebi oluşturur; hub işin
    değişmez alanlarını Ed25519 ile imzalayıp `queued` olarak saklar.
@@ -70,17 +70,20 @@ provider metadata'sından çıkardığı `agent_id_hint` mevcut bir agent kimli�
 uyduğunda yapılır. Hostname veya özel IP ile bulunan tekil benzerlik
 `candidate_agent_id` olarak saklanır ve agent ilişkisi kurulmaz.
 
-Canlı tail broker'ı hub sürecindedir. Bu nedenle birden fazla hub replikasında SSE
-istemcisi yalnız bağlandığı replikanın aldığı yeni kayıtları görür. Production
-yatay ölçekleme öncesinde PostgreSQL LISTEN/NOTIFY, NATS veya eşdeğer ortak event
-bus eklenmelidir; geçmiş arama tüm replikalarda ortak PostgreSQL'den gelir.
+PostgreSQL store, log insert'i ve `pg_notify` sinyalini aynı transaction içinde
+commit eder. Bildirimler PostgreSQL'in 8 KiB sınırının altında kimlik gruplarına
+bölünür; hassas veya büyük log mesajı notification payload'ına girmez. Her hub
+replikası tek bir `LISTEN` bağlantısıyla sinyali alır, kalıcı satırları PostgreSQL'den
+okur ve agent bazlı yerel SSE abonelerine dağıtır. Dinleyici bağlantısı koparsa
+otomatik yeniden kurulur. Notification kalıcı kuyruk değildir; kısa bağlantı
+kesintisinde istemci geçmiş aramayla arayı kapatmalıdır. Bellek store'u geliştirme
+modunda süreç içi broker kullanmaya devam eder.
 
 ## Ölçekleme
 
-Inventory, telemetry, servis ve geçmiş log handler'ları süreç durumu taşımaz;
-ortak PostgreSQL/TimescaleDB kullanan hub replikalarında yatay ölçeklenebilir.
-Canlı SSE yayınında yukarıdaki event bus kısıtı geçerlidir. Helm chart HPA,
-topology spread, rolling update ve PDB tanımlar.
+Inventory, telemetry, servis, geçmiş log ve canlı log handler'ları ortak
+PostgreSQL/TimescaleDB kullanan hub replikalarında yatay ölçeklenebilir. Helm chart
+HPA, topology spread, rolling update ve PDB tanımlar.
 
 Erişilebilirlik değerlendirmesi şu anda her hub replikasında çalışabilir; veritabanı
 unique kısıtı çift aktif olayı engeller. Çok büyük filolarda tarama işi leader

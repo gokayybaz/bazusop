@@ -19,6 +19,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   aranabilir ve durumlarına göre filtrelenebilir.
 - journald, dosya ve Windows Event kayıtları ortak log modelinde aranabilir;
   sunucu detayında sınırlı geçmiş ve canlı SSE akışı birlikte izlenebilir.
+- PostgreSQL kullanan hub replikaları canlı log olaylarını `LISTEN/NOTIFY` üzerinden
+  paylaşır; SSE istemcisi ingest yapan replikaya bağlı olmak zorunda değildir.
 - Servis yeniden başlatma ve host reboot talepleri operatör token'ıyla onaylanır,
   Ed25519 ile imzalanır ve sıralı audit olaylarıyla uçtan uca izlenir.
 - CPU, bellek, disk ve agent erişilebilirlik kuralları olay açar; olaylar onaylanır,

@@ -24,7 +24,8 @@ Her spike aynı teslimat döngüsünü izler:
 | 7 — Alarm | Metrik/erişilebilirlik kuralları yönetilen olay üretir | Alarm yaşam döngüsü ve bakım pencereleri test edilir |
 | 8 — Bulut keşfi | AWS, Azure ve GCP envanteri agent'larla uzlaştırılır | Provider instance ile agent kimliği güvenle eşleşir |
 | 9.1 — Rol ayrımı | Operasyon ve yönetim mutasyonları ayrı bearer rolleri kullanır | Operator yönetim politikasını değiştiremez; admin iki yetkiyi de taşır |
-| 9.2 — Saklama ve ölçek | Retention, ortak event bus ve yük hedefleri | Çoklu replika canlı akış ve saklama hedefleri yük altında geçer |
+| 9.2.1 — Ortak canlı akış | PostgreSQL tabanlı ortak log event bus | Farklı hub replikasından ingest edilen log SSE abonesine ulaşır |
+| 9.2.2 — Saklama ve yük | Yapılandırılabilir retention ve yük hedefleri | Saklama hedefleri ve ingest/SSE yük senaryoları geçer |
 | 9.3 — Sürümleme | Paketleme, imzalama ve kontrollü yükseltme | deb/rpm/MSI/container imzalanır ve yükseltme geri dönüşü test edilir |
 
 ## Mimari kısıtlar

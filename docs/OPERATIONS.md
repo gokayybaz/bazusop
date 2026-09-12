@@ -33,6 +33,13 @@ POSTGRES_PASSWORD=yerel-parola BAZUSOP_ENROLLMENT_TOKEN=yerel-token BAZUSOP_OPER
 Compose TimescaleDB PostgreSQL 18 imajını kullanır, database health bekler ve hub
 başlangıcında migration’ları uygular.
 
+İki bağımsız store üzerinden gerçek `LISTEN/NOTIFY` entegrasyon testini çalıştırmak için:
+
+```bash
+BAZUSOP_TEST_DATABASE_URL='postgres://bazusop:parola@127.0.0.1:5432/bazusop?sslmode=disable' \
+  GOCACHE=/tmp/bazusop-go-cache go test ./internal/storage/postgres -run TestPostgresDeliversLiveLogsAcrossStores
+```
+
 ## Kubernetes
 
 Chart uygulama secret’ını üretmez. `database-url`, `enrollment-token`, `operator-token`
@@ -68,8 +75,9 @@ bir TLS Secret’tan read-only mount edilir.
   eşlemesini ve 5000 kayıt sınırını kontrol et.
 - Log batch'i `400` dönüyorsa collector/severity eşlemesini, timestamp'i, 1000
   kayıt batch sınırını ve 64 KiB mesaj sınırını kontrol et.
-- SSE bağlantısı açılıyor fakat kayıt gelmiyorsa reverse proxy buffering'i kapat;
-  çoklu hub replikasında ortak event bus henüz bulunmadığını hesaba kat.
+- SSE bağlantısı açılıyor fakat kayıt gelmiyorsa reverse proxy buffering'i ve
+  PostgreSQL bağlantısını kontrol et. Hub `LISTEN/NOTIFY` bağlantısını otomatik
+  yeniler; kesinti aralığındaki kayıtları geçmiş log sorgusuyla tamamla.
 - Agent yazma uçları `401` dönüyorsa client certificate chain, süre ve SPIFFE URI
   SAN değerini kontrol et.
 - İş oluşturma `401` dönüyorsa `Authorization: Bearer ...` değerini; `503`

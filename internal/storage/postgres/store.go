@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"sync"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -26,8 +27,18 @@ var migrationFiles embed.FS
 
 type Store struct {
 	pool             *pgxpool.Pool
+	listenerConfig   *pgx.ConnConfig
 	timescaleEnabled bool
+	liveMu           sync.RWMutex
+	liveSubscribers  map[string]map[chan logstream.Entry]struct{}
+	listenerCancel   context.CancelFunc
+	listenerDone     chan struct{}
 }
+
+const (
+	logNotificationChannel     = "bazusop_log_entries"
+	postgresNotifyPayloadLimit = 8000
+)
 
 type Option func(*Store)
 
@@ -46,7 +57,7 @@ func Open(ctx context.Context, databaseURL string, options ...Option) (*Store, e
 	if err != nil {
 		return nil, fmt.Errorf("open PostgreSQL pool: %w", err)
 	}
-	store := &Store{pool: pool}
+	store := &Store{pool: pool, listenerConfig: configuration.ConnConfig, liveSubscribers: make(map[string]map[chan logstream.Entry]struct{})}
 	for _, option := range options {
 		option(store)
 	}
@@ -64,10 +75,18 @@ func Open(ctx context.Context, databaseURL string, options ...Option) (*Store, e
 			return nil, err
 		}
 	}
+	if err := store.startLogListener(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
 	return store, nil
 }
 
 func (store *Store) Close() {
+	if store.listenerCancel != nil {
+		store.listenerCancel()
+		<-store.listenerDone
+	}
 	store.pool.Close()
 }
 
@@ -277,11 +296,16 @@ func (store *Store) ListServices(ctx context.Context, agentID string, filter ser
 }
 
 func (store *Store) AppendLogs(ctx context.Context, entries []logstream.Entry) error {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin log batch: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
 	rows := make([][]any, 0, len(entries))
 	for _, entry := range entries {
 		rows = append(rows, []any{entry.ID, entry.AgentID, entry.OccurredAt, entry.Collector, entry.Source, entry.Severity, entry.Message})
 	}
-	if _, err := store.pool.CopyFrom(
+	if _, err := transaction.CopyFrom(
 		ctx,
 		pgx.Identifier{"log_entries"},
 		[]string{"id", "agent_id", "occurred_at", "collector", "source", "severity", "message"},
@@ -289,7 +313,169 @@ func (store *Store) AppendLogs(ctx context.Context, entries []logstream.Entry) e
 	); err != nil {
 		return fmt.Errorf("append log batch: %w", err)
 	}
+	payloads, err := encodeLogNotificationBatches(entries)
+	if err != nil {
+		return err
+	}
+	for _, payload := range payloads {
+		if _, err := transaction.Exec(ctx, "SELECT pg_notify($1, $2)", logNotificationChannel, payload); err != nil {
+			return fmt.Errorf("notify live log batch: %w", err)
+		}
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit log batch: %w", err)
+	}
 	return nil
+}
+
+func encodeLogNotificationBatches(entries []logstream.Entry) ([]string, error) {
+	payloads := make([]string, 0, 1)
+	current := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		candidate := append(append([]string(nil), current...), entry.ID)
+		encoded, err := json.Marshal(candidate)
+		if err != nil {
+			return nil, fmt.Errorf("encode live log notification: %w", err)
+		}
+		if len(encoded) >= postgresNotifyPayloadLimit {
+			if len(current) == 0 {
+				return nil, fmt.Errorf("encode live log notification: log id exceeds PostgreSQL payload limit")
+			}
+			completed, err := json.Marshal(current)
+			if err != nil {
+				return nil, fmt.Errorf("encode live log notification: %w", err)
+			}
+			payloads = append(payloads, string(completed))
+			current = []string{entry.ID}
+			continue
+		}
+		current = candidate
+	}
+	if len(current) > 0 {
+		encoded, err := json.Marshal(current)
+		if err != nil {
+			return nil, fmt.Errorf("encode live log notification: %w", err)
+		}
+		payloads = append(payloads, string(encoded))
+	}
+	return payloads, nil
+}
+
+func (store *Store) SubscribeLogs(ctx context.Context, agentID string) (<-chan logstream.Entry, error) {
+	stream := make(chan logstream.Entry, 256)
+	store.liveMu.Lock()
+	if store.liveSubscribers[agentID] == nil {
+		store.liveSubscribers[agentID] = make(map[chan logstream.Entry]struct{})
+	}
+	store.liveSubscribers[agentID][stream] = struct{}{}
+	store.liveMu.Unlock()
+	go func() {
+		<-ctx.Done()
+		store.liveMu.Lock()
+		delete(store.liveSubscribers[agentID], stream)
+		if len(store.liveSubscribers[agentID]) == 0 {
+			delete(store.liveSubscribers, agentID)
+		}
+		store.liveMu.Unlock()
+	}()
+	return stream, nil
+}
+
+func (store *Store) startLogListener(startupContext context.Context) error {
+	connection, err := pgx.ConnectConfig(startupContext, store.listenerConfig)
+	if err != nil {
+		return fmt.Errorf("acquire live log listener: %w", err)
+	}
+	if _, err := connection.Exec(startupContext, "LISTEN "+logNotificationChannel); err != nil {
+		_ = connection.Close(startupContext)
+		return fmt.Errorf("listen for live logs: %w", err)
+	}
+	listenerContext, cancel := context.WithCancel(context.Background())
+	store.listenerCancel = cancel
+	store.listenerDone = make(chan struct{})
+	go store.runLogListener(listenerContext, connection)
+	return nil
+}
+
+func (store *Store) runLogListener(ctx context.Context, connection *pgx.Conn) {
+	defer close(store.listenerDone)
+	for {
+		for ctx.Err() == nil {
+			notification, err := connection.WaitForNotification(ctx)
+			if err != nil {
+				break
+			}
+			store.deliverLogNotification(ctx, notification.Payload)
+		}
+		_ = connection.Close(context.Background())
+		if ctx.Err() != nil {
+			return
+		}
+		var err error
+		connection, err = store.acquireLogListener(ctx)
+		if err != nil {
+			return
+		}
+	}
+}
+
+func (store *Store) acquireLogListener(ctx context.Context) (*pgx.Conn, error) {
+	for ctx.Err() == nil {
+		connection, err := pgx.ConnectConfig(ctx, store.listenerConfig)
+		if err == nil {
+			if _, err = connection.Exec(ctx, "LISTEN "+logNotificationChannel); err == nil {
+				return connection, nil
+			}
+			_ = connection.Close(context.Background())
+		}
+		timer := time.NewTimer(time.Second)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return nil, ctx.Err()
+		case <-timer.C:
+		}
+	}
+	return nil, ctx.Err()
+}
+
+func (store *Store) deliverLogNotification(ctx context.Context, payload string) {
+	store.liveMu.RLock()
+	hasSubscribers := len(store.liveSubscribers) > 0
+	store.liveMu.RUnlock()
+	if !hasSubscribers {
+		return
+	}
+	var ids []string
+	if err := json.Unmarshal([]byte(payload), &ids); err != nil || len(ids) == 0 {
+		return
+	}
+	rows, err := store.pool.Query(ctx, `
+		SELECT id, agent_id, occurred_at, collector, source, severity, message
+		FROM log_entries WHERE id = ANY($1)
+		ORDER BY occurred_at, id`, ids)
+	if err != nil {
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var entry logstream.Entry
+		if err := rows.Scan(&entry.ID, &entry.AgentID, &entry.OccurredAt, &entry.Collector, &entry.Source, &entry.Severity, &entry.Message); err != nil {
+			return
+		}
+		store.publishLiveLog(entry)
+	}
+}
+
+func (store *Store) publishLiveLog(entry logstream.Entry) {
+	store.liveMu.RLock()
+	defer store.liveMu.RUnlock()
+	for stream := range store.liveSubscribers[entry.AgentID] {
+		select {
+		case stream <- entry:
+		default:
+		}
+	}
 }
 
 func (store *Store) SearchLogs(ctx context.Context, query logstream.Query) ([]logstream.Entry, error) {
