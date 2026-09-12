@@ -18,6 +18,10 @@
 TLS cert ve key birlikte verilmelidir. `DATABASE_URL` yoksa inventory ve telemetry
 süreç içi bellekte tutulur; restart sonrası kaybolur.
 
+Agent yapılandırması ve ilk kayıt prosedürü [agent rehberinde](AGENT.md) bulunur.
+Release arşivleri her hedef için hem `bazusop-hub` hem `bazusop-agent` binary'sini
+ayrı arşivler halinde üretir.
+
 ## Yerel geliştirme
 
 ```bash
@@ -52,7 +56,7 @@ cd dist/bazusop-0.3.0
 shasum -a 256 -c checksums.txt
 ```
 
-Çalışan build kimliği `bazusop-hub --version`,
+Çalışan build kimliği `bazusop-hub --version` veya `bazusop-agent --version`,
 `GET /api/v1/system/configuration` veya Ayarlar sayfasından karşılaştırılabilir.
 Release build'inde sürüm, kaynak commit'i ve UTC build tarihi linker üzerinden
 binary'ye yazılır. `v*` Git etiketi workflow'u testten geçmeyen sürümü yayımlamaz.

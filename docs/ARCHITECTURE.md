@@ -4,7 +4,9 @@
 
 - **Hub:** Go modular monolith; REST API’yi ve gömülü React uygulamasını aynı
   binary’den sunar.
-- **Agent:** Linux/Windows hostunda çalışır, tüm bağlantıları dışarı doğru başlatır.
+- **Agent:** Ayrı Go binary'si olarak Linux/Windows hostunda çalışır, tüm
+  bağlantıları dışarı doğru başlatır. Ed25519 private key ve kısa ömürlü mTLS
+  sertifikasını yerel state dizininde korur; envanteri başlangıçta ve periyodik gönderir.
 - **PostgreSQL:** agent inventory ve diğer ilişkisel kontrol düzlemi verisinin
   kaynağıdır.
 - **TimescaleDB:** telemetry örneklerini PostgreSQL uyumlu hypertable üzerinde
@@ -14,14 +16,14 @@
 
 ## Build ve sürüm kimliği
 
-Hub'ın sürüm, Git commit ve UTC build tarihi derleme sırasında linker alanlarına
+Hub ve agent'ın sürüm, Git commit ve UTC build tarihi derleme sırasında linker alanlarına
 yazılır. Aynı kimlik `--version` CLI çıktısından ve secret içermeyen runtime API
 üzerinden okunur; böylece operatör indirilen arşiv ile çalışan pod/binary'yi
 karşılaştırabilir. Geliştirme build'leri açıkça `dev/unknown` kimliği taşır.
 
 Release hattı gömülü React çıktısını bir kez üretir ve Go'nun cross-compile
-desteğiyle Linux amd64/arm64 ile Windows amd64 binary'lerini oluşturur. Dağıtım
-birimi sürümlü arşiv ve SHA-256 manifestidir. Linux deb/rpm paketleri binary,
+desteğiyle Linux amd64/arm64 ile Windows amd64 hub ve agent binary'lerini oluşturur.
+Dağıtım birimi bileşen başına sürümlü arşiv ve ortak SHA-256 manifestidir. Linux deb/rpm paketleri hub binary'si,
 systemd unit ve kontrollü yükseltme aracını aynı sürüm biriminde taşır. Windows
 MSI major-upgrade sözleşmesiyle eski sürümü yerinde değiştirir ve downgrade'i
 engeller; hub Windows Service protokolünü uygulayana kadar yalnız binary kurulumu

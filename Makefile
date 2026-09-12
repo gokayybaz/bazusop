@@ -10,6 +10,7 @@ LDFLAGS := -s -w -X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).
 build: build-web
 	mkdir -p bin
 	GOCACHE=$(GOCACHE) go build -trimpath -ldflags="$(LDFLAGS)" -o bin/bazusop-hub ./cmd/bazusop-hub
+	GOCACHE=$(GOCACHE) go build -trimpath -ldflags="$(LDFLAGS)" -o bin/bazusop-agent ./cmd/bazusop-agent
 
 build-web:
 	cd web && npm run build

@@ -67,7 +67,7 @@ func TestReleaseBuildProducesVersionedCrossPlatformArtifacts(t *testing.T) {
 	}
 
 	releaseScript := readProjectFile(t, "scripts/build-release.sh")
-	for _, required := range []string{"linux amd64", "linux arm64", "windows amd64", "checksums.txt", "sha256", "github.com/gokayybaz/bazusop/internal/version", ".Version=$version", ".Commit=$commit", ".BuildDate=$build_date"} {
+	for _, required := range []string{"linux amd64", "linux arm64", "windows amd64", "bazusop-${component}", "bazusop-agent_*", "checksums.txt", "sha256", "github.com/gokayybaz/bazusop/internal/version", ".Version=$version", ".Commit=$commit", ".BuildDate=$build_date"} {
 		if !strings.Contains(releaseScript, required) {
 			t.Errorf("release script must contain %q", required)
 		}

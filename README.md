@@ -10,8 +10,9 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
 
 - React arayüzü Go hub binary'sine gömülür; dağıtım için tek çalıştırılabilir
   dosya yeterlidir.
-- Linux ve Windows agent'ları tek kullanımlık token ile kaydolur, hub CA'sının
-  imzaladığı kısa ömürlü mTLS kimliğiyle haberleşir.
+- Ayrı `bazusop-agent` binary'si Linux ve Windows'ta outbound bağlantı kurar;
+  tek kullanımlık token'ı kalıcı Ed25519/mTLS kimliğine dönüştürür, sertifikayı
+  süresi dolmadan yeniler ve host envanterini periyodik raporlar.
 - Normalize edilmiş host envanteri PostgreSQL'de saklanır.
 - CPU, bellek, disk ve ağ telemetrisi PostgreSQL veya TimescaleDB'ye yazılır;
   Timescale etkinse varsayılan 30 günlük, yapılandırılabilir retention uygulanır.
@@ -51,8 +52,9 @@ BAZUSOP_LOG_RETENTION_DAYS=14 \
 ./bin/bazusop-hub
 ```
 
-React uygulaması önce derlenir, sonra Go hub binary'sine gömülür. Hub varsayılan
-olarak `http://127.0.0.1:8080` adresinden erişilebilir.
+React uygulaması önce derlenir, sonra Go hub binary'sine gömülür. `make build`
+hem `bin/bazusop-hub` hem `bin/bazusop-agent` üretir. Hub varsayılan olarak
+`http://127.0.0.1:8080` adresinden erişilebilir.
 
 Binary'nin kaynak kimliğini yapılandırma yüklemeden görmek için:
 
@@ -88,6 +90,16 @@ docker compose up --build
 | `BAZUSOP_TLS_CERT_FILE` | Hub TLS sertifikasının yolu |
 | `BAZUSOP_TLS_KEY_FILE` | Hub TLS private key'inin yolu |
 
+Agent değişkenleri:
+
+| Değişken | Açıklama |
+| --- | --- |
+| `BAZUSOP_AGENT_HUB_URL` | Hub kök URL'si; üretimde `https://...` zorunludur |
+| `BAZUSOP_AGENT_ENROLLMENT_TOKEN` | Yalnız ilk kayıtta gereken bootstrap secret |
+| `BAZUSOP_AGENT_STATE_DIR` | Kimlik dizini; Linux varsayılanı `/var/lib/bazusop-agent`, Windows varsayılanı `%ProgramData%\\bazUSOP\\agent` |
+| `BAZUSOP_AGENT_SERVER_CA_FILE` | Özel hub server CA PEM dosyası; sistem trust store yeterliyse verilmez |
+| `BAZUSOP_AGENT_REPORT_INTERVAL` | Envanter periyodu; varsayılan `30s`, aralık `10s–1h` |
+
 TLS cert ve key birlikte verilmelidir. Hub TLS 1.3 kullanır ve kayıtlı client
 sertifikalarını mTLS için doğrular. `DATABASE_URL` verilmezse envanter ve telemetri
 yalnızca geliştirme amaçlı süreç içi bellekte tutulur.
@@ -99,6 +111,23 @@ CSR karşılığında 24 saatlik client sertifikası üretir. Sertifika kararlı
 agent ID taşır. Yenileme `POST /api/v1/agents/renew` üzerinden mTLS ile yapılır.
 Uzak plaintext HTTP kayıt istekleri reddedilir; loopback HTTP yalnızca yerel
 geliştirme için açıktır.
+
+Gerçek agent'ı özel CA ile çalışan bir hub'a bağlamak için:
+
+```bash
+sudo install -d -m 0700 /var/lib/bazusop-agent
+sudo env \
+  BAZUSOP_AGENT_HUB_URL=https://hub.example.com \
+  BAZUSOP_AGENT_ENROLLMENT_TOKEN='tek-kullanimlik-token' \
+  BAZUSOP_AGENT_SERVER_CA_FILE=/etc/bazusop/hub-server-ca.crt \
+  ./bin/bazusop-agent
+```
+
+Private key Unix'te `0600` izinle atomik yazılır; Windows'ta state dizininin ACL'i
+kurulum sırasında yalnız agent servis hesabına sınırlandırılmalıdır. İlk kayıt
+tamamlandıktan sonra token state dizinine kaydedilmez ve sonraki başlangıçlarda gerekmez. Agent sertifikası
+sona ermeden bir saat önce aynı SPIFFE kimliğiyle otomatik yenilenir. Ayrıntılı
+kurulum ve güven modeli için [agent rehberine](docs/AGENT.md) bakın.
 
 Kayıtlı agent'lar envanteri `PUT /api/v1/agents/inventory`, telemetriyi
 `POST /api/v1/agents/telemetry`, servisleri `PUT /api/v1/agents/services` ile
@@ -155,9 +184,9 @@ shasum -a 256 -c checksums.txt
 ```
 
 `v*` etiketi pushlandığında GitHub Actions önce tüm testleri çalıştırır; Linux
-amd64/arm64 için deb/rpm, Windows amd64 için MSI ve sürümlü arşivleri yayımlar.
-Her binary sürüm, commit ve UTC build tarihini hem `--version` çıktısında hem
-Ayarlar sayfasında taşır.
+amd64/arm64 için deb/rpm, Windows amd64 için MSI ve hub/agent sürümlü arşivlerini
+yayımlar. Her iki binary sürüm, commit ve UTC build tarihini `--version`
+çıktısında taşır; hub kimliği ayrıca Ayarlar sayfasında görünür.
 
 Release'in `checksums.txt` manifesti ve çok mimarili GHCR container digest'i
 GitHub OIDC üzerinden Sigstore Cosign ile keyless imzalanır. Linux paketi systemd
@@ -168,6 +197,7 @@ Service protokolü uygulamadığından MSI sahte bir servis kaydı oluşturmaz.
 ## Dokümantasyon
 
 - [API sözleşmesi](docs/API.md)
+- [Agent kurulum ve güven rehberi](docs/AGENT.md)
 - [Mimari](docs/ARCHITECTURE.md)
 - [Operasyon rehberi](docs/OPERATIONS.md)
 - [Tasarım sistemi](docs/DESIGN.md)

@@ -24,29 +24,31 @@ make -C "$project_root" build-web
 
 for target in "${targets[@]}"; do
   read -r operating_system architecture <<<"$target"
-  archive_base="bazusop-hub_${version}_${operating_system}_${architecture}"
-  stage_dir="$release_dir/$archive_base"
-  binary_name="bazusop-hub"
-  if [[ "$operating_system" == "windows" ]]; then
-    binary_name="bazusop-hub.exe"
-  fi
-  mkdir -p "$stage_dir"
-  CGO_ENABLED=0 GOOS="$operating_system" GOARCH="$architecture" \
-    go build -trimpath \
-      -ldflags="-s -w -X $version_package.Version=$version -X $version_package.Commit=$commit -X $version_package.BuildDate=$build_date" \
-      -o "$stage_dir/$binary_name" "$project_root/cmd/bazusop-hub"
+  for component in hub agent; do
+    archive_base="bazusop-${component}_${version}_${operating_system}_${architecture}"
+    stage_dir="$release_dir/$archive_base"
+    binary_name="bazusop-${component}"
+    if [[ "$operating_system" == "windows" ]]; then
+      binary_name="bazusop-${component}.exe"
+    fi
+    mkdir -p "$stage_dir"
+    CGO_ENABLED=0 GOOS="$operating_system" GOARCH="$architecture" \
+      go build -trimpath \
+        -ldflags="-s -w -X $version_package.Version=$version -X $version_package.Commit=$commit -X $version_package.BuildDate=$build_date" \
+        -o "$stage_dir/$binary_name" "$project_root/cmd/bazusop-${component}"
 
-  if [[ "$operating_system" == "windows" ]]; then
-    (cd "$release_dir" && zip -q -r "$archive_base.zip" "$archive_base")
-  else
-    COPYFILE_DISABLE=1 tar -C "$release_dir" -czf "$release_dir/$archive_base.tar.gz" "$archive_base"
-  fi
-  rm -r "$stage_dir"
+    if [[ "$operating_system" == "windows" ]]; then
+      (cd "$release_dir" && zip -q -r "$archive_base.zip" "$archive_base")
+    else
+      COPYFILE_DISABLE=1 tar -C "$release_dir" -czf "$release_dir/$archive_base.tar.gz" "$archive_base"
+    fi
+    rm -r "$stage_dir"
+  done
 done
 
 (
   cd "$release_dir"
-  artifacts=(bazusop-hub_*)
+  artifacts=(bazusop-hub_* bazusop-agent_*)
   if command -v sha256sum >/dev/null 2>&1; then
     sha256sum "${artifacts[@]}" > checksums.txt
   else
