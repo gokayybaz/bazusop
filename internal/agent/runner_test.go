@@ -27,6 +27,7 @@ func TestRunnerEnrollsAndReportsInventoryAndTelemetryImmediately(t *testing.T) {
 		Telemetry:      fakeTelemetryCollector{sample: telemetry.Sample{RecordedAt: recordedAt, CPUPercent: 42}},
 		Services:       fakeServiceCollector{snapshot: serviceinventory.Snapshot{ObservedAt: recordedAt, Services: []serviceinventory.Fact{{Name: "nginx.service", State: "running", StartupType: "automatic"}}}},
 		Logs:           fakeLogCollector{batch: logstream.Batch{Entries: []logstream.Entry{{OccurredAt: recordedAt, Collector: "journald", Source: "nginx.service", Severity: "error", Message: "upstream timeout"}}}},
+		Jobs:           fakeJobProcessor{},
 		ReportInterval: time.Hour, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), Hostname: "web-01", OperatingSystem: "linux",
 	}
 
@@ -80,6 +81,7 @@ func TestRunnerRetriesAfterInitialHubFailure(t *testing.T) {
 		Telemetry:      fakeTelemetryCollector{sample: telemetry.Sample{RecordedAt: time.Now().UTC()}},
 		Services:       fakeServiceCollector{snapshot: serviceinventory.Snapshot{ObservedAt: time.Now().UTC()}},
 		Logs:           fakeLogCollector{},
+		Jobs:           fakeJobProcessor{},
 		ReportInterval: 5 * time.Millisecond, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Hostname: "web-01", OperatingSystem: "linux",
 	}
@@ -100,11 +102,13 @@ func TestRunnerReportsTelemetryWhenInventoryCollectionFails(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	hub := &fakeHubClient{identity: testIdentity(t, "agent-test"), reported: make(chan inventory.Facts, 1), metrics: make(chan telemetry.Sample, 1), services: make(chan serviceinventory.Snapshot, 1), logs: make(chan logstream.Batch, 1)}
+	processedJobs := make(chan Identity, 1)
 	runner := Runner{
 		Hub: hub, Collector: fakeCollector{err: errors.New("inventory unavailable")},
 		Telemetry:      fakeTelemetryCollector{sample: telemetry.Sample{RecordedAt: time.Now().UTC(), CPUPercent: 25}},
 		Services:       fakeServiceCollector{snapshot: serviceinventory.Snapshot{ObservedAt: time.Now().UTC()}},
 		Logs:           fakeLogCollector{err: errors.New("journal unavailable")},
+		Jobs:           fakeJobProcessor{processed: processedJobs},
 		ReportInterval: time.Hour, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		Hostname: "web-01", OperatingSystem: "linux",
 	}
@@ -120,9 +124,14 @@ func TestRunnerReportsTelemetryWhenInventoryCollectionFails(t *testing.T) {
 	}
 	select {
 	case <-hub.services:
-		cancel()
 	case <-time.After(time.Second):
 		t.Fatal("inventory failure blocked service inventory")
+	}
+	select {
+	case <-processedJobs:
+		cancel()
+	case <-time.After(time.Second):
+		t.Fatal("collector failure blocked remote job polling")
 	}
 	if err := <-done; err != nil {
 		t.Fatalf("runner shutdown: %v", err)
@@ -202,6 +211,18 @@ func (collector fakeLogCollector) Collect(context.Context) (logstream.Batch, err
 }
 
 func (fakeLogCollector) Commit() {}
+
+type fakeJobProcessor struct {
+	processed chan Identity
+	err       error
+}
+
+func (processor fakeJobProcessor) ProcessNext(_ context.Context, identity Identity) error {
+	if processor.processed != nil {
+		processor.processed <- identity
+	}
+	return processor.err
+}
 
 func (collector fakeServiceCollector) Collect(context.Context) (serviceinventory.Snapshot, error) {
 	return collector.snapshot, collector.err

@@ -53,9 +53,11 @@ saklar ve systemd restart sonrası sağlık ucu başarısızsa atomik rollback u
    replikası kalıcı kayıtları agent'a özel SSE abonelerine yayınlar.
 8. UI filo, zaman serisi, servis listesi ve logları salt-okunur API uçlarından alır.
 9. Operatör bearer token ile izinli bir restart/reboot talebi oluşturur; hub işin
-   değişmez alanlarını Ed25519 ile imzalayıp `queued` olarak saklar.
-10. Hedef agent işi mTLS ile atomik teslim alır, çıktıyı ve terminal durumu artan
-    sequence numaralı audit olayları olarak raporlar.
+   değişmez alanlarını kalıcı enrollment CA anahtarıyla Ed25519 olarak imzalayıp
+   `queued` saklar.
+10. Hedef agent işi mTLS ile atomik teslim alır; imza anahtarını yerel CA
+    sertifikasına pinler, allowlist aksiyonunu çalıştırır, çıktıyı ve terminal
+    durumu artan sequence numaralı audit olayları olarak raporlar.
 11. Kabul edilen telemetri örneği etkin metrik kurallarıyla, hub'ın periyodik
     taraması host son-görülme zamanını erişilebilirlik kurallarıyla değerlendirir.
 12. İhlal benzersiz aktif olay açar; recovery otomatik çözer, operatör onayı ve
@@ -132,13 +134,10 @@ restart'ında yeniden etkinleşmez. Yeni hash ilk kez eklenirken önceki tüketi
 token'lar aynı transaction içinde iptal edilir. Memory modu bu durumu yalnız süreç ömründe tutar.
 
 CA private key'i PostgreSQL'de bulunduğu için database, yedek ve PITR erişimi
-secret sınırındadır. KMS/HSM tabanlı envelope encryption ileri sertleştirme olarak
-kalır. Chart'ın varsayılan tek replika/HPA kapalı ayarı enrollment'dan değil,
-henüz süreç içinde üretilen iş imzalama anahtarından kaynaklanır.
-
-İş imzalama anahtarı şu anda hub başlangıcında süreç içinde üretilir ve restart
-sonrası değişir. Kalıcı güven kökü ve çoklu replika için private key KMS/Secret'ta
-saklanmalı, public key güvenli enrollment/config kanalından agent'a sabitlenmelidir.
+secret sınırındadır. Aynı kalıcı anahtar agent sertifikaları ile uzak operasyon
+işlerini imzalayarak replikalar arasında tek güven kökü sağlar; agent public key'i
+enrollment sırasında aldığı CA sertifikasına pinler. KMS/HSM tabanlı, kullanım
+amacı ayrılmış anahtarlar ileri sertleştirme adımıdır.
 
 ## Güven sınırları
 

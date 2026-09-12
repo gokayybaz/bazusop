@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -19,6 +20,8 @@ var (
 	ErrJobConflict = errors.New("job conflict")
 	ErrJobNotFound = errors.New("job not found")
 )
+
+var serviceTargetPattern = regexp.MustCompile(`^[A-Za-z0-9_.@:-]+$`)
 
 type Action string
 
@@ -100,6 +103,14 @@ type Service struct {
 type Option func(*Service)
 
 func WithClock(clock func() time.Time) Option { return func(service *Service) { service.now = clock } }
+func WithSigningKey(privateKey ed25519.PrivateKey) Option {
+	return func(service *Service) {
+		service.privateKey = append(ed25519.PrivateKey(nil), privateKey...)
+		if len(privateKey) == ed25519.PrivateKeySize {
+			service.publicKey = append(ed25519.PublicKey(nil), privateKey.Public().(ed25519.PublicKey)...)
+		}
+	}
+}
 
 func NewService(store Store, options ...Option) (*Service, error) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -109,6 +120,9 @@ func NewService(store Store, options ...Option) (*Service, error) {
 	service := &Service{store: store, privateKey: privateKey, publicKey: publicKey, now: time.Now}
 	for _, option := range options {
 		option(service)
+	}
+	if len(service.privateKey) != ed25519.PrivateKeySize || len(service.publicKey) != ed25519.PublicKeySize {
+		return nil, errors.New("job signing key is invalid")
 	}
 	return service, nil
 }
@@ -203,7 +217,7 @@ func signingPayload(job Job) ([]byte, error) {
 }
 
 func validActionTarget(action Action, target string) bool {
-	return (action == ActionServiceRestart && target != "") || (action == ActionHostReboot && target == "")
+	return (action == ActionServiceRestart && serviceTargetPattern.MatchString(target) && !strings.HasPrefix(target, "-")) || (action == ActionHostReboot && target == "")
 }
 
 func newID() (string, error) {

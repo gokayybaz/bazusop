@@ -3,8 +3,8 @@
 `bazusop-agent`, Linux veya Windows hostundan hub'a yalnız outbound HTTPS
 bağlantısı kurar. Host/OS/CPU/bellek/IP envanteriyle birlikte CPU kullanımı,
 bellek kullanımı, kök disk doluluğu, toplam ağ byte sayaçları ve yönetilen servis
-durumlarını ve host loglarını toplar. Uzak iş çalıştırıcısı ayrı bir spike'ta bu
-çalışma döngüsüne bağlanacaktır.
+durumlarını ve host loglarını toplar; onaylı uzak operasyon işlerini güvenli
+allowlist içinde çalıştırır.
 
 ## Güvenli kayıt
 
@@ -105,6 +105,25 @@ en fazla 1000 kayıt taşır. Cursor yalnız hub batch'i kabul ettikten sonra il
 bu nedenle geçici gönderim hatasında aynı batch yeniden denenir. Cursor process
 belleğindedir; agent restart'ı ilk rapor aralığını yeniden okuyabileceği için log
 teslimi en az bir kez semantiğindedir ve nadir tekrarlar mümkün kabul edilir.
+
+## Uzak operasyon işleri
+
+Agent her rapor çevriminde kendisine atanmış en eski işi mTLS ile atomik teslim
+alır. Hub işleri kalıcı enrollment CA anahtarıyla Ed25519 olarak imzalar; agent
+gönderilen anahtarı diskteki `agent-ca.crt` public key'iyle eşleştirir ve kanonik
+iş imzasını doğrular. Agent ID, `running`/sequence durumu, aksiyon ve hedef ayrıca
+yerelde doğrulanmadan hiçbir komut çalıştırılmaz.
+
+Allowlist yalnız `service.restart` ve `host.reboot` aksiyonlarını içerir. Linux'ta
+servis restart `systemctl`, Windows'ta doğrudan Service Control Manager ile
+çalışır; keyfi shell veya komut gövdesi kabul edilmez. Reboot, terminal audit
+olayının hub'a ulaşabilmesi için Linux ve Windows'ta yaklaşık bir dakika sonrasına
+programlanır. Native Linux servisi root, Windows servisi LocalSystem çalıştığından
+bu işlemler için gereken host yetkilerine sahiptir. Başlangıç, başarı ve hata
+sonuçları artan sequence değerleriyle audit izine gönderilir; geçersiz veya güven
+zincirine uymayan iş çalıştırılmadan `failed` yapılır. Audit gönderimi geçici
+olarak başarısız olursa bekleyen olay sonraki çevrimde yeniden gönderilir; aynı
+process içinde komut ikinci kez çalıştırılmaz.
 
 `401` için sırasıyla client sertifika süresini, agent state dosyalarını, hub'ın
 agent CA durumunu ve reverse proxy'nin client sertifikasını hub'a kadar koruduğunu

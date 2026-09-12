@@ -26,7 +26,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
 - PostgreSQL kullanan hub replikaları canlı log olaylarını `LISTEN/NOTIFY` üzerinden
   paylaşır; SSE istemcisi ingest yapan replikaya bağlı olmak zorunda değildir.
 - Servis yeniden başlatma ve host reboot talepleri operatör token'ıyla onaylanır,
-  Ed25519 ile imzalanır ve sıralı audit olaylarıyla uçtan uca izlenir.
+  kalıcı enrollment güven köküyle imzalanır; agent imzayı pinlenmiş CA anahtarıyla
+  doğruladıktan sonra allowlist aksiyonunu çalıştırır ve sıralı audit olayları gönderir.
 - CPU, bellek, disk ve agent erişilebilirlik kuralları olay açar; olaylar onaylanır,
   koşul normale dönünce çözülür ve bakım pencerelerinde yeni alarm bastırılır.
 - Arayüz; genel bakış, filo, servisler, metrikler, loglar, işler, alarmlar,

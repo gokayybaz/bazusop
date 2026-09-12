@@ -20,6 +20,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
@@ -146,6 +147,26 @@ func (client *Client) ReportLogs(ctx context.Context, identity Identity, batch l
 	return nil
 }
 
+func (client *Client) ClaimNextJob(ctx context.Context, identity Identity) (*jobs.Job, error) {
+	var job jobs.Job
+	status, err := client.requestStatuses(ctx, http.MethodGet, "/api/v1/agents/jobs/next", nil, &identity, []int{http.StatusOK, http.StatusNoContent}, &job)
+	if err != nil {
+		return nil, fmt.Errorf("claim next job: %w", err)
+	}
+	if status == http.StatusNoContent {
+		return nil, nil
+	}
+	return &job, nil
+}
+
+func (client *Client) ReportJobEvent(ctx context.Context, identity Identity, jobID string, event jobs.EventRequest) error {
+	path := "/api/v1/agents/jobs/" + jobID + "/events"
+	if err := client.request(ctx, http.MethodPost, path, event, &identity, http.StatusOK, nil); err != nil {
+		return fmt.Errorf("report job event: %w", err)
+	}
+	return nil
+}
+
 func splitLogBatch(batch logstream.Batch) ([]logstream.Batch, error) {
 	if len(batch.Entries) == 0 {
 		return []logstream.Batch{}, nil
@@ -182,38 +203,53 @@ func splitLogBatch(batch logstream.Batch) ([]logstream.Batch, error) {
 }
 
 func (client *Client) request(ctx context.Context, method, path string, body any, identity *Identity, expectedStatus int, destination any) error {
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return err
+	_, err := client.requestStatuses(ctx, method, path, body, identity, []int{expectedStatus}, destination)
+	return err
+}
+
+func (client *Client) requestStatuses(ctx context.Context, method, path string, body any, identity *Identity, expectedStatuses []int, destination any) (int, error) {
+	var payload []byte
+	if body != nil {
+		var err error
+		payload, err = json.Marshal(body)
+		if err != nil {
+			return 0, err
+		}
 	}
 	tlsConfiguration := &tls.Config{MinVersion: tls.VersionTLS13, RootCAs: client.serverRoots}
 	if identity != nil {
 		certificate, err := identity.TLSCertificate()
 		if err != nil {
-			return err
+			return 0, err
 		}
 		tlsConfiguration.Certificates = []tls.Certificate{certificate}
 	}
 	request, err := http.NewRequestWithContext(ctx, method, client.configuration.HubURL+path, bytes.NewReader(payload))
 	if err != nil {
-		return err
+		return 0, err
 	}
-	request.Header.Set("Content-Type", "application/json")
+	if body != nil {
+		request.Header.Set("Content-Type", "application/json")
+	}
 	response, err := client.do(request, tlsConfiguration)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer response.Body.Close()
-	if response.StatusCode != expectedStatus {
-		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
-		return fmt.Errorf("hub returned %s: %s", response.Status, strings.TrimSpace(string(message)))
+	expected := false
+	for _, status := range expectedStatuses {
+		expected = expected || response.StatusCode == status
 	}
-	if destination != nil {
+	if !expected {
+		message, _ := io.ReadAll(io.LimitReader(response.Body, 4096))
+		return response.StatusCode, fmt.Errorf("hub returned %s: %s", response.Status, strings.TrimSpace(string(message)))
+	}
+	if destination != nil && response.StatusCode != http.StatusNoContent {
 		if err := json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(destination); err != nil {
-			return fmt.Errorf("decode hub response: %w", err)
+			return response.StatusCode, fmt.Errorf("decode hub response: %w", err)
 		}
 	}
-	return nil
+	return response.StatusCode, nil
 }
 
 func executeRequest(request *http.Request, tlsConfiguration *tls.Config) (*http.Response, error) {

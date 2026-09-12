@@ -38,12 +38,17 @@ type HostLogCollector interface {
 	Commit()
 }
 
+type AgentJobProcessor interface {
+	ProcessNext(context.Context, Identity) error
+}
+
 type Runner struct {
 	Hub             HubClient
 	Collector       FactCollector
 	Telemetry       MetricCollector
 	Services        ManagedServiceCollector
 	Logs            HostLogCollector
+	Jobs            AgentJobProcessor
 	ReportInterval  time.Duration
 	Logger          *slog.Logger
 	Hostname        string
@@ -51,7 +56,7 @@ type Runner struct {
 }
 
 func (runner Runner) Run(ctx context.Context) error {
-	if runner.Hub == nil || runner.Collector == nil || runner.Telemetry == nil || runner.Services == nil || runner.Logs == nil || runner.Logger == nil || runner.ReportInterval <= 0 {
+	if runner.Hub == nil || runner.Collector == nil || runner.Telemetry == nil || runner.Services == nil || runner.Logs == nil || runner.Jobs == nil || runner.Logger == nil || runner.ReportInterval <= 0 {
 		return fmt.Errorf("agent runner is incomplete")
 	}
 	if err := runner.report(ctx); err != nil {
@@ -113,6 +118,9 @@ func (runner Runner) report(ctx context.Context) error {
 		}
 	} else {
 		runner.Logs.Commit()
+	}
+	if err := runner.Jobs.ProcessNext(ctx, identity); err != nil {
+		reportErrors = append(reportErrors, fmt.Errorf("process remote job: %w", err))
 	}
 	return errors.Join(reportErrors...)
 }

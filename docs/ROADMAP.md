@@ -34,6 +34,7 @@ Her spike aynı teslimat döngüsünü izler:
 | 10.4 — Gerçek agent telemetrisi | Linux/Windows agent CPU, bellek, kök disk ve ağ sayaçlarını periyodik gönderir | İlk örnek hemen ulaşır; CPU sonraki örneklerde sayaç deltasıdır; envanter hatası telemetriyi durdurmaz |
 | 10.5 — Gerçek servis envanteri | Agent systemd ve Windows SCM servislerini ortak modele taşır | Runtime/startup durumu ilk çevrimde mTLS ile görünür; collector hataları diğer raporları durdurmaz |
 | 10.6 — Gerçek host logları | Agent journald ve Windows Event kayıtlarını ortak modele taşıyıp mTLS batch'leri gönderir | Önem/kaynak normalize edilir; batch en fazla 1000 kayıttır; cursor yalnız başarılı gönderimden sonra ilerler |
+| 10.7 — Güvenli uzak iş çalıştırma | Agent imzalı servis restart ve host reboot işlerini platform API'leriyle çalıştırır | İmza enrollment CA'ya pinlenir; keyfi komut reddedilir; çıktı ve terminal durum sıralı audit olaylarına ulaşır |
 
 ## Mimari kısıtlar
 

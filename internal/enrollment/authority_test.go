@@ -1,6 +1,7 @@
 package enrollment_test
 
 import (
+	"bytes"
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
@@ -25,6 +26,9 @@ func TestPersistentAuthoritySharesCAAndTokenConsumption(t *testing.T) {
 	second, err := enrollment.NewPersistentAuthority(ctx, "shared-token", store)
 	if err != nil {
 		t.Fatalf("create second authority: %v", err)
+	}
+	if !bytes.Equal(first.JobSigningKey().Public().(ed25519.PublicKey), second.JobSigningKey().Public().(ed25519.PublicKey)) {
+		t.Fatal("persistent authorities did not share the job signing trust root")
 	}
 	identity, err := first.EnrollContext(ctx, enrollment.Request{
 		BootstrapToken: "shared-token", Name: "edge-01", OperatingSystem: "linux", CSRPEM: newCSR(t, "edge-01"),

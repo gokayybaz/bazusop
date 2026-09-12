@@ -2,10 +2,43 @@ package jobs
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/base64"
 	"errors"
 	"testing"
 	"time"
 )
+
+func TestServiceUsesConfiguredSigningKey(t *testing.T) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service, err := NewService(NewMemoryStore(), WithSigningKey(privateKey))
+	if err != nil {
+		t.Fatal(err)
+	}
+	job, err := service.Create(context.Background(), "agent-01", CreateRequest{Action: ActionHostReboot, ApprovedBy: "ops", Reason: "patching"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.SigningPublicKey != base64.StdEncoding.EncodeToString(publicKey) || !Verify(job) {
+		t.Fatalf("job did not use configured key: %#v", job)
+	}
+}
+
+func TestServiceRejectsUnsafeServiceTarget(t *testing.T) {
+	service, err := NewService(NewMemoryStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, target := range []string{"--no-block", "nginx.service;reboot", "name with spaces"} {
+		if _, err := service.Create(context.Background(), "agent-01", CreateRequest{Action: ActionServiceRestart, Target: target, ApprovedBy: "ops", Reason: "test"}); !errors.Is(err, ErrInvalidJob) {
+			t.Fatalf("expected unsafe target %q to be rejected, got %v", target, err)
+		}
+	}
+}
 
 func TestApprovedJobIsSignedClaimedAndAudited(t *testing.T) {
 	t.Parallel()

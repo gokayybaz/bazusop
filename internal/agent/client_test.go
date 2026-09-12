@@ -16,6 +16,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
@@ -31,7 +32,11 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	telemetryService := telemetry.NewService(telemetry.NewMemoryStore())
 	serviceInventory := serviceinventory.NewService(serviceinventory.NewMemoryStore())
 	logs := logstream.NewService(logstream.NewMemoryStore())
-	handler := server.NewHandler(server.WithEnrollment(authority), server.WithInventory(inventoryService), server.WithTelemetry(telemetryService), server.WithServiceInventory(serviceInventory), server.WithLogs(logs))
+	jobService, err := jobs.NewService(jobs.NewMemoryStore(), jobs.WithSigningKey(authority.JobSigningKey()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.NewHandler(server.WithEnrollment(authority), server.WithInventory(inventoryService), server.WithTelemetry(telemetryService), server.WithServiceInventory(serviceInventory), server.WithLogs(logs), server.WithJobs(jobService, "operator-secret"))
 
 	directory := t.TempDir()
 	configuration := Config{
@@ -86,6 +91,24 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	entries, err := logs.Search(context.Background(), logstream.Query{AgentID: identity.AgentID, From: recordedAt, To: logTime.Add(time.Second), Limit: 10})
 	if err != nil || len(entries) != 1 || entries[0].Message != "retrying upstream" {
 		t.Fatalf("expected reported logs, entries=%#v err=%v", entries, err)
+	}
+	created, err := jobService.Create(context.Background(), identity.AgentID, jobs.CreateRequest{Action: jobs.ActionServiceRestart, Target: "nginx.service", ApprovedBy: "ops", Reason: "deploy"})
+	if err != nil {
+		t.Fatalf("create job: %v", err)
+	}
+	claimed, err := client.ClaimNextJob(context.Background(), identity)
+	if err != nil || claimed == nil || claimed.ID != created.ID {
+		t.Fatalf("claim job: %#v %v", claimed, err)
+	}
+	if err := client.ReportJobEvent(context.Background(), identity, claimed.ID, jobs.EventRequest{Sequence: 2, Type: jobs.EventSucceeded, Message: "nginx restarted"}); err != nil {
+		t.Fatalf("report job event: %v", err)
+	}
+	events, err := jobService.Events(context.Background(), identity.AgentID, claimed.ID)
+	if err != nil || len(events) != 3 || events[2].Type != jobs.EventSucceeded {
+		t.Fatalf("expected completed job audit, events=%#v err=%v", events, err)
+	}
+	if next, err := client.ClaimNextJob(context.Background(), identity); err != nil || next != nil {
+		t.Fatalf("expected empty job queue, job=%#v err=%v", next, err)
 	}
 	loaded, err := NewIdentityStore(configuration.StateDir).Load()
 	if err != nil || loaded.AgentID != identity.AgentID {

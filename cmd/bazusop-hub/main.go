@@ -104,7 +104,7 @@ func main() {
 	telemetryService := telemetry.NewService(telemetryStore)
 	serviceInventoryService := serviceinventory.NewService(serviceInventoryStore)
 	logService := logstream.NewService(logStore)
-	jobService, err := jobs.NewService(jobStore)
+	jobService, err := jobs.NewService(jobStore, jobs.WithSigningKey(authority.JobSigningKey()))
 	if err != nil {
 		logger.Error("could not initialize job signing authority", "error", err)
 		os.Exit(1)

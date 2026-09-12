@@ -41,6 +41,7 @@ func main() {
 		Telemetry:      agent.NewTelemetryCollector(),
 		Services:       agent.NewServiceCollector(),
 		Logs:           agent.NewLogCollector(configuration.ReportInterval),
+		Jobs:           agent.NewJobExecutor(client),
 		ReportInterval: configuration.ReportInterval, Logger: logger,
 		Hostname: hostname, OperatingSystem: runtime.GOOS,
 	}

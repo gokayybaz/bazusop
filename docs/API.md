@@ -235,8 +235,10 @@ alanlarıyla döndürür. Geçersiz talep `400` döner.
 
 İmza kanonik v1 payload'ında `id`, `agent_id`, `action`, `target`,
 `approved_by`, `reason` ve nanosaniye duyarlıklı RFC3339 `requested_at` alanlarını
-kapsar. Agent, public key'i yanıtın kendisinden güvenilir kabul etmemeli; güvenli
-enrollment/config kanalıyla sabitlenen hub anahtarıyla eşleştirmelidir.
+kapsar. Hub kalıcı enrollment CA anahtarını iş imza kökü olarak kullanır. Agent,
+yanıttaki public key'i diskte enrollment sırasında saklanan CA sertifikasının
+Ed25519 public key'iyle eşleştirir; yalnız bu pin ve imza doğrulandıktan sonra işi
+çalıştırır.
 
 ### `GET /api/v1/instances/{agent_id}/jobs`
 

@@ -115,6 +115,12 @@ func (authority *Authority) ClientCAPool() *x509.CertPool {
 	return pool
 }
 
+// JobSigningKey returns a copy of the persistent enrollment authority key so
+// jobs can be pinned to the same trust root already stored by enrolled agents.
+func (authority *Authority) JobSigningKey() ed25519.PrivateKey {
+	return append(ed25519.PrivateKey(nil), authority.caPrivateKey...)
+}
+
 func (authority *Authority) Enroll(request Request) (Identity, error) {
 	return authority.EnrollContext(context.Background(), request)
 }
