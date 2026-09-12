@@ -68,8 +68,10 @@ jobs:
           $env:GOOS = "windows"
           $env:GOARCH = "amd64"
           go build -trimpath -ldflags $ldflags -o dist/windows/bazusop-hub.exe ./cmd/bazusop-hub
+          go build -trimpath -ldflags $ldflags -o dist/windows/bazusop-agent.exe ./cmd/bazusop-agent
           dotnet tool install --global wix --version 4.0.6
           wix build packaging/windows/Package.wxs -arch x64 -d "Version=$msiVersion" -d "SourceDir=$pwd\dist\windows" -o "dist/bazusop-hub_${version}_windows_amd64.msi"
+          wix build packaging/windows/AgentPackage.wxs -arch x64 -d "Version=$msiVersion" -d "SourceDir=$pwd\dist\windows" -o "dist/bazusop-agent_${version}_windows_amd64.msi"
       - uses: actions/upload-artifact@v7
         with:
           name: release-msi

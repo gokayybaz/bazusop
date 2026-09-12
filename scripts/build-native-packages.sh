@@ -17,22 +17,28 @@ if ! command -v "$nfpm_command" >/dev/null 2>&1; then
 fi
 
 for architecture in amd64 arm64; do
-  archive="$release_dir/bazusop-hub_${version}_linux_${architecture}.tar.gz"
-  if [[ ! -f "$archive" ]]; then
-    echo "Linux arşivi bulunamadı: $archive" >&2
-    exit 1
-  fi
-  stage_dir="$(mktemp -d)"
-  tar -C "$stage_dir" -xzf "$archive"
-  binary="$stage_dir/bazusop-hub_${version}_linux_${architecture}/bazusop-hub"
-  for packager in deb rpm; do
-    VERSION="$version" ARCH="$architecture" BINARY="$binary" \
-      "$nfpm_command" package \
-        --config "$project_root/packaging/nfpm.yaml" \
-        --packager "$packager" \
-        --target "$release_dir/bazusop-hub_${version}_linux_${architecture}.${packager}"
+  for component in hub agent; do
+    archive="$release_dir/bazusop-${component}_${version}_linux_${architecture}.tar.gz"
+    if [[ ! -f "$archive" ]]; then
+      echo "Linux arşivi bulunamadı: $archive" >&2
+      exit 1
+    fi
+    stage_dir="$(mktemp -d)"
+    tar -C "$stage_dir" -xzf "$archive"
+    binary="$stage_dir/bazusop-${component}_${version}_linux_${architecture}/bazusop-${component}"
+    config="$project_root/packaging/nfpm.yaml"
+    if [[ "$component" == "agent" ]]; then
+      config="$project_root/packaging/nfpm-agent.yaml"
+    fi
+    for packager in deb rpm; do
+      VERSION="$version" ARCH="$architecture" BINARY="$binary" \
+        "$nfpm_command" package \
+          --config "$config" \
+          --packager "$packager" \
+          --target "$release_dir/bazusop-${component}_${version}_linux_${architecture}.${packager}"
+    done
+    rm -r "$stage_dir"
   done
-  rm -r "$stage_dir"
 done
 
 "$project_root/scripts/write-checksums.sh" "$release_dir"

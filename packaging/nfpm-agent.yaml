@@ -1,0 +1,40 @@
+name: bazusop-agent
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: admin
+priority: optional
+maintainer: bazUSOP maintainers <gokayybaz@users.noreply.github.com>
+description: bazUSOP hub'ına outbound mTLS ile bağlanan host agent'ı
+vendor: bazUSOP
+homepage: https://github.com/gokayybaz/bazusop
+license: Proprietary
+overrides:
+  deb:
+    depends:
+      - systemd
+  rpm:
+    depends:
+      - systemd
+contents:
+  - src: ${BINARY}
+    dst: /usr/bin/bazusop-agent
+    expand: true
+    file_info:
+      mode: 0755
+  - src: packaging/linux/bazusop-agent.service
+    dst: /usr/lib/systemd/system/bazusop-agent.service
+    file_info:
+      mode: 0644
+  - dst: /etc/bazusop
+    type: dir
+    file_info:
+      mode: 0750
+  - dst: /var/lib/bazusop-agent
+    type: dir
+    file_info:
+      mode: 0700
+scripts:
+  postinstall: packaging/linux/postinstall-agent.sh
+  preremove: packaging/linux/preremove-agent.sh

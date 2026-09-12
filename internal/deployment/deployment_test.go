@@ -116,6 +116,58 @@ func TestNativePackagesAndSignedReleaseAreDefined(t *testing.T) {
 	}
 }
 
+func TestAgentNativePackagesInstallManagedServices(t *testing.T) {
+	t.Parallel()
+
+	nfpm := readProjectFile(t, "packaging/nfpm-agent.yaml")
+	for _, required := range []string{"name: bazusop-agent", "bazusop-agent.service", "/var/lib/bazusop-agent", "postinstall-agent.sh", "preremove-agent.sh"} {
+		if !strings.Contains(nfpm, required) {
+			t.Errorf("agent nFPM configuration must contain %q", required)
+		}
+	}
+
+	unit := readProjectFile(t, "packaging/linux/bazusop-agent.service")
+	for _, required := range []string{"EnvironmentFile=/etc/bazusop/agent.env", "StateDirectory=bazusop-agent", "StateDirectoryMode=0700", "ExecStart=/usr/bin/bazusop-agent", "WantedBy=multi-user.target"} {
+		if !strings.Contains(unit, required) {
+			t.Errorf("agent systemd unit must contain %q", required)
+		}
+	}
+
+	wix := readProjectFile(t, "packaging/windows/AgentPackage.wxs")
+	for _, required := range []string{"bazusop-agent.exe", "ServiceInstall", "ServiceControl", "ProgramDataFolder", "BAZUSOP_AGENT_STATE_DIR", "MajorUpgrade"} {
+		if !strings.Contains(wix, required) {
+			t.Errorf("agent WiX package must contain %q", required)
+		}
+	}
+
+	windowsRuntime := readProjectFile(t, "cmd/bazusop-agent/run_windows.go")
+	for _, required := range []string{"svc.IsWindowsService", "svc.Run", "svc.AcceptStop", "svc.AcceptShutdown", "svc.StopPending"} {
+		if !strings.Contains(windowsRuntime, required) {
+			t.Errorf("Windows agent runtime must contain %q", required)
+		}
+	}
+	windowsPermissions := readProjectFile(t, "internal/agent/identity_permissions_windows.go")
+	for _, required := range []string{"WinBuiltinAdministratorsSid", "WinLocalSystemSid", "PROTECTED_DACL_SECURITY_INFORMATION", "SUB_CONTAINERS_AND_OBJECTS_INHERIT"} {
+		if !strings.Contains(windowsPermissions, required) {
+			t.Errorf("Windows identity protection must contain %q", required)
+		}
+	}
+
+	nativeScript := readProjectFile(t, "scripts/build-native-packages.sh")
+	for _, required := range []string{"for component in hub agent", "nfpm-agent.yaml", "bazusop-${component}_${version}_linux_${architecture}"} {
+		if !strings.Contains(nativeScript, required) {
+			t.Errorf("native package build must contain %q", required)
+		}
+	}
+
+	workflow := readProjectFile(t, ".github/workflows/release.yml")
+	for _, required := range []string{"AgentPackage.wxs", "bazusop-agent_${version}_windows_amd64.msi", "bazusop-agent.exe"} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("release workflow must build agent MSI with %q", required)
+		}
+	}
+}
+
 func readProjectFile(t *testing.T, name string) string {
 	t.Helper()
 

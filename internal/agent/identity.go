@@ -43,6 +43,9 @@ type IdentityStore struct{ directory string }
 func NewIdentityStore(directory string) *IdentityStore { return &IdentityStore{directory: directory} }
 
 func (store *IdentityStore) Load() (Identity, error) {
+	if err := protectStateDirectory(store.directory); err != nil && !os.IsNotExist(err) {
+		return Identity{}, fmt.Errorf("protect agent state directory: %w", err)
+	}
 	metadataBytes, err := os.ReadFile(filepath.Join(store.directory, identityFile))
 	if err != nil {
 		return Identity{}, err
@@ -81,6 +84,9 @@ func (store *IdentityStore) Save(identity Identity) error {
 	}
 	if err := os.MkdirAll(store.directory, 0o700); err != nil {
 		return fmt.Errorf("create agent state directory: %w", err)
+	}
+	if err := protectStateDirectory(store.directory); err != nil {
+		return fmt.Errorf("protect agent state directory: %w", err)
 	}
 	metadata, err := json.MarshalIndent(identityMetadata{AgentID: identity.AgentID, ExpiresAt: identity.ExpiresAt.UTC()}, "", "  ")
 	if err != nil {

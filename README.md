@@ -193,10 +193,12 @@ yayımlar. Her iki binary sürüm, commit ve UTC build tarihini `--version`
 çıktısında taşır; hub kimliği ayrıca Ayarlar sayfasında görünür.
 
 Release'in `checksums.txt` manifesti ve çok mimarili GHCR container digest'i
-GitHub OIDC üzerinden Sigstore Cosign ile keyless imzalanır. Linux paketi systemd
-unit'i ve checksum/sürüm/sağlık kontrollü `upgrade-hub` aracını içerir. Windows
-MSI major-upgrade ve downgrade engelleme sözleşmesini kullanır; hub henüz Windows
-Service protokolü uygulamadığından MSI sahte bir servis kaydı oluşturmaz.
+GitHub OIDC üzerinden Sigstore Cosign ile keyless imzalanır. Hub Linux paketi
+systemd unit'i ve checksum/sürüm/sağlık kontrollü `upgrade-hub` aracını içerir.
+Agent deb/rpm paketleri systemd birimini, Windows agent MSI ise native ve
+otomatik başlangıçlı `bazusop-agent` servisini kurar. Her iki Windows MSI
+major-upgrade ve downgrade engelleme sözleşmesini kullanır; hub MSI servis kaydı
+oluşturmaz.
 
 ## Dokümantasyon
 

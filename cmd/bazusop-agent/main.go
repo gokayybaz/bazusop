@@ -1,14 +1,11 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"log/slog"
 	"os"
-	"os/signal"
 	"runtime"
-	"syscall"
 
 	"github.com/gokayybaz/bazusop/internal/agent"
 	"github.com/gokayybaz/bazusop/internal/version"
@@ -44,9 +41,7 @@ func main() {
 		ReportInterval: configuration.ReportInterval, Logger: logger,
 		Hostname: hostname, OperatingSystem: runtime.GOOS,
 	}
-	shutdown, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
-	if err := runner.Run(shutdown); err != nil {
+	if err := runPlatform(runner); err != nil {
 		logger.Error("agent stopped", "error", err)
 		os.Exit(1)
 	}

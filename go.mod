@@ -2,7 +2,10 @@ module github.com/gokayybaz/bazusop
 
 go 1.26.0
 
-require github.com/jackc/pgx/v5 v5.11.0
+require (
+	github.com/jackc/pgx/v5 v5.11.0
+	golang.org/x/sys v0.42.0
+)
 
 require (
 	github.com/jackc/pgpassfile v1.0.0 // indirect

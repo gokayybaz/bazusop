@@ -9,6 +9,7 @@ import (
 	"math/big"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -40,6 +41,42 @@ func TestIdentityStoreReportsMissingIdentity(t *testing.T) {
 	_, err := NewIdentityStore(t.TempDir()).Load()
 	if !os.IsNotExist(err) {
 		t.Fatalf("expected missing identity, got %v", err)
+	}
+}
+
+func TestIdentityStoreRestrictsExistingStateDirectory(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ACLs are validated by the platform implementation")
+	}
+	directory := filepath.Join(t.TempDir(), "agent")
+	if err := os.Mkdir(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := NewIdentityStore(directory).Save(testIdentity(t, "agent-protected")); err != nil {
+		t.Fatalf("save identity: %v", err)
+	}
+	if mode := fileMode(t, directory); mode.Perm() != 0o700 {
+		t.Fatalf("state directory permissions must be 0700, got %o", mode.Perm())
+	}
+}
+
+func TestIdentityStoreRestrictsStateDirectoryBeforeLoad(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows ACLs are validated by the platform implementation")
+	}
+	directory := t.TempDir()
+	store := NewIdentityStore(directory)
+	if err := store.Save(testIdentity(t, "agent-load-protected")); err != nil {
+		t.Fatalf("save identity: %v", err)
+	}
+	if err := os.Chmod(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Load(); err != nil {
+		t.Fatalf("load identity: %v", err)
+	}
+	if mode := fileMode(t, directory); mode.Perm() != 0o700 {
+		t.Fatalf("loaded state directory permissions must be 0700, got %o", mode.Perm())
 	}
 }
 

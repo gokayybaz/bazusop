@@ -49,11 +49,31 @@ $env:BAZUSOP_AGENT_SERVER_CA_FILE = "C:\\ProgramData\\bazUSOP\\hub-server-ca.crt
 & "C:\\Program Files\\bazUSOP\\bazusop-agent.exe"
 ```
 
-Varsayılan state dizini `%ProgramData%\\bazUSOP\\agent` olur. Bu spike agent
-binary'sini ve arşivini üretir; Windows Service ve native agent installer yaşam
-döngüsü bir sonraki paketleme dilimidir. O zamana kadar yönetici, state dizini
-ACL'ini yalnız agent'ı çalıştıran hesap ve `SYSTEM` okuyabilecek şekilde
-sınırlandırmalıdır; POSIX mod bitleri Windows ACL korumasının yerine geçmez.
+Varsayılan state dizini `%ProgramData%\\bazUSOP\\agent` olur. Agent MSI'ı
+`bazusop-agent` adlı, otomatik başlangıçlı bir Windows Service kaydeder ve state
+dizinini kaldırma/yükseltmede korur. Hub URL'si, enrollment token'ı ve özel CA
+yolu paket veya MSI komut satırına yazılmamalı; bunları makine kapsamlı ortam
+değişkenleriyle tanımladıktan sonra `Start-Service bazusop-agent` çalıştırılmalıdır.
+Agent, state dizini ACL'ini çalışan hesap, `SYSTEM` ve yerel yöneticiler dışında
+erişime kapatır.
+
+## Native paket kurulumu
+
+Linux deb/rpm paketi `bazusop-agent.service` birimini kurar ve boot için
+etkinleştirir. İlk başlatmadan önce `/etc/bazusop/agent.env` dosyasını root
+sahipliğinde `0600` izinle oluşturun:
+
+```bash
+sudo install -m 0600 /dev/null /etc/bazusop/agent.env
+sudoedit /etc/bazusop/agent.env
+sudo systemctl start bazusop-agent
+```
+
+Dosyada `BAZUSOP_AGENT_HUB_URL`, ilk kayıt için
+`BAZUSOP_AGENT_ENROLLMENT_TOKEN` ve gerekiyorsa
+`BAZUSOP_AGENT_SERVER_CA_FILE` bulunmalıdır. Başarılı kayıttan sonra token'ı
+dosyadan kaldırıp servisi yeniden başlatın. Paket yükseltmesi servisi yeniden
+başlatır; uninstall, host kimliği olan `/var/lib/bazusop-agent` dizinini silmez.
 
 ## Yapılandırma ve teşhis
 

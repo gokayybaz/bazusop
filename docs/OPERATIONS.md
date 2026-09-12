@@ -62,7 +62,7 @@ Release build'inde sürüm, kaynak commit'i ve UTC build tarihi linker üzerinde
 binary'ye yazılır. `v*` Git etiketi workflow'u testten geçmeyen sürümü yayımlamaz.
 
 Release varlıkları arşivlere ek olarak Linux amd64/arm64 deb/rpm ve Windows amd64
-MSI içerir. `checksums.txt.sigstore.json`, checksum manifestinin GitHub Actions
+hub ve agent MSI'ları içerir. `checksums.txt.sigstore.json`, checksum manifestinin GitHub Actions
 OIDC kimliğiyle üretilen Sigstore bundle'ıdır. İmzayı doğrula:
 
 ```bash
@@ -86,6 +86,13 @@ ve `0640` izinleriyle oluşturup `systemctl start bazusop-hub` çalıştır. Pak
 secret içermeyen bu dizini ve servisi kurar ancak eksik yapılandırmayla servisi
 başlatmaz.
 
+Agent deb/rpm paketi `/etc/bazusop/agent.env` mevcut değilken servisi başlatmaz,
+ancak boot için etkinleştirir. Dosyayı root sahipliğinde `0600` izinle hazırlayıp
+`systemctl start bazusop-agent` çalıştırın. Agent state dizini `0700` olarak
+korunur ve paket kaldırıldığında silinmez. Windows agent MSI otomatik başlangıçlı
+`bazusop-agent` servisini kaydeder; makine kapsamlı agent ortam değişkenleri
+tanımlandıktan sonra servis elle ilk kez başlatılır.
+
 Manuel kontrollü yükseltmede önce imzalı manifesti ve arşivi doğrula, binary'yi
 çıkar ve kendi özetini yükseltme aracına ver:
 
@@ -100,9 +107,10 @@ sudo /usr/lib/bazusop/upgrade-hub \
 ```
 
 Araç eşzamanlı yükseltmeyi kilitler, önceki binary'yi `.previous` olarak saklar
-ve restart sonrasında sağlık ucu geçmezse geri yükler. Windows MSI yeni major
-sürümü yerinde yükseltir ve eski sürüm kurulumunu engeller; bu aşamada Windows
-Service kaydı oluşturmaz.
+ve restart sonrasında sağlık ucu geçmezse geri yükler. Hub ve agent Windows
+MSI'ları yeni major sürümü yerinde yükseltir ve eski sürüm kurulumunu engeller.
+Hub MSI servis kaydı oluşturmaz; agent MSI native Windows Service yaşam döngüsünü
+yönetir.
 
 İki bağımsız store üzerinden gerçek `LISTEN/NOTIFY` ve ortak enrollment state
 entegrasyon testlerini çalıştırmak için:
