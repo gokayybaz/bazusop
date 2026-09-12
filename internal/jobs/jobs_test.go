@@ -140,3 +140,57 @@ func TestClaimReturnsNilWhenQueueIsEmpty(t *testing.T) {
 		t.Fatalf("expected empty queue, got %#v, %v", job, err)
 	}
 }
+
+func TestClaimResumesRunningJobWithoutDuplicateClaimEvent(t *testing.T) {
+	clock := time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
+	service, err := NewService(NewMemoryStore(), WithClock(func() time.Time { return clock }), WithJobLease(time.Minute))
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, err := service.Create(context.Background(), "agent-01", CreateRequest{Action: ActionServiceRestart, Target: "nginx.service", ApprovedBy: "ops", Reason: "deploy"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := service.ClaimNext(context.Background(), "agent-01")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if active, err := service.ClaimNext(context.Background(), "agent-01"); err != nil || active != nil {
+		t.Fatalf("active lease should not be resumed: %#v %v", active, err)
+	}
+	clock = clock.Add(2 * time.Minute)
+	resumed, err := service.ClaimNext(context.Background(), "agent-01")
+	if err != nil || resumed == nil || resumed.ID != first.ID || resumed.LastSequence != 1 || !resumed.Resumed {
+		t.Fatalf("expected running job to resume: %#v %v", resumed, err)
+	}
+	events, err := service.Events(context.Background(), "agent-01", created.ID)
+	if err != nil || len(events) != 2 {
+		t.Fatalf("claim event was duplicated: %#v %v", events, err)
+	}
+}
+
+func TestDuplicateJobEventIsIdempotent(t *testing.T) {
+	service, err := NewService(NewMemoryStore())
+	if err != nil {
+		t.Fatal(err)
+	}
+	created, _ := service.Create(context.Background(), "agent-01", CreateRequest{Action: ActionServiceRestart, Target: "nginx.service", ApprovedBy: "ops", Reason: "deploy"})
+	_, _ = service.ClaimNext(context.Background(), "agent-01")
+	event := EventRequest{Sequence: 2, Type: EventOutput, Message: "restarted"}
+	if _, err := service.Report(context.Background(), "agent-01", created.ID, event); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Report(context.Background(), "agent-01", created.ID, event); err != nil {
+		t.Fatalf("identical retry should be idempotent: %v", err)
+	}
+	if _, err := service.Report(context.Background(), "agent-01", created.ID, EventRequest{Sequence: 2, Type: EventOutput, Message: "different"}); !errors.Is(err, ErrJobConflict) {
+		t.Fatalf("different duplicate should conflict: %v", err)
+	}
+	terminal := EventRequest{Sequence: 3, Type: EventSucceeded, Message: "completed"}
+	if _, err := service.Report(context.Background(), "agent-01", created.ID, terminal); err != nil {
+		t.Fatal(err)
+	}
+	if job, err := service.Report(context.Background(), "agent-01", created.ID, terminal); err != nil || job.Status != StatusSucceeded {
+		t.Fatalf("terminal retry should be idempotent: %#v %v", job, err)
+	}
+}

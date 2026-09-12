@@ -30,6 +30,8 @@ const (
 	ActionHostReboot     Action = "host.reboot"
 )
 
+const defaultJobLease = 2 * time.Minute
+
 type Status string
 
 const (
@@ -68,6 +70,7 @@ type Job struct {
 	LastSequence     int       `json:"last_sequence"`
 	Signature        string    `json:"signature"`
 	SigningPublicKey string    `json:"signing_public_key"`
+	Resumed          bool      `json:"resumed,omitempty"`
 }
 
 type EventRequest struct {
@@ -87,7 +90,7 @@ type Event struct {
 
 type Store interface {
 	CreateJob(context.Context, Job, Event) error
-	ClaimNextJob(context.Context, string, time.Time) (*Job, error)
+	ClaimNextJob(context.Context, string, time.Time, time.Time) (*Job, error)
 	RecordJobEvent(context.Context, string, string, EventRequest, time.Time) (Job, Event, error)
 	ListJobs(context.Context, string, int) ([]Job, error)
 	ListJobEvents(context.Context, string, string) ([]Event, error)
@@ -98,11 +101,15 @@ type Service struct {
 	privateKey ed25519.PrivateKey
 	publicKey  ed25519.PublicKey
 	now        func() time.Time
+	jobLease   time.Duration
 }
 
 type Option func(*Service)
 
 func WithClock(clock func() time.Time) Option { return func(service *Service) { service.now = clock } }
+func WithJobLease(duration time.Duration) Option {
+	return func(service *Service) { service.jobLease = duration }
+}
 func WithSigningKey(privateKey ed25519.PrivateKey) Option {
 	return func(service *Service) {
 		service.privateKey = append(ed25519.PrivateKey(nil), privateKey...)
@@ -117,11 +124,11 @@ func NewService(store Store, options ...Option) (*Service, error) {
 	if err != nil {
 		return nil, err
 	}
-	service := &Service{store: store, privateKey: privateKey, publicKey: publicKey, now: time.Now}
+	service := &Service{store: store, privateKey: privateKey, publicKey: publicKey, now: time.Now, jobLease: defaultJobLease}
 	for _, option := range options {
 		option(service)
 	}
-	if len(service.privateKey) != ed25519.PrivateKeySize || len(service.publicKey) != ed25519.PublicKeySize {
+	if len(service.privateKey) != ed25519.PrivateKeySize || len(service.publicKey) != ed25519.PublicKeySize || service.jobLease <= 0 {
 		return nil, errors.New("job signing key is invalid")
 	}
 	return service, nil
@@ -161,7 +168,8 @@ func (service *Service) ClaimNext(ctx context.Context, agentID string) (*Job, er
 	if agentID == "" {
 		return nil, ErrInvalidJob
 	}
-	return service.store.ClaimNextJob(ctx, agentID, service.now().UTC())
+	now := service.now().UTC()
+	return service.store.ClaimNextJob(ctx, agentID, now, now.Add(-service.jobLease))
 }
 
 func (service *Service) Report(ctx context.Context, agentID, jobID string, request EventRequest) (Job, error) {
@@ -246,10 +254,28 @@ func (store *MemoryStore) CreateJob(_ context.Context, job Job, event Event) err
 	return nil
 }
 
-func (store *MemoryStore) ClaimNextJob(_ context.Context, agentID string, occurredAt time.Time) (*Job, error) {
+func (store *MemoryStore) ClaimNextJob(_ context.Context, agentID string, occurredAt, resumeBefore time.Time) (*Job, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	var selected *Job
+	for _, candidate := range store.jobs {
+		if candidate.AgentID != agentID || candidate.Status != StatusRunning {
+			continue
+		}
+		if selected == nil || candidate.RequestedAt.Before(selected.RequestedAt) || (candidate.RequestedAt.Equal(selected.RequestedAt) && candidate.ID < selected.ID) {
+			copy := candidate
+			selected = &copy
+		}
+	}
+	if selected != nil {
+		for _, event := range store.events[selected.ID] {
+			if event.Type == EventClaimed && event.OccurredAt.After(resumeBefore) {
+				return nil, nil
+			}
+		}
+		selected.Resumed = true
+		return selected, nil
+	}
 	for _, candidate := range store.jobs {
 		if candidate.AgentID != agentID || candidate.Status != StatusQueued {
 			continue
@@ -274,6 +300,14 @@ func (store *MemoryStore) RecordJobEvent(_ context.Context, agentID, jobID strin
 	job, exists := store.jobs[jobID]
 	if !exists || job.AgentID != agentID {
 		return Job{}, Event{}, ErrJobNotFound
+	}
+	if request.Sequence <= job.LastSequence {
+		for _, event := range store.events[jobID] {
+			if event.Sequence == request.Sequence && event.Type == request.Type && event.Message == request.Message {
+				return job, event, nil
+			}
+		}
+		return Job{}, Event{}, ErrJobConflict
 	}
 	if job.Status != StatusRunning || request.Sequence != job.LastSequence+1 {
 		return Job{}, Event{}, ErrJobConflict

@@ -56,8 +56,9 @@ saklar ve systemd restart sonrası sağlık ucu başarısızsa atomik rollback u
    değişmez alanlarını kalıcı enrollment CA anahtarıyla Ed25519 olarak imzalayıp
    `queued` saklar.
 10. Hedef agent işi mTLS ile atomik teslim alır; imza anahtarını yerel CA
-    sertifikasına pinler, allowlist aksiyonunu çalıştırır, çıktıyı ve terminal
-    durumu artan sequence numaralı audit olayları olarak raporlar.
+    sertifikasına pinler, yürütme durumunu diske atomik yazar, allowlist aksiyonunu
+    çalıştırır, çıktıyı ve terminal durumu idempotent sequence numaralı audit
+    olayları olarak raporlar.
 11. Kabul edilen telemetri örneği etkin metrik kurallarıyla, hub'ın periyodik
     taraması host son-görülme zamanını erişilebilirlik kurallarıyla değerlendirir.
 12. İhlal benzersiz aktif olay açar; recovery otomatik çözer, operatör onayı ve
@@ -93,7 +94,12 @@ doğrular; bu üretim kapasite tahmini değil regresyon sınırıdır.
 `jobs` tablosu imzalı komutu, son sequence değerini ve yaşam döngüsü durumunu;
 `job_events` tablosu onay, teslim, çıktı ve sonucu append-only audit izi olarak
 tutar. PostgreSQL `FOR UPDATE SKIP LOCKED`, aynı işin eşzamanlı agent poll'larında
-yalnız bir kez teslim edilmesini sağlar. Terminal işler yeniden açılamaz.
+yalnız bir kez teslim edilmesini sağlar; agent-bazlı advisory lock aynı kimliğin
+eşzamanlı poll'larını sıralar. İki dakikalık koruma dolmadan `running` iş yeniden
+sunulmaz. Birebir aynı audit retry'ı idempotent, aynı sequence'e farklı içerik
+çatışmadır. Agent `job-state.json` dosyasını komuttan önce ve sonuçtan sonra
+atomik günceller; belirsiz crash penceresinde komutu tekrar etmek yerine işi
+başarısız kapatır. Terminal işler yeniden açılamaz.
 
 `alert_rules` metrik ve erişilebilirlik eşiklerini, `maintenance_windows` zamanlı
 bastırmayı, `alert_incidents` güncel yaşam döngüsünü ve `alert_events` append-only

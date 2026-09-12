@@ -138,8 +138,8 @@ bir TLS Secret’tan read-only mount edilir.
 4. Enrollment, operator ve admin token'larını ayrı, yüksek entropili değerlerle oluştur;
    secret erişimini sınırla ve rotasyon prosedürünü test et.
 5. CPU/RAM request-limit değerlerini gerçek yük testine göre ayarla.
-6. PostgreSQL enrollment state'ini ve yedek şifrelemesini doğrula; iş imza anahtarı
-   paylaşılmadan HPA’yı açma.
+6. PostgreSQL enrollment state'ini ve yedek şifrelemesini doğrula; HPA öncesinde
+   tüm replikaların aynı enrollment/iş imza güven kökünü kullandığını test et.
 7. Ingress kullanılıyorsa agent mTLS trafiğinin client sertifikasını hub’a kadar
    koruduğunu doğrula.
 8. Kritik CPU/bellek/disk ve erişilebilirlik eşiklerini gerçek baseline'a göre

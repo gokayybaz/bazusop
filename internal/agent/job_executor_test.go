@@ -18,7 +18,7 @@ func TestJobExecutorRunsJobSignedByPinnedEnrollmentAuthority(t *testing.T) {
 	job := claimedJob(t, signer, identity.AgentID, jobs.ActionServiceRestart, "nginx.service")
 	client := &fakeJobClient{job: job}
 	executed := 0
-	executor := &JobExecutor{hub: client, execute: func(_ context.Context, candidate jobs.Job) (string, error) {
+	executor := &JobExecutor{hub: client, state: NewFileJobStateStore(t.TempDir()), execute: func(_ context.Context, candidate jobs.Job) (string, error) {
 		executed++
 		return candidate.Target + " restarted", nil
 	}}
@@ -39,7 +39,7 @@ func TestJobExecutorRejectsUnpinnedSignerWithoutExecution(t *testing.T) {
 	}
 	client := &fakeJobClient{job: claimedJob(t, otherSigner, identity.AgentID, jobs.ActionHostReboot, "")}
 	executed := false
-	executor := &JobExecutor{hub: client, execute: func(context.Context, jobs.Job) (string, error) { executed = true; return "", nil }}
+	executor := &JobExecutor{hub: client, state: NewFileJobStateStore(t.TempDir()), execute: func(context.Context, jobs.Job) (string, error) { executed = true; return "", nil }}
 	if err := executor.ProcessNext(context.Background(), identity); err != nil {
 		t.Fatalf("reject job: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestJobExecutorRejectsUnpinnedSignerWithoutExecution(t *testing.T) {
 func TestJobExecutorReportsPlatformFailure(t *testing.T) {
 	identity, signer := jobTestIdentity(t, "agent-01")
 	client := &fakeJobClient{job: claimedJob(t, signer, identity.AgentID, jobs.ActionServiceRestart, "nginx.service")}
-	executor := &JobExecutor{hub: client, execute: func(context.Context, jobs.Job) (string, error) {
+	executor := &JobExecutor{hub: client, state: NewFileJobStateStore(t.TempDir()), execute: func(context.Context, jobs.Job) (string, error) {
 		return "permission denied", errors.New("exit status 1")
 	}}
 	if err := executor.ProcessNext(context.Background(), identity); err != nil {
@@ -66,7 +66,7 @@ func TestJobExecutorRetriesAuditWithoutExecutingJobTwice(t *testing.T) {
 	identity, signer := jobTestIdentity(t, "agent-01")
 	client := &fakeJobClient{job: claimedJob(t, signer, identity.AgentID, jobs.ActionServiceRestart, "nginx.service"), failSequenceOnce: 3}
 	executed := 0
-	executor := &JobExecutor{hub: client, execute: func(context.Context, jobs.Job) (string, error) {
+	executor := &JobExecutor{hub: client, state: NewFileJobStateStore(t.TempDir()), execute: func(context.Context, jobs.Job) (string, error) {
 		executed++
 		return "restarted", nil
 	}}
@@ -78,6 +78,45 @@ func TestJobExecutorRetriesAuditWithoutExecutingJobTwice(t *testing.T) {
 	}
 	if executed != 1 || len(client.events) != 2 || client.events[1].Type != jobs.EventSucceeded {
 		t.Fatalf("job was re-executed or audit was not retried: executed=%d events=%#v", executed, client.events)
+	}
+}
+
+func TestJobExecutorMarksInterruptedExecutionUnknownWithoutReexecution(t *testing.T) {
+	identity, signer := jobTestIdentity(t, "agent-01")
+	job := claimedJob(t, signer, identity.AgentID, jobs.ActionServiceRestart, "nginx.service")
+	state := NewFileJobStateStore(t.TempDir())
+	if err := state.Save(jobExecutionState{Job: *job, Phase: jobPhaseExecuting}); err != nil {
+		t.Fatal(err)
+	}
+	client := &fakeJobClient{}
+	executed := false
+	executor := &JobExecutor{hub: client, state: state, execute: func(context.Context, jobs.Job) (string, error) {
+		executed = true
+		return "", nil
+	}}
+	if err := executor.ProcessNext(context.Background(), identity); err != nil {
+		t.Fatalf("recover interrupted job: %v", err)
+	}
+	if executed || len(client.events) != 1 || client.events[0].Type != jobs.EventFailed || client.events[0].Message != "agent restarted during execution; outcome unknown" {
+		t.Fatalf("interrupted job was not safely recovered: executed=%v events=%#v", executed, client.events)
+	}
+}
+
+func TestJobExecutorDoesNotReexecuteResumedJobWithoutLocalState(t *testing.T) {
+	identity, signer := jobTestIdentity(t, "agent-01")
+	job := claimedJob(t, signer, identity.AgentID, jobs.ActionServiceRestart, "nginx.service")
+	job.Resumed = true
+	client := &fakeJobClient{job: job}
+	executed := false
+	executor := &JobExecutor{hub: client, state: NewFileJobStateStore(t.TempDir()), execute: func(context.Context, jobs.Job) (string, error) {
+		executed = true
+		return "", nil
+	}}
+	if err := executor.ProcessNext(context.Background(), identity); err != nil {
+		t.Fatalf("recover resumed job: %v", err)
+	}
+	if executed || len(client.events) != 1 || client.events[0].Type != jobs.EventFailed || client.events[0].Message != "running job has no durable execution state; outcome unknown" {
+		t.Fatalf("resumed job was re-executed: executed=%v events=%#v", executed, client.events)
 	}
 }
 

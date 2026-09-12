@@ -35,6 +35,7 @@ Her spike aynı teslimat döngüsünü izler:
 | 10.5 — Gerçek servis envanteri | Agent systemd ve Windows SCM servislerini ortak modele taşır | Runtime/startup durumu ilk çevrimde mTLS ile görünür; collector hataları diğer raporları durdurmaz |
 | 10.6 — Gerçek host logları | Agent journald ve Windows Event kayıtlarını ortak modele taşıyıp mTLS batch'leri gönderir | Önem/kaynak normalize edilir; batch en fazla 1000 kayıttır; cursor yalnız başarılı gönderimden sonra ilerler |
 | 10.7 — Güvenli uzak iş çalıştırma | Agent imzalı servis restart ve host reboot işlerini platform API'leriyle çalıştırır | İmza enrollment CA'ya pinlenir; keyfi komut reddedilir; çıktı ve terminal durum sıralı audit olaylarına ulaşır |
+| 10.8 — Kesinti güvenli iş kurtarma | Agent yürütme/audit state'ini diskte korur; hub yarım işi korumalı biçimde yeniden sunar | Aktif teslim çift çalışmaz; audit retry idempotenttir; belirsiz crash sonrası komut tekrarlanmadan iş terminale taşınır |
 
 ## Mimari kısıtlar
 

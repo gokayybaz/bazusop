@@ -643,12 +643,39 @@ func (store *Store) CreateJob(ctx context.Context, job jobs.Job, event jobs.Even
 	return nil
 }
 
-func (store *Store) ClaimNextJob(ctx context.Context, agentID string, occurredAt time.Time) (*jobs.Job, error) {
+func (store *Store) ClaimNextJob(ctx context.Context, agentID string, occurredAt, resumeBefore time.Time) (*jobs.Job, error) {
 	transaction, err := store.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin job claim: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
+	if _, err := transaction.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", agentID); err != nil {
+		return nil, fmt.Errorf("lock agent job queue: %w", err)
+	}
+	running, err := scanJob(transaction.QueryRow(ctx, `
+		SELECT id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key
+		FROM jobs WHERE agent_id=$1 AND status='running'
+		ORDER BY requested_at, id FOR UPDATE LIMIT 1`, agentID))
+	if err == nil {
+		var claimedAt time.Time
+		if err := transaction.QueryRow(ctx, "SELECT occurred_at FROM job_events WHERE job_id=$1 AND type='claimed' ORDER BY sequence DESC LIMIT 1", running.ID).Scan(&claimedAt); err != nil {
+			return nil, fmt.Errorf("read running job lease: %w", err)
+		}
+		if claimedAt.After(resumeBefore) {
+			if err := transaction.Commit(ctx); err != nil {
+				return nil, fmt.Errorf("commit active job lease check: %w", err)
+			}
+			return nil, nil
+		}
+		running.Resumed = true
+		if err := transaction.Commit(ctx); err != nil {
+			return nil, fmt.Errorf("commit running job resume: %w", err)
+		}
+		return &running, nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return nil, fmt.Errorf("select running job: %w", err)
+	}
 	job, err := scanJob(transaction.QueryRow(ctx, `
 		SELECT id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key
 		FROM jobs WHERE agent_id=$1 AND status='queued'
@@ -687,6 +714,22 @@ func (store *Store) RecordJobEvent(ctx context.Context, agentID, jobID string, r
 	}
 	if err != nil {
 		return jobs.Job{}, jobs.Event{}, fmt.Errorf("lock job event: %w", err)
+	}
+	if request.Sequence <= job.LastSequence {
+		var event jobs.Event
+		err := transaction.QueryRow(ctx, `SELECT job_id,sequence,type,message,actor,occurred_at FROM job_events WHERE job_id=$1 AND sequence=$2`, jobID, request.Sequence).Scan(
+			&event.JobID, &event.Sequence, &event.Type, &event.Message, &event.Actor, &event.OccurredAt,
+		)
+		if err == nil && event.Type == request.Type && event.Message == request.Message {
+			if err := transaction.Commit(ctx); err != nil {
+				return jobs.Job{}, jobs.Event{}, fmt.Errorf("commit duplicate job event: %w", err)
+			}
+			return job, event, nil
+		}
+		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+			return jobs.Job{}, jobs.Event{}, fmt.Errorf("read duplicate job event: %w", err)
+		}
+		return jobs.Job{}, jobs.Event{}, jobs.ErrJobConflict
 	}
 	if job.Status != jobs.StatusRunning || request.Sequence != job.LastSequence+1 {
 		return jobs.Job{}, jobs.Event{}, jobs.ErrJobConflict

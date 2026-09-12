@@ -255,14 +255,17 @@ sequence sırasıyla `{ "events": [...] }` zarfında döndürür. İş/agent eş
 
 mTLS gerekir. Sertifikadaki agent için sıradaki işi atomik olarak teslim alır;
 işi `running` durumuna geçirip `claimed` audit olayını yazar. İş yoksa `204`
-döner.
+döner. `running` işin iki dakikalık teslim koruması dolmamışsa yeni iş verilmez.
+Koruma dolunca yarım iş yeni bir `claimed` olayı üretmeden `resumed: true`
+alanıyla yeniden sunulur; agent yerel yürütme state'i yoksa komutu tekrar çalıştırmaz.
 
 ### `POST /api/v1/agents/jobs/{job_id}/events`
 
 mTLS gerekir. Agent yalnız kendi `running` işine bir sonraki sıralı olayı
 ekleyebilir. Teslimden sonraki ilk sequence `2` olmalıdır. `output` işi açık
 tutar; `succeeded` ve `failed` terminaldir. Sıra çakışması veya terminal işe
-yazma denemesi `409` döner.
+yazma denemesi `409` döner. Aynı sequence, tür ve mesajın yeniden gönderimi
+idempotent kabul edilir ve mevcut iş durumuyla `200` döner.
 
 ```json
 {"sequence":2,"type":"output","message":"nginx durduruldu"}

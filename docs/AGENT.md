@@ -122,8 +122,16 @@ programlanır. Native Linux servisi root, Windows servisi LocalSystem çalışt�
 bu işlemler için gereken host yetkilerine sahiptir. Başlangıç, başarı ve hata
 sonuçları artan sequence değerleriyle audit izine gönderilir; geçersiz veya güven
 zincirine uymayan iş çalıştırılmadan `failed` yapılır. Audit gönderimi geçici
-olarak başarısız olursa bekleyen olay sonraki çevrimde yeniden gönderilir; aynı
-process içinde komut ikinci kez çalıştırılmaz.
+olarak başarısız olursa bekleyen olay `job-state.json` içinde `0600` izinle
+korunur ve sonraki çevrimde veya agent restart'ından sonra yeniden gönderilir.
+Hub aynı audit olayının birebir tekrarını idempotent kabul eder.
+
+Agent komutu başlatmadan önce işi `executing` olarak diske atomik yazar. Process
+bu pencere içinde kapanırsa yeniden başlatılan agent komutu ikinci kez çalıştırmaz;
+sonucu güvenle belirleyemediği işi `failed` ve `outcome unknown` olarak kapatır.
+Hub aktif teslimi iki dakika boyunca başka poll'a vermez; süre dolunca yarım iş
+`resumed: true` olarak görünür. Yerel state bulunmayan resumed iş de yeniden
+çalıştırılmadan belirsiz sonuçla kapatılır.
 
 `401` için sırasıyla client sertifika süresini, agent state dosyalarını, hub'ın
 agent CA durumunu ve reverse proxy'nin client sertifikasını hub'a kadar koruduğunu
