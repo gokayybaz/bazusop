@@ -6,10 +6,10 @@ on:
       - "v*"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  native-packages:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -26,7 +26,114 @@ jobs:
       - run: make test
       - name: Sürüm arşivlerini oluştur
         run: BUILD_DATE="$(git show -s --format=%cI "$GITHUB_SHA")" COMMIT="$GITHUB_SHA" ./scripts/build-release.sh "${GITHUB_REF_NAME#v}"
+      - name: nFPM kur ve deb/rpm paketlerini oluştur
+        run: |
+          go install github.com/goreleaser/nfpm/v2/cmd/nfpm@v2.47.0
+          NFPM="$(go env GOPATH)/bin/nfpm" ./scripts/build-native-packages.sh "${GITHUB_REF_NAME#v}"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-native
+          path: dist/bazusop-*/*
+          if-no-files-found: error
+
+  windows-msi:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "6.0.x"
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - name: Windows binary ve MSI oluştur
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $msiVersion = $version.Split('-')[0]
+          $buildDate = git show -s --format=%cI $env:GITHUB_SHA
+          $versionPackage = "github.com/gokayybaz/bazusop/internal/version"
+          $ldflags = "-s -w -X $versionPackage.Version=$version -X $versionPackage.Commit=$env:GITHUB_SHA -X $versionPackage.BuildDate=$buildDate"
+          New-Item -ItemType Directory -Force dist/windows | Out-Null
+          $env:CGO_ENABLED = "0"
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          go build -trimpath -ldflags $ldflags -o dist/windows/bazusop-hub.exe ./cmd/bazusop-hub
+          dotnet tool install --global wix --version 4.0.6
+          wix build packaging/windows/Package.wxs -arch x64 -d "Version=$msiVersion" -d "SourceDir=$pwd\dist\windows" -o "dist/bazusop-hub_${version}_windows_amd64.msi"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-msi
+          path: dist/*.msi
+          if-no-files-found: error
+
+  signed-container:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-qemu-action@v4
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - uses: sigstore/cosign-installer@v4
+      - name: İmaj kimliğini hazırla
+        id: image
+        run: |
+          echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+          echo "build_date=$(git show -s --format=%cI "$GITHUB_SHA")" >> "$GITHUB_OUTPUT"
+      - name: Multi-architecture container oluştur ve gönder
+        id: build
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: |
+            ${{ steps.image.outputs.name }}:${{ steps.image.outputs.version }}
+            ${{ steps.image.outputs.name }}:latest
+          build-args: |
+            VERSION=${{ steps.image.outputs.version }}
+            COMMIT=${{ github.sha }}
+            BUILD_DATE=${{ steps.image.outputs.build_date }}
+      - name: Container digest'ini keyless imzala
+        run: cosign sign --yes "${{ steps.image.outputs.name }}@${{ steps.build.outputs.digest }}"
+
+  publish:
+    needs: [native-packages, windows-msi, signed-container]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          merge-multiple: true
+          path: release-assets
+      - uses: sigstore/cosign-installer@v4
+      - name: Manifesti oluştur ve keyless imzala
+        run: |
+          ./scripts/write-checksums.sh release-assets
+          cosign sign-blob release-assets/checksums.txt --bundle release-assets/checksums.txt.sigstore.json --yes
       - name: GitHub sürümünü yayımla
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "dist/bazusop-${GITHUB_REF_NAME#v}"/* --verify-tag --generate-notes --title "bazUSOP ${GITHUB_REF_NAME}"
+        run: gh release create "$GITHUB_REF_NAME" release-assets/* --verify-tag --generate-notes --title "bazUSOP ${GITHUB_REF_NAME}"

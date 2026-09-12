@@ -1,4 +1,4 @@
-.PHONY: build build-web release test test-go test-web dev-web container compose-up compose-down helm-lint clean
+.PHONY: build build-web release release-native test test-go test-web dev-web container compose-up compose-down helm-lint clean
 
 GOCACHE ?= /tmp/bazusop-go-cache
 VERSION ?= dev
@@ -16,6 +16,9 @@ build-web:
 
 release:
 	./scripts/build-release.sh "$(VERSION)"
+
+release-native: release
+	./scripts/build-native-packages.sh "$(VERSION)"
 
 test: test-web test-go
 

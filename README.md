@@ -154,10 +154,16 @@ cd dist/bazusop-0.3.0
 shasum -a 256 -c checksums.txt
 ```
 
-`v*` etiketi pushlandığında GitHub Actions önce tüm testleri çalıştırır, sonra aynı
-arşivleri yeni GitHub Release'e ekler. Her binary sürüm, commit ve UTC build
-tarihini hem `--version` çıktısında hem Ayarlar sayfasında taşır. Native
-deb/rpm/MSI paketleri ile kriptografik imzalama Spike 9.3.2 kapsamındadır.
+`v*` etiketi pushlandığında GitHub Actions önce tüm testleri çalıştırır; Linux
+amd64/arm64 için deb/rpm, Windows amd64 için MSI ve sürümlü arşivleri yayımlar.
+Her binary sürüm, commit ve UTC build tarihini hem `--version` çıktısında hem
+Ayarlar sayfasında taşır.
+
+Release'in `checksums.txt` manifesti ve çok mimarili GHCR container digest'i
+GitHub OIDC üzerinden Sigstore Cosign ile keyless imzalanır. Linux paketi systemd
+unit'i ve checksum/sürüm/sağlık kontrollü `upgrade-hub` aracını içerir. Windows
+MSI major-upgrade ve downgrade engelleme sözleşmesini kullanır; hub henüz Windows
+Service protokolü uygulamadığından MSI sahte bir servis kaydı oluşturmaz.
 
 ## Dokümantasyon
 

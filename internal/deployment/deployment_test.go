@@ -81,6 +81,31 @@ func TestReleaseBuildProducesVersionedCrossPlatformArtifacts(t *testing.T) {
 	}
 }
 
+func TestNativePackagesAndSignedReleaseAreDefined(t *testing.T) {
+	t.Parallel()
+
+	nfpm := readProjectFile(t, "packaging/nfpm.yaml")
+	for _, required := range []string{"name: bazusop-hub", "${VERSION}", "${ARCH}", "bazusop-hub.service", "upgrade-hub.sh"} {
+		if !strings.Contains(nfpm, required) {
+			t.Errorf("nFPM configuration must contain %q", required)
+		}
+	}
+
+	wix := readProjectFile(t, "packaging/windows/Package.wxs")
+	for _, required := range []string{"http://wixtoolset.org/schemas/v4/wxs", "MajorUpgrade", "bazusop-hub.exe", "ProgramFiles64Folder"} {
+		if !strings.Contains(wix, required) {
+			t.Errorf("WiX package must contain %q", required)
+		}
+	}
+
+	workflow := readProjectFile(t, ".github/workflows/release.yml")
+	for _, required := range []string{"nfpm@v2.47.0", "wix --version 4.0.6", "cosign-installer@v4", "cosign sign-blob", "cosign sign --yes", "docker/build-push-action", "id-token: write", "packages: write"} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("signed package workflow must contain %q", required)
+		}
+	}
+}
+
 func readProjectFile(t *testing.T, name string) string {
 	t.Helper()
 

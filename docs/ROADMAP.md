@@ -27,7 +27,7 @@ Her spike aynı teslimat döngüsünü izler:
 | 9.2.1 — Ortak canlı akış | PostgreSQL tabanlı ortak log event bus | Farklı hub replikasından ingest edilen log SSE abonesine ulaşır |
 | 9.2.2 — Saklama ve yük | Yapılandırılabilir retention ve fan-out regresyon hedefi | 1–3650 günlük policy doğrulanır; maksimum batch 32 aboneye kayıpsız ulaşır |
 | 9.3.1 — Release kimliği | Hub sürüm metadata'sı, çapraz platform arşivleri ve checksum manifesti | `--version`/UI aynı build'i gösterir; Linux amd64/arm64 ve Windows amd64 arşivleri tag workflow'uyla yayımlanır |
-| 9.3.2 — İmzalı paket ve yükseltme | deb/rpm/MSI, container imzası ve kontrollü yükseltme | İmzalar doğrulanır; başarısız yükseltme önceki sürüme döner |
+| 9.3.2 — İmzalı paket ve yükseltme | deb/rpm/MSI, keyless release/container imzası ve kontrollü yükseltme | İmzalar doğrulanır; başarısız Linux yükseltmesi önceki binary'ye döner; MSI downgrade'i engeller |
 
 ## Mimari kısıtlar
 

@@ -27,3 +27,33 @@ jobs:
       - run: docker compose config --quiet
       - run: docker build --tag bazusop:ci .
       - run: docker run --rm -v "${{ github.workspace }}:/work" alpine/helm:3.18.6 lint /work/deploy/helm/bazusop
+
+  windows-msi:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "6.0.x"
+      - run: npm ci
+        working-directory: web
+      - run: npm run build
+        working-directory: web
+      - name: Windows MSI sözleşmesini derle
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/windows | Out-Null
+          $env:CGO_ENABLED = "0"
+          $env:GOOS = "windows"
+          $env:GOARCH = "amd64"
+          go build -trimpath -ldflags "-s -w -X github.com/gokayybaz/bazusop/internal/version.Version=0.0.0-ci" -o dist/windows/bazusop-hub.exe ./cmd/bazusop-hub
+          dotnet tool install --global wix --version 4.0.6
+          wix build packaging/windows/Package.wxs -arch x64 -d "Version=0.0.0" -d "SourceDir=$pwd\dist\windows" -o dist/bazusop-hub_0.0.0_windows_amd64.msi

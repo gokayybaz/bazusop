@@ -57,9 +57,48 @@ shasum -a 256 -c checksums.txt
 Release build'inde sürüm, kaynak commit'i ve UTC build tarihi linker üzerinden
 binary'ye yazılır. `v*` Git etiketi workflow'u testten geçmeyen sürümü yayımlamaz.
 
-Bu dilimde checksum bütünlük kontrolü sağlar; yayıncı kimliğini kanıtlayan imza
-değildir. deb/rpm/MSI ve container imzası ile yükseltme/rollback kabulü Spike
-9.3.2'de eklenmeden üretim dağıtım kanalı güvenilir kabul edilmemelidir.
+Release varlıkları arşivlere ek olarak Linux amd64/arm64 deb/rpm ve Windows amd64
+MSI içerir. `checksums.txt.sigstore.json`, checksum manifestinin GitHub Actions
+OIDC kimliğiyle üretilen Sigstore bundle'ıdır. İmzayı doğrula:
+
+```bash
+cosign verify-blob checksums.txt \
+  --bundle checksums.txt.sigstore.json \
+  --certificate-identity=https://github.com/gokayybaz/bazusop/.github/workflows/release.yml@refs/tags/v0.3.0 \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com
+shasum -a 256 -c checksums.txt
+```
+
+Container doğrulamasını tag yerine immutable digest ile yap:
+
+```bash
+cosign verify ghcr.io/gokayybaz/bazusop@sha256:<digest> \
+  --certificate-identity=https://github.com/gokayybaz/bazusop/.github/workflows/release.yml@refs/tags/v0.3.0 \
+  --certificate-oidc-issuer=https://token.actions.githubusercontent.com
+```
+
+Linux paketi kurulduktan sonra `/etc/bazusop/hub.env` dosyasını `root:bazusop`
+ve `0640` izinleriyle oluşturup `systemctl start bazusop-hub` çalıştır. Paket,
+secret içermeyen bu dizini ve servisi kurar ancak eksik yapılandırmayla servisi
+başlatmaz.
+
+Manuel kontrollü yükseltmede önce imzalı manifesti ve arşivi doğrula, binary'yi
+çıkar ve kendi özetini yükseltme aracına ver:
+
+```bash
+candidate=/tmp/bazusop-hub
+candidate_sha=$(sha256sum "$candidate" | awk '{print $1}')
+sudo /usr/lib/bazusop/upgrade-hub \
+  --candidate "$candidate" \
+  --target /usr/bin/bazusop-hub \
+  --version 0.3.0 \
+  --sha256 "$candidate_sha"
+```
+
+Araç eşzamanlı yükseltmeyi kilitler, önceki binary'yi `.previous` olarak saklar
+ve restart sonrasında sağlık ucu geçmezse geri yükler. Windows MSI yeni major
+sürümü yerinde yükseltir ve eski sürüm kurulumunu engeller; bu aşamada Windows
+Service kaydı oluşturmaz.
 
 İki bağımsız store üzerinden gerçek `LISTEN/NOTIFY` entegrasyon testini çalıştırmak için:
 

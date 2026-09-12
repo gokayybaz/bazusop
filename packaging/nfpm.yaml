@@ -1,0 +1,43 @@
+name: bazusop-hub
+arch: ${ARCH}
+platform: linux
+version: ${VERSION}
+version_schema: semver
+section: admin
+priority: optional
+maintainer: bazUSOP maintainers <gokayybaz@users.noreply.github.com>
+description: Linux ve Windows sunucuları için Unified Server Operations Platform hub'ı
+vendor: bazUSOP
+homepage: https://github.com/gokayybaz/bazusop
+license: Proprietary
+overrides:
+  deb:
+    depends:
+      - curl
+      - passwd
+      - systemd
+  rpm:
+    depends:
+      - curl
+      - shadow-utils
+      - systemd
+contents:
+  - src: ${BINARY}
+    dst: /usr/bin/bazusop-hub
+    expand: true
+    file_info:
+      mode: 0755
+  - src: packaging/linux/bazusop-hub.service
+    dst: /usr/lib/systemd/system/bazusop-hub.service
+    file_info:
+      mode: 0644
+  - src: scripts/upgrade-hub.sh
+    dst: /usr/lib/bazusop/upgrade-hub
+    file_info:
+      mode: 0755
+  - dst: /etc/bazusop
+    type: dir
+    file_info:
+      mode: 0750
+scripts:
+  postinstall: packaging/linux/postinstall.sh

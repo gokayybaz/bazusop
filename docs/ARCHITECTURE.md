@@ -21,9 +21,17 @@ karşılaştırabilir. Geliştirme build'leri açıkça `dev/unknown` kimliği t
 
 Release hattı gömülü React çıktısını bir kez üretir ve Go'nun cross-compile
 desteğiyle Linux amd64/arm64 ile Windows amd64 binary'lerini oluşturur. Dağıtım
-birimi sürümlü arşiv ve SHA-256 manifestidir. Native service paketleri, yayıncı
-imzası ve kontrollü yükseltme/rollback bir sonraki sürümleme diliminin güven
-sınırıdır.
+birimi sürümlü arşiv ve SHA-256 manifestidir. Linux deb/rpm paketleri binary,
+systemd unit ve kontrollü yükseltme aracını aynı sürüm biriminde taşır. Windows
+MSI major-upgrade sözleşmesiyle eski sürümü yerinde değiştirir ve downgrade'i
+engeller; hub Windows Service protokolünü uygulayana kadar yalnız binary kurulumu
+yapar.
+
+Tag hattı checksum manifestini ve GHCR image digest'ini GitHub OIDC kimliğiyle
+Sigstore Cosign üzerinden keyless imzalar. İmzalı manifest arşiv ve native paket
+özetlerinin güven köküdür. Linux yükseltme aracı aday binary'nin SHA-256 ve build
+kimliğini hedefe dokunmadan doğrular, tek yükseltme kilidi alır, önceki binary'yi
+saklar ve systemd restart sonrası sağlık ucu başarısızsa atomik rollback uygular.
 
 ## Veri akışı
 

@@ -1,0 +1,24 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="bazUSOP Hub"
+    Manufacturer="bazUSOP"
+    Version="$(var.Version)"
+    UpgradeCode="0F90F52D-6064-4897-87BB-4FCEEA79A53A"
+    Language="1055"
+    Scope="perMachine">
+    <MajorUpgrade DowngradeErrorMessage="Daha yeni bir bazUSOP Hub sürümü zaten kurulu." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="bazUSOP">
+        <Component Id="HubExecutable" Guid="A7EB35F7-E6C6-42AF-B480-E276A101734A" Bitness="always64">
+          <File Id="HubExe" Source="$(var.SourceDir)\bazusop-hub.exe" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+
+    <Feature Id="MainFeature" Title="bazUSOP Hub" Level="1">
+      <ComponentRef Id="HubExecutable" />
+    </Feature>
+  </Package>
+</Wix>
