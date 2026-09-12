@@ -11,10 +11,13 @@ döner.
   amacıyla açıktır.
 - Renewal, inventory ve telemetry yazma uçları hub CA’sının doğruladığı mTLS
   client sertifikasını zorunlu tutar.
-- Operasyon işi oluşturma ucu `Authorization: Bearer <operator-token>` ister.
-  Token yapılandırılmamışsa uç `503`, eksik veya hatalıysa `401` döner.
+- İş oluşturma ve olay onaylama `Authorization: Bearer <operator-token>` ister;
+  admin token bu işlemlerde de geçerlidir.
+- Alarm kuralı, bakım penceresi ve bulut bağlantısı mutasyonları admin token ister.
+  Geçerli operator token bu uçlarda `403`, bilinmeyen token `401` döner.
+- Admin token tanımlanmamış eski kurulumlarda operator token iki rolü de taşır.
+  Hiçbir yetkili token yapılandırılmamışsa mutasyon uçları `503` döner.
 - İş teslim alma ve olay raporlama uçları mTLS agent kimliğini zorunlu tutar.
-- Bulut hesabı oluşturma ve discovery snapshot yazma uçları operatör bearer token'ı ister.
 - Agent kimliği sertifikadaki `spiffe://bazusop/agent/{agent_id}` URI SAN
   değerinden alınır; istek gövdesinden agent ID kabul edilmez.
 
@@ -189,7 +192,7 @@ edilmelidir.
 
 ### `POST /api/v1/instances/{agent_id}/jobs`
 
-Operatör bearer token'ı gerekir. İzin verilen aksiyonlar yalnız
+Operatör veya yönetici bearer token'ı gerekir. İzin verilen aksiyonlar yalnız
 `service.restart` ve `host.reboot` değerleridir.
 
 ```json
@@ -240,7 +243,7 @@ yazma denemesi `409` döner.
 
 ### `GET|POST /api/v1/alert-rules`
 
-Listeleme `{ "rules": [...] }` zarfıyla herkese açıktır; oluşturma operatör bearer
+Listeleme `{ "rules": [...] }` zarfıyla herkese açıktır; oluşturma yönetici bearer
 token'ı ister. `metric` kuralları `cpu`, `memory` veya `disk` ve `1–100` eşiği;
 `reachability` kuralları `60–86400` saniyelik `stale_after_seconds` değeri kabul
 eder. Önem `warning` veya `critical` olur.
@@ -251,7 +254,7 @@ eder. Önem `warning` veya `critical` olur.
 
 ### `GET|POST /api/v1/maintenance-windows`
 
-Listeleme `{ "windows": [...] }` döner; oluşturma operatör bearer token'ı ister.
+Listeleme `{ "windows": [...] }` döner; oluşturma yönetici bearer token'ı ister.
 `agent_id` boşsa pencere tüm agent'ları, doluysa yalnız ilgili agent'ı bastırır.
 Başlangıç dahil, bitiş hariç zaman aralığında yeni olay açılmaz.
 
@@ -267,7 +270,7 @@ En yeni olayları `{ "incidents": [...] }` zarfında döndürür. `limit` değer
 
 ### `POST /api/v1/incidents/{incident_id}/acknowledge`
 
-Operatör bearer token'ı ve `{ "actor": "gokay" }` gövdesi ister. Yalnız açık olay
+Operatör veya yönetici bearer token'ı ve `{ "actor": "gokay" }` gövdesi ister. Yalnız açık olay
 onaylanabilir; terminal/önceden onaylı olay `409`, bilinmeyen olay `404` döner.
 
 ### `GET /api/v1/incidents/{incident_id}/events`
@@ -277,7 +280,7 @@ Olayın `opened`, `acknowledged`, `resolved` yaşam döngüsünü zaman sırası
 
 ### `GET|POST /api/v1/cloud/accounts`
 
-Listeleme `{ "accounts": [...] }` zarfıyla salt-okunurdur. Oluşturma operatör
+Listeleme `{ "accounts": [...] }` zarfıyla salt-okunurdur. Oluşturma yönetici
 bearer token'ı ister; provider `aws`, `azure` veya `gcp` olmalıdır.
 
 ```json
@@ -291,7 +294,7 @@ benzersizdir.
 ### `PUT /api/v1/cloud/accounts/{account_id}/instances`
 
 Connector'ın bir hesap için gördüğü son tam snapshot'ı atomik olarak değiştirir
-ve operatör bearer token'ı ister. Bir snapshot en fazla 10.000 instance içerir.
+ve yönetici bearer token'ı ister. Bir snapshot en fazla 10.000 instance içerir.
 
 ```json
 {

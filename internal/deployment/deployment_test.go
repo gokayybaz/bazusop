@@ -18,7 +18,7 @@ func TestContainerAndComposeBaseline(t *testing.T) {
 	}
 
 	compose := readProjectFile(t, "compose.yaml")
-	for _, required := range []string{"postgres:", "healthcheck:", "condition: service_healthy", "DATABASE_URL"} {
+	for _, required := range []string{"postgres:", "healthcheck:", "condition: service_healthy", "DATABASE_URL", "BAZUSOP_ADMIN_TOKEN"} {
 		if !strings.Contains(compose, required) {
 			t.Errorf("compose.yaml must contain %q", required)
 		}
@@ -30,7 +30,7 @@ func TestHelmChartDefinesScalableSafeWorkload(t *testing.T) {
 
 	readProjectFile(t, "deploy/helm/bazusop/Chart.yaml")
 	deployment := readProjectFile(t, "deploy/helm/bazusop/templates/deployment.yaml")
-	for _, required := range []string{"replicaCount", "readinessProbe", "livenessProbe", "topologySpreadConstraints", "secretKeyRef"} {
+	for _, required := range []string{"replicaCount", "readinessProbe", "livenessProbe", "topologySpreadConstraints", "secretKeyRef", "BAZUSOP_ADMIN_TOKEN"} {
 		if !strings.Contains(deployment, required) {
 			t.Errorf("deployment template must contain %q", required)
 		}
@@ -38,6 +38,9 @@ func TestHelmChartDefinesScalableSafeWorkload(t *testing.T) {
 	values := readProjectFile(t, "deploy/helm/bazusop/values.yaml")
 	if !strings.Contains(values, "runAsNonRoot: true") {
 		t.Error("chart values must require a non-root pod security context")
+	}
+	if !strings.Contains(values, "adminTokenKey: admin-token") {
+		t.Error("chart values must expose the admin token secret key")
 	}
 
 	hpa := readProjectFile(t, "deploy/helm/bazusop/templates/hpa.yaml")

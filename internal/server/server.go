@@ -32,8 +32,21 @@ type handlerOptions struct {
 	logService          *logstream.Service
 	jobService          *jobs.Service
 	operatorToken       string
+	adminToken          string
 	alertService        *alerting.Service
 	cloudInventory      *cloudinventory.Service
+}
+
+type accessRole uint8
+
+const (
+	roleOperator accessRole = iota + 1
+	roleAdmin
+)
+
+type accessTokens struct {
+	operator string
+	admin    string
 }
 
 func WithInventory(service *inventory.Service) Option {
@@ -87,6 +100,14 @@ func WithCloudInventory(service *cloudinventory.Service, operatorToken string) O
 	}
 }
 
+// WithAdminToken separates administrative policy changes from routine operations.
+// When omitted, the operator token remains valid for both roles for compatibility.
+func WithAdminToken(adminToken string) Option {
+	return func(options *handlerOptions) {
+		options.adminToken = adminToken
+	}
+}
+
 func NewHandler(options ...Option) http.Handler {
 	configuration := handlerOptions{}
 	for _, option := range options {
@@ -125,7 +146,8 @@ func NewHandler(options ...Option) http.Handler {
 		}
 	}
 	if configuration.jobService != nil {
-		mux.HandleFunc("POST /api/v1/instances/{agentID}/jobs", handleCreateJob(configuration.jobService, configuration.operatorToken))
+		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
+		mux.HandleFunc("POST /api/v1/instances/{agentID}/jobs", handleCreateJob(configuration.jobService, tokens))
 		mux.HandleFunc("GET /api/v1/instances/{agentID}/jobs", handleListJobs(configuration.jobService))
 		mux.HandleFunc("GET /api/v1/instances/{agentID}/jobs/{jobID}/events", handleJobEvents(configuration.jobService))
 		if configuration.enrollmentAuthority != nil {
@@ -134,19 +156,21 @@ func NewHandler(options ...Option) http.Handler {
 		}
 	}
 	if configuration.alertService != nil {
+		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
 		mux.HandleFunc("GET /api/v1/alert-rules", handleListAlertRules(configuration.alertService))
-		mux.HandleFunc("POST /api/v1/alert-rules", handleCreateAlertRule(configuration.alertService, configuration.operatorToken))
+		mux.HandleFunc("POST /api/v1/alert-rules", handleCreateAlertRule(configuration.alertService, tokens))
 		mux.HandleFunc("GET /api/v1/maintenance-windows", handleListMaintenance(configuration.alertService))
-		mux.HandleFunc("POST /api/v1/maintenance-windows", handleCreateMaintenance(configuration.alertService, configuration.operatorToken))
+		mux.HandleFunc("POST /api/v1/maintenance-windows", handleCreateMaintenance(configuration.alertService, tokens))
 		mux.HandleFunc("GET /api/v1/incidents", handleListIncidents(configuration.alertService))
 		mux.HandleFunc("GET /api/v1/incidents/{incidentID}/events", handleAlertEvents(configuration.alertService))
-		mux.HandleFunc("POST /api/v1/incidents/{incidentID}/acknowledge", handleAcknowledgeIncident(configuration.alertService, configuration.operatorToken))
+		mux.HandleFunc("POST /api/v1/incidents/{incidentID}/acknowledge", handleAcknowledgeIncident(configuration.alertService, tokens))
 	}
 	if configuration.cloudInventory != nil {
+		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
 		mux.HandleFunc("GET /api/v1/cloud/accounts", handleListCloudAccounts(configuration.cloudInventory))
-		mux.HandleFunc("POST /api/v1/cloud/accounts", handleCreateCloudAccount(configuration.cloudInventory, configuration.operatorToken))
+		mux.HandleFunc("POST /api/v1/cloud/accounts", handleCreateCloudAccount(configuration.cloudInventory, tokens))
 		mux.HandleFunc("GET /api/v1/cloud/instances", handleListCloudInstances(configuration.cloudInventory))
-		mux.HandleFunc("PUT /api/v1/cloud/accounts/{accountID}/instances", handleReconcileCloudInstances(configuration.cloudInventory, configuration.operatorToken))
+		mux.HandleFunc("PUT /api/v1/cloud/accounts/{accountID}/instances", handleReconcileCloudInstances(configuration.cloudInventory, tokens))
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
 		http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
@@ -515,15 +539,9 @@ func handleStreamLogs(service *logstream.Service) http.HandlerFunc {
 	}
 }
 
-func handleCreateJob(service *jobs.Service, operatorToken string) http.HandlerFunc {
+func handleCreateJob(service *jobs.Service, tokens accessTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if operatorToken == "" {
-			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
-			return
-		}
-		if !validBearerToken(request.Header.Get("Authorization"), operatorToken) {
-			response.Header().Set("WWW-Authenticate", "Bearer")
-			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		if !authorizeRole(response, request, tokens, roleOperator) {
 			return
 		}
 		var createRequest jobs.CreateRequest
@@ -543,9 +561,9 @@ func handleCreateJob(service *jobs.Service, operatorToken string) http.HandlerFu
 	}
 }
 
-func handleCreateAlertRule(service *alerting.Service, operatorToken string) http.HandlerFunc {
+func handleCreateAlertRule(service *alerting.Service, tokens accessTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeOperator(response, request, operatorToken) {
+		if !authorizeRole(response, request, tokens, roleAdmin) {
 			return
 		}
 		var value alerting.RuleRequest
@@ -578,9 +596,9 @@ func handleListAlertRules(service *alerting.Service) http.HandlerFunc {
 	}
 }
 
-func handleCreateMaintenance(service *alerting.Service, operatorToken string) http.HandlerFunc {
+func handleCreateMaintenance(service *alerting.Service, tokens accessTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeOperator(response, request, operatorToken) {
+		if !authorizeRole(response, request, tokens, roleAdmin) {
 			return
 		}
 		var value alerting.MaintenanceRequest
@@ -660,9 +678,9 @@ func handleAlertEvents(service *alerting.Service) http.HandlerFunc {
 	}
 }
 
-func handleAcknowledgeIncident(service *alerting.Service, operatorToken string) http.HandlerFunc {
+func handleAcknowledgeIncident(service *alerting.Service, tokens accessTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeOperator(response, request, operatorToken) {
+		if !authorizeRole(response, request, tokens, roleOperator) {
 			return
 		}
 		var body struct {
@@ -692,9 +710,9 @@ func handleAcknowledgeIncident(service *alerting.Service, operatorToken string) 
 	}
 }
 
-func handleCreateCloudAccount(service *cloudinventory.Service, operatorToken string) http.HandlerFunc {
+func handleCreateCloudAccount(service *cloudinventory.Service, tokens accessTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeOperator(response, request, operatorToken) {
+		if !authorizeRole(response, request, tokens, roleAdmin) {
 			return
 		}
 		var value cloudinventory.AccountRequest
@@ -727,9 +745,9 @@ func handleListCloudAccounts(service *cloudinventory.Service) http.HandlerFunc {
 	}
 }
 
-func handleReconcileCloudInstances(service *cloudinventory.Service, operatorToken string) http.HandlerFunc {
+func handleReconcileCloudInstances(service *cloudinventory.Service, tokens accessTokens) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeOperator(response, request, operatorToken) {
+		if !authorizeRole(response, request, tokens, roleAdmin) {
 			return
 		}
 		var payload struct {
@@ -770,17 +788,29 @@ func handleListCloudInstances(service *cloudinventory.Service) http.HandlerFunc 
 	}
 }
 
-func authorizeOperator(response http.ResponseWriter, request *http.Request, operatorToken string) bool {
-	if operatorToken == "" {
+func authorizeRole(response http.ResponseWriter, request *http.Request, tokens accessTokens, required accessRole) bool {
+	adminToken := tokens.admin
+	if adminToken == "" {
+		adminToken = tokens.operator
+	}
+	if tokens.operator == "" && adminToken == "" {
 		http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 		return false
 	}
-	if !validBearerToken(request.Header.Get("Authorization"), operatorToken) {
-		response.Header().Set("WWW-Authenticate", "Bearer")
-		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+	authorization := request.Header.Get("Authorization")
+	if validBearerToken(authorization, adminToken) {
+		return true
+	}
+	if tokens.operator != "" && validBearerToken(authorization, tokens.operator) {
+		if required == roleOperator {
+			return true
+		}
+		http.Error(response, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return false
 	}
-	return true
+	response.Header().Set("WWW-Authenticate", "Bearer")
+	http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+	return false
 }
 
 func validBearerToken(authorization, expected string) bool {

@@ -41,6 +41,7 @@ secrets:
   databaseURLKey: database-url
   enrollmentTokenKey: enrollment-token
   operatorTokenKey: operator-token
+  adminTokenKey: admin-token
 
 timescale:
   enabled: false

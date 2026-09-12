@@ -12,6 +12,7 @@ services:
       BAZUSOP_HTTP_ADDR: ":8080"
       BAZUSOP_ENROLLMENT_TOKEN: "${BAZUSOP_ENROLLMENT_TOKEN:-local-compose-token}"
       BAZUSOP_OPERATOR_TOKEN: "${BAZUSOP_OPERATOR_TOKEN:-local-operator-token}"
+      BAZUSOP_ADMIN_TOKEN: "${BAZUSOP_ADMIN_TOKEN:-local-admin-token}"
       DATABASE_URL: "postgres://bazusop:${POSTGRES_PASSWORD:-bazusop-dev}@postgres:5432/bazusop?sslmode=disable"
       BAZUSOP_TIMESCALE_ENABLED: "true"
     ports:

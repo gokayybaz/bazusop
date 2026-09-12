@@ -23,7 +23,9 @@ Her spike aynı teslimat döngüsünü izler:
 | 6 — İşler | Onaylı operasyon aksiyonları imzalı işler olarak çalışır | Restart/reboot çıktısı akar ve audit trail tamamlanır |
 | 7 — Alarm | Metrik/erişilebilirlik kuralları yönetilen olay üretir | Alarm yaşam döngüsü ve bakım pencereleri test edilir |
 | 8 — Bulut keşfi | AWS, Azure ve GCP envanteri agent'larla uzlaştırılır | Provider instance ile agent kimliği güvenle eşleşir |
-| 9 — Ölçek ve sürüm | Rol ayrımı, retention, paketleme ve yükseltme | Yük hedefleri geçer; deb/rpm/MSI/container imzalanır |
+| 9.1 — Rol ayrımı | Operasyon ve yönetim mutasyonları ayrı bearer rolleri kullanır | Operator yönetim politikasını değiştiremez; admin iki yetkiyi de taşır |
+| 9.2 — Saklama ve ölçek | Retention, ortak event bus ve yük hedefleri | Çoklu replika canlı akış ve saklama hedefleri yük altında geçer |
+| 9.3 — Sürümleme | Paketleme, imzalama ve kontrollü yükseltme | deb/rpm/MSI/container imzalanır ve yükseltme geri dönüşü test edilir |
 
 ## Mimari kısıtlar
 

@@ -83,8 +83,11 @@ func main() {
 	}
 	alertService := alerting.NewService(alertStore)
 	cloudInventoryService := cloudinventory.NewService(cloudInventoryStore, inventoryService)
-	if configuration.OperatorToken == "" {
-		logger.Warn("BAZUSOP_OPERATOR_TOKEN is not set; remote job creation is disabled")
+	if configuration.OperatorToken == "" && configuration.AdminToken == "" {
+		logger.Warn("BAZUSOP_OPERATOR_TOKEN and BAZUSOP_ADMIN_TOKEN are not set; authorized mutations are disabled")
+	}
+	if configuration.AdminToken == "" {
+		logger.Warn("BAZUSOP_ADMIN_TOKEN is not set; operator token retains administrative access for compatibility")
 	}
 	httpServer := &http.Server{
 		Addr: configuration.HTTPAddress,
@@ -97,6 +100,7 @@ func main() {
 			server.WithJobs(jobService, configuration.OperatorToken),
 			server.WithAlerts(alertService, configuration.OperatorToken),
 			server.WithCloudInventory(cloudInventoryService, configuration.OperatorToken),
+			server.WithAdminToken(configuration.AdminToken),
 		),
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig: &tls.Config{

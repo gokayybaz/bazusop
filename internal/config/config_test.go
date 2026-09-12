@@ -38,6 +38,14 @@ func TestOperatorToken(t *testing.T) {
 	}
 }
 
+func TestAdminToken(t *testing.T) {
+	t.Setenv("BAZUSOP_ADMIN_TOKEN", "admin-secret")
+
+	if token := config.Load().AdminToken; token != "admin-secret" {
+		t.Fatalf("expected configured admin token, got %q", token)
+	}
+}
+
 func TestTLSFiles(t *testing.T) {
 	t.Setenv("BAZUSOP_TLS_CERT_FILE", "/run/secrets/hub.crt")
 	t.Setenv("BAZUSOP_TLS_KEY_FILE", "/run/secrets/hub.key")

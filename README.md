@@ -41,6 +41,7 @@ make test
 make build
 BAZUSOP_ENROLLMENT_TOKEN="tek-kullanimlik-guclu-bir-secret" \
 BAZUSOP_OPERATOR_TOKEN="ayri-guclu-bir-operator-secret" \
+BAZUSOP_ADMIN_TOKEN="ayri-guclu-bir-yonetici-secret" \
 ./bin/bazusop-hub
 ```
 
@@ -53,6 +54,7 @@ Tam geliştirme ortamını TimescaleDB ile başlatmak için:
 POSTGRES_PASSWORD=yerel-parola \
 BAZUSOP_ENROLLMENT_TOKEN=yerel-token \
 BAZUSOP_OPERATOR_TOKEN=yerel-operator-token \
+BAZUSOP_ADMIN_TOKEN=yerel-yonetici-token \
 docker compose up --build
 ```
 
@@ -65,7 +67,8 @@ docker compose up --build
 | --- | --- |
 | `BAZUSOP_HTTP_ADDR` | Hub dinleme adresi; varsayılan `:8080` |
 | `BAZUSOP_ENROLLMENT_TOKEN` | İlk kayıt için tek kullanımlık bootstrap secret |
-| `BAZUSOP_OPERATOR_TOKEN` | Uzak operasyon işi oluşturma yetkisi veren bearer secret |
+| `BAZUSOP_OPERATOR_TOKEN` | İş oluşturma ve olay onaylama yetkisi veren bearer secret |
+| `BAZUSOP_ADMIN_TOKEN` | Politika, bakım ve bulut bağlantısı yönetme yetkisi; yoksa operator token'a geri düşer |
 | `DATABASE_URL` | PostgreSQL/TimescaleDB bağlantı dizesi |
 | `BAZUSOP_TIMESCALE_ENABLED` | `true` ise hypertable ve retention yapılandırılır |
 | `BAZUSOP_TLS_CERT_FILE` | Hub TLS sertifikasının yolu |
@@ -95,14 +98,14 @@ Log geçmişi `GET /api/v1/instances/{agent_id}/logs`, canlı akış ise aynı y
 Operatörler `POST /api/v1/instances/{agent_id}/jobs` ile imzalı restart/reboot
 işi oluşturur. Agent işi mTLS ile teslim alır ve sıralı çıktı/durum olaylarını
 raporlar. İş listesi ve değiştirilemez olay geçmişi sunucu detayında gösterilir.
-`BAZUSOP_OPERATOR_TOKEN` ayarlanmadığında uzak iş oluşturma güvenli biçimde
-kapatılır.
+Operator ve admin token'larının ikisi de ayarlanmadığında yetkili mutasyonlar
+güvenli biçimde kapatılır. Admin rolü operator işlemlerini de yapabilir.
 
 Bulut connector'ları hesapları `POST /api/v1/cloud/accounts` ile tanımlar ve
 provider snapshot'ını `PUT /api/v1/cloud/accounts/{account_id}/instances` yoluna
 gönderir. Salt-okunur hesap ve uzlaştırma görünümü `/cloud` sayfasındadır.
 
-Alarm kuralları ve bakım pencereleri aynı operatör token'ıyla yönetilir. Telemetri
+Alarm kuralları ve bakım pencereleri ayrı admin token'ıyla yönetilir. Telemetri
 kuralları her kabul edilen örnekte; erişilebilirlik kuralları 30 saniyede bir
 değerlendirilir. Aktif olayların özeti genel bakışta, yaşam döngüsü ise ayrı
 `/alerts` sayfasındaki alarm merkezinde görünür.
@@ -113,8 +116,8 @@ ve PostgreSQL tabanlı token durumu sonraki ölçek sertleştirmesinde ele alın
 
 ## Kubernetes ve Helm
 
-Chart, `database-url`, `enrollment-token` ve `operator-token` anahtarlarını içeren mevcut bir
-`bazusop-secrets` Secret'ı bekler:
+Chart, `database-url`, `enrollment-token`, `operator-token` ve önerilen
+`admin-token` anahtarlarını içeren mevcut bir `bazusop-secrets` Secret'ı bekler:
 
 ```bash
 helm upgrade --install bazusop deploy/helm/bazusop \

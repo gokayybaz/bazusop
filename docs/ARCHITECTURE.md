@@ -99,16 +99,17 @@ saklanmalı, public key güvenli enrollment/config kanalından agent'a sabitlenm
 
 - Uzak enrollment plaintext HTTP üzerinden reddedilir.
 - Agent yazma uçları doğrulanmış mTLS client sertifikası ister.
-- Operasyon oluşturma ayrı bir bearer secret ister; secret yoksa uç kapalıdır.
+- İş oluşturma ve olay onayı operator bearer secret'ı; politika, bakım ve bulut
+  mutasyonları ayrı admin bearer secret'ı ister. Admin operator yetkilerini kapsar.
+- Admin secret tanımlanmamış eski kurulumlarda operator secret yönetici rolüne geri
+  düşer; iki secret da yoksa mutasyon uçları kapalıdır.
 - Aksiyon allowlist'i yalnız servis restart ve host reboot'u kabul eder; keyfi shell
   çalıştırma desteklenmez.
-- Alarm kuralı, bakım penceresi ve olay onayı operatör bearer secret'ıyla korunur.
-- Bulut hesabı oluşturma ve provider snapshot yazma operatör bearer secret'ıyla korunur.
 - JSON gövdeleri 1 MiB ile sınırlıdır ve bilinmeyen alanlar reddedilir.
 - Container non-root ve read-only root filesystem ile çalışmaya uygundur.
 - Kubernetes ServiceAccount token’ı varsayılan olarak pod’a bağlanmaz.
 
-Mevcut bearer token kimlik doğrulaması ilk güvenli dikey dilimdir;
+Mevcut iki rollü bearer token kimlik doğrulaması ilk yetki ayrımı dilimidir;
 `approved_by` alanı token sahibinin beyanıdır. Kullanıcı bazlı RBAC, SSO/MFA,
 çift onay ve immutable harici audit sink production yetkilendirme sertleştirmesi
 olarak ayrıca ele alınacaktır.

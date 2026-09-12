@@ -6,7 +6,8 @@
 | --- | --- | --- |
 | `BAZUSOP_HTTP_ADDR` | Hayır | Dinleme adresi; varsayılan `:8080` |
 | `BAZUSOP_ENROLLMENT_TOKEN` | Üretimde evet | İlk agent için bootstrap secret |
-| `BAZUSOP_OPERATOR_TOKEN` | Uzak aksiyon için evet | İş oluşturma bearer secret'ı |
+| `BAZUSOP_OPERATOR_TOKEN` | Uzak aksiyon için evet | İş oluşturma ve olay onaylama bearer secret'ı |
+| `BAZUSOP_ADMIN_TOKEN` | Üretimde evet | Alarm politikası, bakım ve bulut bağlantısı yönetim secret'ı; yoksa operator token kullanılır |
 | `DATABASE_URL` | Üretimde evet | PostgreSQL bağlantı dizesi |
 | `BAZUSOP_TIMESCALE_ENABLED` | Hayır | `true` ise extension, hypertable ve retention kurulur |
 | `BAZUSOP_TLS_CERT_FILE` | Uzak agent için evet | Hub server sertifikası |
@@ -20,13 +21,13 @@ süreç içi bellekte tutulur; restart sonrası kaybolur.
 ```bash
 make test
 make build
-BAZUSOP_ENROLLMENT_TOKEN=local-token BAZUSOP_OPERATOR_TOKEN=local-operator-token ./bin/bazusop-hub
+BAZUSOP_ENROLLMENT_TOKEN=local-token BAZUSOP_OPERATOR_TOKEN=local-operator-token BAZUSOP_ADMIN_TOKEN=local-admin-token ./bin/bazusop-hub
 ```
 
 Tam stack için:
 
 ```bash
-POSTGRES_PASSWORD=yerel-parola BAZUSOP_ENROLLMENT_TOKEN=yerel-token BAZUSOP_OPERATOR_TOKEN=yerel-operator-token docker compose up --build
+POSTGRES_PASSWORD=yerel-parola BAZUSOP_ENROLLMENT_TOKEN=yerel-token BAZUSOP_OPERATOR_TOKEN=yerel-operator-token BAZUSOP_ADMIN_TOKEN=yerel-yonetici-token docker compose up --build
 ```
 
 Compose TimescaleDB PostgreSQL 18 imajını kullanır, database health bekler ve hub
@@ -34,8 +35,10 @@ başlangıcında migration’ları uygular.
 
 ## Kubernetes
 
-Chart uygulama secret’ını üretmez. `database-url`, `enrollment-token` ve `operator-token` anahtarlarını
-taşıyan mevcut bir Secret verilmelidir. TLS etkinse server cert/key ayrıca mevcut
+Chart uygulama secret’ını üretmez. `database-url`, `enrollment-token`, `operator-token`
+ve önerilen `admin-token` anahtarlarını taşıyan mevcut bir Secret verilmelidir.
+`admin-token` yoksa geriye uyumluluk için operator token yönetici rolünü de taşır.
+TLS etkinse server cert/key ayrıca mevcut
 bir TLS Secret’tan read-only mount edilir.
 
 Üretim başlangıç kontrol listesi:
@@ -44,7 +47,7 @@ bir TLS Secret’tan read-only mount edilir.
 2. Timescale extension yetkisini ve 30 günlük retention'ı doğrula.
    Telemetri 30 gün, loglar 14 gün saklanır.
 3. TLS secret rotasyonunu planla.
-4. Enrollment ve operator token'larını ayrı, yüksek entropili değerlerle oluştur;
+4. Enrollment, operator ve admin token'larını ayrı, yüksek entropili değerlerle oluştur;
    secret erişimini sınırla ve rotasyon prosedürünü test et.
 5. CPU/RAM request-limit değerlerini gerçek yük testine göre ayarla.
 6. Enrollment state ve iş imza anahtarı paylaşılmadan HPA’yı açma.
@@ -72,6 +75,9 @@ bir TLS Secret’tan read-only mount edilir.
 - İş oluşturma `401` dönüyorsa `Authorization: Bearer ...` değerini; `503`
   dönüyorsa hub'da `BAZUSOP_OPERATOR_TOKEN` yapılandırmasını kontrol et. UI token'ı
   kalıcı depolamaz ve başarılı oluşturmadan sonra bellekten temizler.
+- Politika, bakım veya bulut mutasyonu `403` dönüyorsa operator yerine admin token
+  kullanın. `401` bilinmeyen token'ı, `503` ise hiçbir yetkili token'ın
+  yapılandırılmadığını gösterir.
 - İş `running` durumunda kalıyorsa agent event sequence'inin teslimden sonra 2 ile
   başlayıp kesintisiz arttığını ve terminal olay gönderdiğini kontrol et.
 - Metrik alarmı açılmıyorsa kuralın etkin olduğunu, metric adını ve agent'ın yeni
@@ -85,6 +91,6 @@ bir TLS Secret’tan read-only mount edilir.
   otomatik doğrulama için provider metadata'sında bazUSOP agent kimliği bulunmalıdır.
 - `426` enrollment yanıtı, uzak isteğin TLS olmadan geldiğini gösterir.
 
-Operator token rotasyonu sırasında eski token'la yeni iş oluşturmayı durdurun,
-Secret/env değerini değiştirip hub pod'larını yeniden başlatın ve yeni token'la
-kontrollü bir test işi oluşturun. Mevcut imzalı işler rotasyondan etkilenmez.
+Token rotasyonu sırasında eski token'la yeni mutasyonları durdurun, Secret/env
+değerini değiştirip hub pod'larını yeniden başlatın ve her rolle kontrollü bir test
+işlemi yapın. Mevcut imzalı işler rotasyondan etkilenmez.
