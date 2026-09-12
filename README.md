@@ -25,6 +25,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   koşul normale dönünce çözülür ve bakım pencerelerinde yeni alarm bastırılır.
 - Arayüz; genel bakış, filo, servisler, metrikler, loglar, işler, alarmlar,
   bulut hesapları, denetim izi ve ayarlar için ayrı, doğrudan açılabilir sayfalar sunar.
+- AWS, Azure ve GCP hesaplarıyla gelen instance snapshot'ları PostgreSQL'de tutulur;
+  doğrulanmış provider agent kimliği otomatik, hostname/IP benzerliği yalnız aday olarak uzlaştırılır.
 - Docker Compose geliştirme ortamı ve production odaklı Kubernetes/Helm chart'ı
   bulunur.
 
@@ -93,6 +95,10 @@ işi oluşturur. Agent işi mTLS ile teslim alır ve sıralı çıktı/durum ola
 raporlar. İş listesi ve değiştirilemez olay geçmişi sunucu detayında gösterilir.
 `BAZUSOP_OPERATOR_TOKEN` ayarlanmadığında uzak iş oluşturma güvenli biçimde
 kapatılır.
+
+Bulut connector'ları hesapları `POST /api/v1/cloud/accounts` ile tanımlar ve
+provider snapshot'ını `PUT /api/v1/cloud/accounts/{account_id}/instances` yoluna
+gönderir. Salt-okunur hesap ve uzlaştırma görünümü `/cloud` sayfasındadır.
 
 Alarm kuralları ve bakım pencereleri aynı operatör token'ıyla yönetilir. Telemetri
 kuralları her kabul edilen örnekte; erişilebilirlik kuralları 30 saniyede bir

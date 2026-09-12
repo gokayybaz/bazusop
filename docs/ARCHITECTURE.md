@@ -33,6 +33,9 @@
     taraması host son-görülme zamanını erişilebilirlik kurallarıyla değerlendirir.
 12. İhlal benzersiz aktif olay açar; recovery otomatik çözer, operatör onayı ve
     tüm geçişler olay geçmişine eklenir. Aktif bakım penceresi yeni açılışı bastırır.
+13. AWS, Azure veya GCP connector'ı provider instance snapshot'ını gönderir; hub
+    doğrulanmış provider agent kimliğini otomatik eşleştirir, hostname/IP sinyalini
+    yalnız operatör inceleme adayı olarak işaretler.
 
 ## Saklama modeli
 
@@ -60,6 +63,12 @@ yalnız bir kez teslim edilmesini sağlar. Terminal işler yeniden açılamaz.
 bastırmayı, `alert_incidents` güncel yaşam döngüsünü ve `alert_events` append-only
 geçiş geçmişini tutar. Kısmi unique indeks, aynı kural/agent çifti için eşzamanlı
 yalnız bir aktif olay bulunmasını sağlar.
+
+`cloud_accounts` provider ve harici hesap kimliğini; `cloud_instances` ise her
+hesabın son atomik keşif snapshot'ını tutar. Otomatik eşleşme yalnız connector'ın
+provider metadata'sından çıkardığı `agent_id_hint` mevcut bir agent kimliğine tam
+uyduğunda yapılır. Hostname veya özel IP ile bulunan tekil benzerlik
+`candidate_agent_id` olarak saklanır ve agent ilişkisi kurulmaz.
 
 Canlı tail broker'ı hub sürecindedir. Bu nedenle birden fazla hub replikasında SSE
 istemcisi yalnız bağlandığı replikanın aldığı yeni kayıtları görür. Production
@@ -94,6 +103,7 @@ saklanmalı, public key güvenli enrollment/config kanalından agent'a sabitlenm
 - Aksiyon allowlist'i yalnız servis restart ve host reboot'u kabul eder; keyfi shell
   çalıştırma desteklenmez.
 - Alarm kuralı, bakım penceresi ve olay onayı operatör bearer secret'ıyla korunur.
+- Bulut hesabı oluşturma ve provider snapshot yazma operatör bearer secret'ıyla korunur.
 - JSON gövdeleri 1 MiB ile sınırlıdır ve bilinmeyen alanlar reddedilir.
 - Container non-root ve read-only root filesystem ile çalışmaya uygundur.
 - Kubernetes ServiceAccount token’ı varsayılan olarak pod’a bağlanmaz.

@@ -69,6 +69,26 @@ describe("bazUSOP shell", () => {
     expect(screen.getByRole("button", { name: "Grafit temasını kullan" })).toBeInTheDocument()
   })
 
+  it("shows provider accounts and safely reconciled cloud instances on their own page", async () => {
+	vi.mocked(fetch).mockImplementation((input) => {
+	  const url = String(input)
+	  if (url.endsWith("/api/v1/cloud/accounts")) return Promise.resolve({ ok: true, json: async () => ({ accounts: [{ id: "account-01", name: "Üretim AWS", provider: "aws", external_id: "123456789012", status: "connected", last_sync_at: "2026-09-11T18:00:00Z" }] }) } as Response)
+	  if (url.endsWith("/api/v1/cloud/instances")) return Promise.resolve({ ok: true, json: async () => ({ instances: [{ account_id: "account-01", account_name: "Üretim AWS", provider: "aws", provider_instance_id: "i-0123", name: "edge-01", region: "eu-central-1", state: "running", os_family: "linux", private_ips: ["10.0.0.8"], public_ips: [], agent_id: "agent-01", match_status: "verified", match_reason: "provider_agent_id" }] }) } as Response)
+	  if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [] }) } as Response)
+	  return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+	})
+
+	render(<App />)
+	fireEvent.click(screen.getByRole("button", { name: "Bulut hesapları" }))
+
+	expect(window.location.pathname).toBe("/cloud")
+	expect(await screen.findAllByText("Üretim AWS")).toHaveLength(2)
+	expect(screen.getByRole("table", { name: "Bulut sunucuları" })).toBeInTheDocument()
+	expect(screen.getByText("i-0123")).toBeInTheDocument()
+	expect(screen.getByText("Doğrulandı")).toBeInTheDocument()
+	expect(screen.getByText("agent-01")).toBeInTheDocument()
+  })
+
   it("renders enrolled instances returned by the inventory API", async () => {
 	vi.mocked(fetch).mockResolvedValueOnce({
 	  ok: true,

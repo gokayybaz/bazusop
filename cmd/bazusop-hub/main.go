@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
+	"github.com/gokayybaz/bazusop/internal/cloudinventory"
 	"github.com/gokayybaz/bazusop/internal/config"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
@@ -47,6 +48,7 @@ func main() {
 	var logStore logstream.Store = logstream.NewMemoryStore()
 	var jobStore jobs.Store = jobs.NewMemoryStore()
 	var alertStore alerting.Store = alerting.NewMemoryStore()
+	var cloudInventoryStore cloudinventory.Store = cloudinventory.NewMemoryStore()
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		postgresStore, err := postgresstore.Open(
@@ -66,6 +68,7 @@ func main() {
 		logStore = postgresStore
 		jobStore = postgresStore
 		alertStore = postgresStore
+		cloudInventoryStore = postgresStore
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
 	}
@@ -79,6 +82,7 @@ func main() {
 		os.Exit(1)
 	}
 	alertService := alerting.NewService(alertStore)
+	cloudInventoryService := cloudinventory.NewService(cloudInventoryStore, inventoryService)
 	if configuration.OperatorToken == "" {
 		logger.Warn("BAZUSOP_OPERATOR_TOKEN is not set; remote job creation is disabled")
 	}
@@ -92,6 +96,7 @@ func main() {
 			server.WithLogs(logService),
 			server.WithJobs(jobService, configuration.OperatorToken),
 			server.WithAlerts(alertService, configuration.OperatorToken),
+			server.WithCloudInventory(cloudInventoryService, configuration.OperatorToken),
 		),
 		ReadHeaderTimeout: 5 * time.Second,
 		TLSConfig: &tls.Config{

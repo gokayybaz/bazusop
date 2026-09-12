@@ -279,6 +279,23 @@ tbody tr:hover { background: var(--surface-hover); }
 .settings-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .settings-card { min-height: 120px; padding: 20px; border-radius: 16px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .settings-card h2 { margin: 0; color: #fff; font-size: 16px; }.settings-card p { margin: 7px 0 0; color: var(--subtle); font-size: 13px; }
+.cloud-workspace { display: grid; gap: 16px; }
+.cloud-stat-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.cloud-stat { min-height: 116px; padding: 18px 20px; border-radius: 16px; }
+.cloud-stat span, .cloud-stat small { display: block; color: var(--subtle); font-size: 12px; }
+.cloud-stat strong { display: block; margin: 9px 0 7px; color: #fff; font: 700 25px/1 "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, monospace; }
+.cloud-accounts { border-radius: 16px; overflow: hidden; }
+.cloud-account-list { display: grid; }
+.cloud-account { min-height: 72px; padding: 12px 20px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: 38px minmax(180px, 1fr) auto 150px; align-items: center; gap: 12px; }
+.cloud-account:last-child { border-bottom: 0; }
+.provider-mark { width: 34px; height: 34px; border: 1px solid var(--border); border-radius: 9px; display: grid; place-items: center; color: var(--accent); background: var(--accent-soft); font-weight: 700; }
+.provider-mark.azure { color: #65a9ff; background: color-mix(in srgb, #65a9ff 10%, transparent); }
+.provider-mark.gcp { color: var(--success); background: var(--success-soft); }
+.cloud-account strong, .cloud-account small { display: block; }.cloud-account strong { color: #fff; font-size: 13px; }.cloud-account small { margin-top: 4px; color: var(--subtle); font-size: 12px; }
+.cloud-account time { color: var(--subtle); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; text-align: right; }
+.cloud-match.verified { color: var(--success); border-color: color-mix(in srgb, var(--success) 34%, var(--border)); background: var(--success-soft); }
+.cloud-match.candidate { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 34%, var(--border)); background: var(--warning-soft); }
+.cloud-match.unmatched { color: var(--subtle); background: var(--surface); }
 
 .metric-card, .chart-card, .alerts-card, .table-card, .search, .icon-button, .theme-toggle { transition: background-color 180ms ease, border-color 180ms ease, color 180ms ease, box-shadow 180ms ease; }
 .metric-card:hover, .chart-card:hover, .alerts-card:hover, .table-card:hover { box-shadow: var(--shadow); }
@@ -291,6 +308,7 @@ tbody tr:hover { background: var(--surface-hover); }
   .telemetry-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .alarm-center-grid { grid-template-columns: 1fr; }
   .settings-grid { grid-template-columns: 1fr; }
+  .cloud-stat-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
@@ -316,6 +334,8 @@ tbody tr:hover { background: var(--surface-hover); }
   .job-event code { grid-column: 2; }
   .alarm-credentials { align-items: stretch; flex-direction: column; }
   .alarm-credentials label { width: 100%; }
+  .cloud-account { grid-template-columns: 38px 1fr auto; }
+  .cloud-account time { grid-column: 2 / -1; text-align: left; }
 }
 
 @media (max-width: 1180px) and (min-width: 721px) {

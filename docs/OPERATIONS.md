@@ -80,6 +80,9 @@ bir TLS Secret’tan read-only mount edilir.
 - Beklenen olay bakım sırasında görünmüyorsa aktif global veya agent kapsamlı
   pencereyi kontrol et. Bakım penceresi yalnız yeni açılışı bastırır; önceden açık
   olayı otomatik kapatmaz.
+- Bulut hesabı `pending` kalıyorsa connector'ın ilgili hesap için tam snapshot
+  gönderdiğini kontrol et. Hostname/IP eşleşmesi bilerek yalnız inceleme adayıdır;
+  otomatik doğrulama için provider metadata'sında bazUSOP agent kimliği bulunmalıdır.
 - `426` enrollment yanıtı, uzak isteğin TLS olmadan geldiğini gösterir.
 
 Operator token rotasyonu sırasında eski token'la yeni iş oluşturmayı durdurun,

@@ -14,6 +14,7 @@ döner.
 - Operasyon işi oluşturma ucu `Authorization: Bearer <operator-token>` ister.
   Token yapılandırılmamışsa uç `503`, eksik veya hatalıysa `401` döner.
 - İş teslim alma ve olay raporlama uçları mTLS agent kimliğini zorunlu tutar.
+- Bulut hesabı oluşturma ve discovery snapshot yazma uçları operatör bearer token'ı ister.
 - Agent kimliği sertifikadaki `spiffe://bazusop/agent/{agent_id}` URI SAN
   değerinden alınır; istek gövdesinden agent ID kabul edilmez.
 
@@ -273,3 +274,47 @@ onaylanabilir; terminal/önceden onaylı olay `409`, bilinmeyen olay `404` döne
 
 Olayın `opened`, `acknowledged`, `resolved` yaşam döngüsünü zaman sırasıyla
 `{ "events": [...] }` zarfında verir. Bilinmeyen olay `404` döner.
+
+### `GET|POST /api/v1/cloud/accounts`
+
+Listeleme `{ "accounts": [...] }` zarfıyla salt-okunurdur. Oluşturma operatör
+bearer token'ı ister; provider `aws`, `azure` veya `gcp` olmalıdır.
+
+```json
+{"name":"Üretim AWS","provider":"aws","external_id":"123456789012"}
+```
+
+Yeni hesap ilk discovery snapshot'ına kadar `pending`, başarılı uzlaştırmadan
+sonra `connected` durumundadır. Aynı provider ve harici kimlik PostgreSQL'de
+benzersizdir.
+
+### `PUT /api/v1/cloud/accounts/{account_id}/instances`
+
+Connector'ın bir hesap için gördüğü son tam snapshot'ı atomik olarak değiştirir
+ve operatör bearer token'ı ister. Bir snapshot en fazla 10.000 instance içerir.
+
+```json
+{
+  "instances": [{
+    "provider_instance_id": "i-0123",
+    "name": "edge-01",
+    "region": "eu-central-1",
+    "zone": "eu-central-1a",
+    "state": "running",
+    "os_family": "linux",
+    "private_ips": ["10.0.0.8"],
+    "public_ips": [],
+    "agent_id_hint": "agent-01"
+  }]
+}
+```
+
+`agent_id_hint` mevcut agent kimliğine tam uyuyorsa `verified` eşleşme oluşur.
+Bu sinyal yokken tekil hostname veya özel IP benzerliği `candidate` olur ve
+otomatik agent bağı kurulmaz. Diğer kayıtlar `unmatched` kalır.
+
+### `GET /api/v1/cloud/instances`
+
+Tüm hesapların son keşif sonucunu `{ "instances": [...] }` zarfıyla döndürür.
+Her kayıt provider konumu, ağ adresleri, `match_status`, `match_reason`, doğrulanmış
+`agent_id` veya inceleme amaçlı `candidate_agent_id` alanlarını içerir.

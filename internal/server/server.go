@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
+	"github.com/gokayybaz/bazusop/internal/cloudinventory"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/jobs"
@@ -32,6 +33,7 @@ type handlerOptions struct {
 	jobService          *jobs.Service
 	operatorToken       string
 	alertService        *alerting.Service
+	cloudInventory      *cloudinventory.Service
 }
 
 func WithInventory(service *inventory.Service) Option {
@@ -74,6 +76,13 @@ func WithJobs(service *jobs.Service, operatorToken string) Option {
 func WithAlerts(service *alerting.Service, operatorToken string) Option {
 	return func(options *handlerOptions) {
 		options.alertService = service
+		options.operatorToken = operatorToken
+	}
+}
+
+func WithCloudInventory(service *cloudinventory.Service, operatorToken string) Option {
+	return func(options *handlerOptions) {
+		options.cloudInventory = service
 		options.operatorToken = operatorToken
 	}
 }
@@ -132,6 +141,12 @@ func NewHandler(options ...Option) http.Handler {
 		mux.HandleFunc("GET /api/v1/incidents", handleListIncidents(configuration.alertService))
 		mux.HandleFunc("GET /api/v1/incidents/{incidentID}/events", handleAlertEvents(configuration.alertService))
 		mux.HandleFunc("POST /api/v1/incidents/{incidentID}/acknowledge", handleAcknowledgeIncident(configuration.alertService, configuration.operatorToken))
+	}
+	if configuration.cloudInventory != nil {
+		mux.HandleFunc("GET /api/v1/cloud/accounts", handleListCloudAccounts(configuration.cloudInventory))
+		mux.HandleFunc("POST /api/v1/cloud/accounts", handleCreateCloudAccount(configuration.cloudInventory, configuration.operatorToken))
+		mux.HandleFunc("GET /api/v1/cloud/instances", handleListCloudInstances(configuration.cloudInventory))
+		mux.HandleFunc("PUT /api/v1/cloud/accounts/{accountID}/instances", handleReconcileCloudInstances(configuration.cloudInventory, configuration.operatorToken))
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
 		http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
@@ -674,6 +689,84 @@ func handleAcknowledgeIncident(service *alerting.Service, operatorToken string) 
 			return
 		}
 		writeJSON(response, http.StatusOK, incident)
+	}
+}
+
+func handleCreateCloudAccount(service *cloudinventory.Service, operatorToken string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if !authorizeOperator(response, request, operatorToken) {
+			return
+		}
+		var value cloudinventory.AccountRequest
+		if err := decodeJSON(response, request, &value); err != nil {
+			return
+		}
+		account, err := service.CreateAccount(request.Context(), value)
+		if errors.Is(err, cloudinventory.ErrInvalidCloudInventory) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(response, http.StatusCreated, account)
+	}
+}
+
+func handleListCloudAccounts(service *cloudinventory.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		accounts, err := service.ListAccounts(request.Context())
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Accounts []cloudinventory.Account `json:"accounts"`
+		}{Accounts: accounts})
+	}
+}
+
+func handleReconcileCloudInstances(service *cloudinventory.Service, operatorToken string) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if !authorizeOperator(response, request, operatorToken) {
+			return
+		}
+		var payload struct {
+			Instances []cloudinventory.DiscoveredInstance `json:"instances"`
+		}
+		if err := decodeJSON(response, request, &payload); err != nil {
+			return
+		}
+		instances, err := service.Reconcile(request.Context(), request.PathValue("accountID"), payload.Instances)
+		if errors.Is(err, cloudinventory.ErrInvalidCloudInventory) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, cloudinventory.ErrCloudAccountNotFound) {
+			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Instances []cloudinventory.Instance `json:"instances"`
+		}{Instances: instances})
+	}
+}
+
+func handleListCloudInstances(service *cloudinventory.Service) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		instances, err := service.ListInstances(request.Context())
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Instances []cloudinventory.Instance `json:"instances"`
+		}{Instances: instances})
 	}
 }
 
