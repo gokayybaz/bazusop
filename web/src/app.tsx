@@ -415,7 +415,7 @@ function EmptyFeature({ icon: Icon, title, text }: { icon: ComponentType<{ size?
 }
 
 function SettingsPage() {
-  return <div className="settings-grid"><Card className="settings-card"><div><h2>Görünüm</h2><p>Operasyon yüzeyi için grafit veya gece temasını seçin.</p></div><ThemeToggle /></Card><Card className="settings-card"><div><h2>Hub çalışma modu</h2><p>Bu önizleme süreç içi bellek deposu ve yerel bağlantı kullanıyor.</p></div><Badge className="environment">Yerel önizleme</Badge></Card></div>
+  return <div className="settings-grid"><Card className="settings-card"><div><h2>Görünüm</h2><p>Operasyon yüzeyi için açık veya koyu temayı seçin.</p></div><ThemeToggle /></Card><Card className="settings-card"><div><h2>Hub çalışma modu</h2><p>Bu önizleme süreç içi bellek deposu ve yerel bağlantı kullanıyor.</p></div><Badge className="environment">Yerel önizleme</Badge></Card></div>
 }
 
 function CloudInventoryPage() {

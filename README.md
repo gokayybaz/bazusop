@@ -25,6 +25,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   koşul normale dönünce çözülür ve bakım pencerelerinde yeni alarm bastırılır.
 - Arayüz; genel bakış, filo, servisler, metrikler, loglar, işler, alarmlar,
   bulut hesapları, denetim izi ve ayarlar için ayrı, doğrudan açılabilir sayfalar sunar.
+- Serin nötr açık ve grafit koyu tema arasında geçiş yapılabilir; cihaz tercihi
+  tarayıcıda korunur ve tüm operasyon sayfalarına uygulanır.
 - AWS, Azure ve GCP hesaplarıyla gelen instance snapshot'ları PostgreSQL'de tutulur;
   doğrulanmış provider agent kimliği otomatik, hostname/IP benzerliği yalnız aday olarak uzlaştırılır.
 - Docker Compose geliştirme ortamı ve production odaklı Kubernetes/Helm chart'ı

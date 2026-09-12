@@ -13,19 +13,20 @@ eklenecek; yeni metinler bileşen davranışına gömülü varsayımlar üretmem
 
 ## Renk sistemi
 
-Karanlık tema operasyon yüzeyinin temelidir. Operatör nötr **Grafit** veya daha
-soğuk **Gece** paletini seçebilir; iki seçenek de beyaz canvas kullanmaz.
+Koyu tema operasyon yüzeyinin varsayılanıdır. Operatör koyu ve açık tema arasında
+geçiş yapabilir; seçim cihazda kalıcıdır. Açık tema saf beyaz canvas yerine serin
+gri ana yüzey, beyaz kartlar ve koyu metin kullanır.
 
-| Token | Karanlık değer | Kullanım |
-| --- | --- | --- |
-| Arka plan | `#121212` | Ana uygulama yüzeyi |
-| Kart | `#1E1E1E` | Panel ve KPI yüzeyleri |
-| Çerçeve | `#2C2C2E` | Ayırıcı, grid ve tablo satırları |
-| Veri vurgusu | `#00E5FF` | Birincil grafik, değer ve aksiyon |
-| Kritik | `#FF453A` | Kritik alarm ve yıkıcı durum |
-| Sağlıklı | `#32D74B` | Canlı ve normal durum |
-| Birincil metin | `#FFFFFF` | Başlık ve önemli değer |
-| İkincil metin | `#98989D` | Etiket ve metadata |
+| Token | Koyu | Açık | Kullanım |
+| --- | --- | --- | --- |
+| Arka plan | `#121212` | `#F3F6F8` | Ana uygulama yüzeyi |
+| Kart | `#1E1E1E` | `#FFFFFF` | Panel ve KPI yüzeyleri |
+| Çerçeve | `#2C2C2E` | `#D3DDE4` | Ayırıcı, grid ve tablo satırları |
+| Veri vurgusu | `#00E5FF` | `#007F8F` | Birincil grafik, değer ve aksiyon |
+| Kritik | `#FF453A` | `#C4312B` | Kritik alarm ve yıkıcı durum |
+| Sağlıklı | `#32D74B` | `#167438` | Canlı ve normal durum |
+| Birincil metin | `#FFFFFF` | `#101A24` | Başlık ve önemli değer |
+| İkincil metin | `#98989D` | `#6A7B8B` | Etiket ve metadata |
 
 Vurgu renkleri semantik ve seyrektir: cyan veri/aktif kontrol, yeşil sağlıklı
 durum, amber uyarı, kırmızı kritik durum içindir. Pastel dekorasyon kullanılmaz.

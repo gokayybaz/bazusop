@@ -59,14 +59,15 @@ describe("bazUSOP shell", () => {
 	expect(screen.getByRole("button", { name: "incident-01 olayını onayla" })).toBeInTheDocument()
   })
 
-  it("lets the operator select and persist a dark theme variant", () => {
+  it("lets the operator switch between light and dark themes", () => {
     render(<App />)
 
-    fireEvent.click(screen.getByRole("button", { name: "Gece temasını kullan" }))
+    fireEvent.click(screen.getAllByRole("button", { name: "Açık temayı kullan" })[0])
 
-    expect(document.documentElement.dataset.theme).toBe("midnight")
-    expect(window.localStorage.getItem("bazusop-theme")).toBe("midnight")
-    expect(screen.getByRole("button", { name: "Grafit temasını kullan" })).toBeInTheDocument()
+    expect(document.documentElement.dataset.theme).toBe("light")
+    expect(document.documentElement.style.colorScheme).toBe("light")
+    expect(window.localStorage.getItem("bazusop-theme")).toBe("light")
+    expect(screen.getAllByRole("button", { name: "Koyu temayı kullan" }).length).toBeGreaterThan(0)
   })
 
   it("shows provider accounts and safely reconciled cloud instances on their own page", async () => {

@@ -18,4 +18,10 @@ describe("bazUSOP design system", () => {
     expect(documentShell).toContain('<html lang="tr">')
     expect(documentShell).toContain("Linux ve Windows sunucuları")
   })
+
+  it("defines complete light and dark semantic palettes", () => {
+    expect(styles).toContain(':root[data-theme="light"]')
+    expect(styles).toContain(':root[data-theme="dark"]')
+    expect(styles).toContain("--strong:")
+  })
 })
