@@ -72,10 +72,16 @@ kontrol edin. `x509: certificate signed by unknown authority` hatasında
 `BAZUSOP_AGENT_SERVER_CA_FILE` hub'ın client CA'sını değil, hub server
 sertifikasını imzalayan CA'yı göstermelidir.
 
-## Bilinen ölçek sınırı
+## Hub kalıcılığı
 
-Hub'ın agent CA private key'i ve bootstrap-token tüketim durumu halen süreç
-belleğindedir. Hub yeniden başlatılırsa önceden verilen agent sertifikaları yeni
-CA tarafından kabul edilmez. Production kalıcılığı ve çoklu enrollment replika
-desteği için CA/token state'inin Secret/KMS ve PostgreSQL'e taşınması sonraki
-sertleştirme spike'ının konusudur.
+Hub PostgreSQL modunda çalışıyorsa agent CA ve token tüketim durumu ortak store'da
+kalır. Restart veya başka hub replikasına yönlenme mevcut sertifikayı bozmaz ve
+aynı token eşzamanlı iki kayıtta kullanılamaz. Hub memory modundaysa CA süreçle
+birlikte kaybolur; bu mod yalnız geliştirme içindir.
+
+Yeni bir agent eklemek için yüksek entropili yeni bir
+`BAZUSOP_ENROLLMENT_TOKEN` değeri dağıtıp hub replikalarını rolling restart edin.
+Yeni token'ın yalnız SHA-256 özeti kaydedilir; önceki tüketilmemiş token iptal
+edilir ve daha önce tüketilen token aynı değerle yeniden etkinleşmez. CA private key'i veritabanında bulunduğundan database
+erişimi, yedekler ve PITR çıktıları secret sınıfında korunmalıdır. Harici KMS/HSM
+ile envelope encryption daha ileri sertleştirme adımıdır.

@@ -64,6 +64,10 @@ doğrulamasını sağlar. Secret veya kullanıcı kimlik bilgisi içermez.
 Başarıda `201` ile `agent_id`, 24 saatlik `certificate`, `ca_certificate` ve
 `expires_at` döner. Hatalı token `401`, tüketilmiş token `409`, geçersiz CSR veya
 OS ailesi `400` döndürür. Desteklenen OS aileleri `linux` ve `windows` değerleridir.
+PostgreSQL modunda token'ın yalnız SHA-256 özeti saklanır ve tüketim replikalar
+arasında atomiktir. Yeni kayıt token'ı, hub secret'ı değiştirilip replikalar
+rolling restart edilerek kaydedilir; önceki tüketilmemiş token iptal edilir ve
+tüketilmiş aynı değer yeniden etkinleşmez.
 
 ### `POST /api/v1/agents/renew`
 

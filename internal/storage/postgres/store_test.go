@@ -16,11 +16,25 @@ func TestStorageMigrationsAreEmbeddedInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migrations: %v", err)
 	}
-	if len(entries) != 13 {
-		t.Fatalf("expected thirteen storage migrations, got %d", len(entries))
+	if len(entries) != 14 {
+		t.Fatalf("expected fourteen storage migrations, got %d", len(entries))
 	}
-	if entries[0].Name() != "001_hosts.sql" || entries[12].Name() != "013_cloud_inventory.sql" {
-		t.Fatalf("unexpected migration range: %s through %s", entries[0].Name(), entries[3].Name())
+	if entries[0].Name() != "001_hosts.sql" || entries[13].Name() != "014_enrollment_state.sql" {
+		t.Fatalf("unexpected migration range: %s through %s", entries[0].Name(), entries[13].Name())
+	}
+}
+
+func TestEnrollmentMigrationDefinesSingletonCAAndOneTimeTokens(t *testing.T) {
+	t.Parallel()
+	migration, err := migrationFiles.ReadFile("migrations/014_enrollment_state.sql")
+	if err != nil {
+		t.Fatalf("read enrollment migration: %v", err)
+	}
+	contents := string(migration)
+	for _, required := range []string{"enrollment_authority", "enrollment_tokens", "token_hash", "consumed_at", "revoked_at", "CHECK (singleton = TRUE)"} {
+		if !strings.Contains(contents, required) {
+			t.Errorf("enrollment migration must contain %q", required)
+		}
 	}
 }
 

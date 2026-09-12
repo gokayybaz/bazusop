@@ -51,11 +51,7 @@ func main() {
 		}
 		logger.Warn("generated ephemeral enrollment token; set BAZUSOP_ENROLLMENT_TOKEN for a stable bootstrap token", "token", bootstrapToken)
 	}
-	authority, err := enrollment.NewAuthority(bootstrapToken)
-	if err != nil {
-		logger.Error("could not initialize agent certificate authority", "error", err)
-		os.Exit(1)
-	}
+	var authority *enrollment.Authority
 	var inventoryStore inventory.Store = inventory.NewMemoryStore()
 	var telemetryStore telemetry.Store = telemetry.NewMemoryStore()
 	var serviceInventoryStore serviceinventory.Store = serviceinventory.NewMemoryStore()
@@ -72,9 +68,16 @@ func main() {
 			postgresstore.WithTimescale(configuration.TimescaleEnabled),
 			postgresstore.WithRetention(configuration.TelemetryRetentionDays, configuration.LogRetentionDays),
 		)
+		if err != nil {
+			cancel()
+			logger.Error("could not initialize PostgreSQL inventory store", "error", err)
+			os.Exit(1)
+		}
+		authority, err = enrollment.NewPersistentAuthority(startupContext, bootstrapToken, postgresStore)
 		cancel()
 		if err != nil {
-			logger.Error("could not initialize PostgreSQL inventory store", "error", err)
+			postgresStore.Close()
+			logger.Error("could not initialize persistent agent certificate authority", "error", err)
 			os.Exit(1)
 		}
 		defer postgresStore.Close()
@@ -88,6 +91,14 @@ func main() {
 		storageMode = "postgresql"
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
+	}
+	if authority == nil {
+		var err error
+		authority, err = enrollment.NewAuthority(bootstrapToken)
+		if err != nil {
+			logger.Error("could not initialize agent certificate authority", "error", err)
+			os.Exit(1)
+		}
 	}
 	inventoryService := inventory.NewService(inventoryStore)
 	telemetryService := telemetry.NewService(telemetryStore)

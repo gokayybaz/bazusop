@@ -153,9 +153,13 @@ kuralları her kabul edilen örnekte; erişilebilirlik kuralları 30 saniyede bi
 değerlendirilir. Aktif olayların özeti genel bakışta, yaşam döngüsü ise ayrı
 `/alerts` sayfasındaki alarm merkezinde görünür.
 
-Şu anda CA private key'i ve tüketilmiş bootstrap-token durumu hub sürecindedir.
-Bu nedenle enrollment trafiği için tek replika kullanılmalıdır; ortak KMS/Secret
-ve PostgreSQL tabanlı token durumu sonraki ölçek sertleştirmesinde ele alınacaktır.
+`DATABASE_URL` verildiğinde agent CA sertifikası/private key'i ve yalnız SHA-256
+özeti saklanan bootstrap token'ların tüketim durumu PostgreSQL'de ortaktır. Hub
+restart'ı mevcut agent kimliklerini bozmaz; eşzamanlı replikalardan yalnız biri
+aynı token'ı tüketebilir. Yeni agent kaydı için secret'taki token değerini
+değiştirip hub'ları rolling restart ederek yeni tek-kullanımlık token kaydedilir;
+önceki tüketilmemiş token yeniden etkinleştirilemeyecek biçimde iptal edilir.
+Memory modu CA ve token durumunu süreç ömrüyle sınırlı tutar.
 
 ## Kubernetes ve Helm
 

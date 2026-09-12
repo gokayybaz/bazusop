@@ -29,6 +29,7 @@ Her spike aynı teslimat döngüsünü izler:
 | 9.3.1 — Release kimliği | Hub sürüm metadata'sı, çapraz platform arşivleri ve checksum manifesti | `--version`/UI aynı build'i gösterir; Linux amd64/arm64 ve Windows amd64 arşivleri tag workflow'uyla yayımlanır |
 | 9.3.2 — İmzalı paket ve yükseltme | deb/rpm/MSI, keyless release/container imzası ve kontrollü yükseltme | İmzalar doğrulanır; başarısız Linux yükseltmesi önceki binary'ye döner; MSI downgrade'i engeller |
 | 10.1 — Gerçek agent runtime | Linux/Windows agent binary'si, kalıcı mTLS kimliği, yenileme ve host envanter döngüsü | Agent outbound kaydolur; private key diskte korunur; mTLS envanter raporu hub'da görünür; üç hedef arşivi üretilir |
+| 10.2 — Ortak enrollment güven kökü | PostgreSQL'de kalıcı agent CA ve atomik tek-kullanımlık token kayıtları | Hub restart'ı agent kimliğini bozmaz; iki replika aynı CA'yı kullanır ve token yalnız bir kez tüketilir |
 
 ## Mimari kısıtlar
 
@@ -37,5 +38,5 @@ Her spike aynı teslimat döngüsünü izler:
 - Hub modular monolith'tir ve gömülü React uygulamasını sunar.
 - İlişkisel durum PostgreSQL'in, zaman serileri TimescaleDB'nin sorumluluğudur.
 - Uzak aksiyonlar allowlist ile sınırlı, kimlikli ve denetlenebilir olmalıdır.
-- Ortak enrollment CA ve token-consumption durumu tamamlanmadan enrollment
-  trafiği yatay ölçeklenmez.
+- PostgreSQL olmadan enrollment CA ve token-consumption durumu süreçle sınırlıdır;
+  üretimde enrollment trafiği kalıcı store kullanan hub'lara yönelmelidir.

@@ -1,16 +1,127 @@
 package enrollment_test
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 )
+
+func TestPersistentAuthoritySharesCAAndTokenConsumption(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := &fakeStateStore{tokens: make(map[[32]byte]tokenState)}
+	first, err := enrollment.NewPersistentAuthority(ctx, "shared-token", store)
+	if err != nil {
+		t.Fatalf("create first authority: %v", err)
+	}
+	second, err := enrollment.NewPersistentAuthority(ctx, "shared-token", store)
+	if err != nil {
+		t.Fatalf("create second authority: %v", err)
+	}
+	identity, err := first.EnrollContext(ctx, enrollment.Request{
+		BootstrapToken: "shared-token", Name: "edge-01", OperatingSystem: "linux", CSRPEM: newCSR(t, "edge-01"),
+	})
+	if err != nil {
+		t.Fatalf("enroll through first authority: %v", err)
+	}
+	if _, err := second.Authenticate(parseCertificate(t, identity.CertificatePEM)); err != nil {
+		t.Fatalf("second authority did not trust shared CA identity: %v", err)
+	}
+	_, err = second.EnrollContext(ctx, enrollment.Request{
+		BootstrapToken: "shared-token", Name: "edge-02", OperatingSystem: "windows", CSRPEM: newCSR(t, "edge-02"),
+	})
+	if !errors.Is(err, enrollment.ErrTokenConsumed) {
+		t.Fatalf("expected token consumption to be shared, got %v", err)
+	}
+
+	rotated, err := enrollment.NewPersistentAuthority(ctx, "rotated-token", store)
+	if err != nil {
+		t.Fatalf("create rotated authority: %v", err)
+	}
+	if _, err := rotated.EnrollContext(ctx, enrollment.Request{
+		BootstrapToken: "rotated-token", Name: "edge-03", OperatingSystem: "linux", CSRPEM: newCSR(t, "edge-03"),
+	}); err != nil {
+		t.Fatalf("enroll with rotated token: %v", err)
+	}
+}
+
+func TestRegisteringRotatedTokenRevokesUnusedPreviousToken(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+	store := &fakeStateStore{tokens: make(map[[32]byte]tokenState)}
+	oldAuthority, err := enrollment.NewPersistentAuthority(ctx, "old-token", store)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := enrollment.NewPersistentAuthority(ctx, "new-token", store); err != nil {
+		t.Fatal(err)
+	}
+	_, err = oldAuthority.EnrollContext(ctx, enrollment.Request{
+		BootstrapToken: "old-token", Name: "edge-old", OperatingSystem: "linux", CSRPEM: newCSR(t, "edge-old"),
+	})
+	if !errors.Is(err, enrollment.ErrInvalidToken) {
+		t.Fatalf("expected rotated old token to be revoked, got %v", err)
+	}
+}
+
+type tokenState struct {
+	consumed bool
+	revoked  bool
+}
+
+type fakeStateStore struct {
+	mu     sync.Mutex
+	state  enrollment.AuthorityState
+	tokens map[[32]byte]tokenState
+}
+
+func (store *fakeStateStore) LoadOrCreateEnrollmentAuthority(_ context.Context, candidate enrollment.AuthorityState) (enrollment.AuthorityState, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if store.state.CertificatePEM == "" {
+		store.state = candidate
+	}
+	return store.state, nil
+}
+
+func (store *fakeStateStore) RegisterEnrollmentToken(_ context.Context, tokenHash [32]byte) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if _, exists := store.tokens[tokenHash]; exists {
+		return nil
+	}
+	for hash, state := range store.tokens {
+		if !state.consumed {
+			state.revoked = true
+			store.tokens[hash] = state
+		}
+	}
+	store.tokens[tokenHash] = tokenState{}
+	return nil
+}
+
+func (store *fakeStateStore) ConsumeEnrollmentToken(_ context.Context, tokenHash [32]byte) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	state, exists := store.tokens[tokenHash]
+	if !exists || state.revoked {
+		return enrollment.ErrInvalidToken
+	}
+	if state.consumed {
+		return enrollment.ErrTokenConsumed
+	}
+	state.consumed = true
+	store.tokens[tokenHash] = state
+	return nil
+}
 
 func TestBootstrapTokenBecomesRenewableAgentIdentity(t *testing.T) {
 	t.Parallel()

@@ -119,12 +119,20 @@ Erişilebilirlik değerlendirmesi şu anda her hub replikasında çalışabilir;
 unique kısıtı çift aktif olayı engeller. Çok büyük filolarda tarama işi leader
 election veya ayrı scheduler/queue bileşenine taşınmalıdır.
 
-Enrollment CA private key’i ve tüketilmiş bootstrap-token durumu henüz süreç
-içindedir. Bu yüzden varsayılan chart tek replika çalışır ve HPA kapalıdır. Güvenli
-çoklu replika enrollment için CA’nın secret/KMS üzerinden ortak yüklenmesi ve token
-tüketiminin PostgreSQL transaction’ıyla atomik yapılması gerekir.
+PostgreSQL modunda enrollment CA tekil satır olarak `INSERT ... ON CONFLICT`
+yarışıyla bir kez oluşturulur ve tüm hub replikalarınca paylaşılır. Bootstrap
+token'ın yalnız SHA-256 özeti tutulur; koşullu `UPDATE ... WHERE consumed_at IS
+NULL` aynı token'ın eşzamanlı yalnız bir istekte tüketilmesini sağlar. Yeni secret
+değeri yeni bir tek-kullanımlık token kaydı oluşturur, aynı tüketilmiş değer hub
+restart'ında yeniden etkinleşmez. Yeni hash ilk kez eklenirken önceki tüketilmemiş
+token'lar aynı transaction içinde iptal edilir. Memory modu bu durumu yalnız süreç ömründe tutar.
 
-İş imzalama anahtarı da şu anda hub başlangıcında süreç içinde üretilir ve restart
+CA private key'i PostgreSQL'de bulunduğu için database, yedek ve PITR erişimi
+secret sınırındadır. KMS/HSM tabanlı envelope encryption ileri sertleştirme olarak
+kalır. Chart'ın varsayılan tek replika/HPA kapalı ayarı enrollment'dan değil,
+henüz süreç içinde üretilen iş imzalama anahtarından kaynaklanır.
+
+İş imzalama anahtarı şu anda hub başlangıcında süreç içinde üretilir ve restart
 sonrası değişir. Kalıcı güven kökü ve çoklu replika için private key KMS/Secret'ta
 saklanmalı, public key güvenli enrollment/config kanalından agent'a sabitlenmelidir.
 

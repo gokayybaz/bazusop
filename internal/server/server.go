@@ -223,7 +223,7 @@ func handleEnroll(authority *enrollment.Authority) http.HandlerFunc {
 		if err := decodeJSON(response, request, &enrollmentRequest); err != nil {
 			return
 		}
-		identity, err := authority.Enroll(enrollmentRequest)
+		identity, err := authority.EnrollContext(request.Context(), enrollmentRequest)
 		switch {
 		case errors.Is(err, enrollment.ErrInvalidToken):
 			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)

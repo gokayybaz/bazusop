@@ -104,11 +104,12 @@ ve restart sonrasında sağlık ucu geçmezse geri yükler. Windows MSI yeni maj
 sürümü yerinde yükseltir ve eski sürüm kurulumunu engeller; bu aşamada Windows
 Service kaydı oluşturmaz.
 
-İki bağımsız store üzerinden gerçek `LISTEN/NOTIFY` entegrasyon testini çalıştırmak için:
+İki bağımsız store üzerinden gerçek `LISTEN/NOTIFY` ve ortak enrollment state
+entegrasyon testlerini çalıştırmak için:
 
 ```bash
 BAZUSOP_TEST_DATABASE_URL='postgres://bazusop:parola@127.0.0.1:5432/bazusop?sslmode=disable' \
-  GOCACHE=/tmp/bazusop-go-cache go test ./internal/storage/postgres -run TestPostgresDeliversLiveLogsAcrossStores
+  GOCACHE=/tmp/bazusop-go-cache go test ./internal/storage/postgres -run TestPostgres
 ```
 
 ## Kubernetes
@@ -129,7 +130,8 @@ bir TLS Secret’tan read-only mount edilir.
 4. Enrollment, operator ve admin token'larını ayrı, yüksek entropili değerlerle oluştur;
    secret erişimini sınırla ve rotasyon prosedürünü test et.
 5. CPU/RAM request-limit değerlerini gerçek yük testine göre ayarla.
-6. Enrollment state ve iş imza anahtarı paylaşılmadan HPA’yı açma.
+6. PostgreSQL enrollment state'ini ve yedek şifrelemesini doğrula; iş imza anahtarı
+   paylaşılmadan HPA’yı açma.
 7. Ingress kullanılıyorsa agent mTLS trafiğinin client sertifikasını hub’a kadar
    koruduğunu doğrula.
 8. Kritik CPU/bellek/disk ve erişilebilirlik eşiklerini gerçek baseline'a göre

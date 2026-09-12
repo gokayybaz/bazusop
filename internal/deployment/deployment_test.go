@@ -25,6 +25,16 @@ func TestContainerAndComposeBaseline(t *testing.T) {
 	}
 }
 
+func TestCIExercisesPostgresIntegration(t *testing.T) {
+	t.Parallel()
+	workflow := readProjectFile(t, ".github/workflows/ci.yml")
+	for _, required := range []string{"services:", "postgres:18", "BAZUSOP_TEST_DATABASE_URL", "pg_isready"} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("CI PostgreSQL integration must contain %q", required)
+		}
+	}
+}
+
 func TestHelmChartDefinesScalableSafeWorkload(t *testing.T) {
 	t.Parallel()
 

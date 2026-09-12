@@ -15,6 +15,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
 	"github.com/gokayybaz/bazusop/internal/cloudinventory"
+	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/logstream"
@@ -36,6 +37,8 @@ type Store struct {
 	listenerCancel         context.CancelFunc
 	listenerDone           chan struct{}
 }
+
+var _ enrollment.StateStore = (*Store)(nil)
 
 const (
 	logNotificationChannel        = "bazusop_log_entries"
@@ -107,6 +110,92 @@ func (store *Store) Close() {
 		<-store.listenerDone
 	}
 	store.pool.Close()
+}
+
+func (store *Store) LoadOrCreateEnrollmentAuthority(ctx context.Context, candidate enrollment.AuthorityState) (enrollment.AuthorityState, error) {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return enrollment.AuthorityState{}, fmt.Errorf("begin enrollment authority transaction: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	if _, err := transaction.Exec(ctx, `
+		INSERT INTO enrollment_authority (singleton, certificate_pem, private_key_pem)
+		VALUES (TRUE, $1, $2)
+		ON CONFLICT (singleton) DO NOTHING`, candidate.CertificatePEM, candidate.PrivateKeyPEM); err != nil {
+		return enrollment.AuthorityState{}, fmt.Errorf("create enrollment authority: %w", err)
+	}
+	var state enrollment.AuthorityState
+	if err := transaction.QueryRow(ctx, `
+		SELECT certificate_pem, private_key_pem
+		FROM enrollment_authority
+		WHERE singleton = TRUE`).Scan(&state.CertificatePEM, &state.PrivateKeyPEM); err != nil {
+		return enrollment.AuthorityState{}, fmt.Errorf("load enrollment authority: %w", err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return enrollment.AuthorityState{}, fmt.Errorf("commit enrollment authority: %w", err)
+	}
+	return state, nil
+}
+
+func (store *Store) RegisterEnrollmentToken(ctx context.Context, tokenHash [32]byte) error {
+	transaction, err := store.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin enrollment token registration: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	var registeredHash []byte
+	err = transaction.QueryRow(ctx, `
+		INSERT INTO enrollment_tokens (token_hash)
+		VALUES ($1)
+		ON CONFLICT (token_hash) DO NOTHING
+		RETURNING token_hash`, tokenHash[:]).Scan(&registeredHash)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("register enrollment token: %w", err)
+	}
+	if _, err := transaction.Exec(ctx, `
+		UPDATE enrollment_tokens
+		SET revoked_at = now()
+		WHERE token_hash <> $1 AND consumed_at IS NULL AND revoked_at IS NULL`, tokenHash[:]); err != nil {
+		return fmt.Errorf("revoke previous enrollment tokens: %w", err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit enrollment token registration: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) ConsumeEnrollmentToken(ctx context.Context, tokenHash [32]byte) error {
+	var consumedAt time.Time
+	err := store.pool.QueryRow(ctx, `
+		UPDATE enrollment_tokens
+		SET consumed_at = now()
+		WHERE token_hash = $1 AND consumed_at IS NULL AND revoked_at IS NULL
+		RETURNING consumed_at`, tokenHash[:]).Scan(&consumedAt)
+	if err == nil {
+		return nil
+	}
+	if !errors.Is(err, pgx.ErrNoRows) {
+		return fmt.Errorf("consume enrollment token: %w", err)
+	}
+	var consumed, revoked bool
+	if err := store.pool.QueryRow(ctx, `
+		SELECT consumed_at IS NOT NULL, revoked_at IS NOT NULL
+		FROM enrollment_tokens
+		WHERE token_hash = $1`, tokenHash[:]).Scan(&consumed, &revoked); errors.Is(err, pgx.ErrNoRows) {
+		return enrollment.ErrInvalidToken
+	} else if err != nil {
+		return fmt.Errorf("check enrollment token: %w", err)
+	}
+	if revoked {
+		return enrollment.ErrInvalidToken
+	}
+	if consumed {
+		return enrollment.ErrTokenConsumed
+	}
+	return enrollment.ErrInvalidToken
 }
 
 func (store *Store) Upsert(ctx context.Context, host inventory.Host) error {

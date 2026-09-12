@@ -1,6 +1,8 @@
 package enrollment
 
 import (
+	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -42,55 +44,61 @@ type Identity struct {
 	ExpiresAt        time.Time `json:"expires_at"`
 }
 
+type AuthorityState struct {
+	CertificatePEM string
+	PrivateKeyPEM  string
+}
+
+type StateStore interface {
+	LoadOrCreateEnrollmentAuthority(context.Context, AuthorityState) (AuthorityState, error)
+	RegisterEnrollmentToken(context.Context, [sha256.Size]byte) error
+	ConsumeEnrollmentToken(context.Context, [sha256.Size]byte) error
+}
+
+type tokenConsumer interface {
+	ConsumeEnrollmentToken(context.Context, [sha256.Size]byte) error
+}
+
 type Authority struct {
-	mu            sync.Mutex
-	bootstrapHash [sha256.Size]byte
-	tokenConsumed bool
 	caCertificate *x509.Certificate
 	caPrivateKey  ed25519.PrivateKey
 	caPEM         string
+	tokens        tokenConsumer
 	now           func() time.Time
 }
 
 func NewAuthority(bootstrapToken string) (*Authority, error) {
-	if strings.TrimSpace(bootstrapToken) == "" {
-		return nil, fmt.Errorf("%w: token is required", ErrInvalidToken)
+	if err := validateBootstrapToken(bootstrapToken); err != nil {
+		return nil, err
 	}
+	state, err := generateAuthorityState()
+	if err != nil {
+		return nil, err
+	}
+	tokens := &memoryTokenStore{bootstrapHash: sha256.Sum256([]byte(bootstrapToken))}
+	return authorityFromState(state, tokens)
+}
 
-	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+func NewPersistentAuthority(ctx context.Context, bootstrapToken string, store StateStore) (*Authority, error) {
+	if err := validateBootstrapToken(bootstrapToken); err != nil {
+		return nil, err
+	}
+	if store == nil {
+		return nil, errors.New("enrollment state store is required")
+	}
+	candidate, err := generateAuthorityState()
 	if err != nil {
-		return nil, fmt.Errorf("generate CA key: %w", err)
+		return nil, err
 	}
-	now := time.Now().UTC()
-	serial, err := randomSerial()
+	state, err := store.LoadOrCreateEnrollmentAuthority(ctx, candidate)
 	if err != nil {
-		return nil, fmt.Errorf("generate CA serial: %w", err)
+		return nil, fmt.Errorf("load enrollment authority: %w", err)
 	}
-	template := &x509.Certificate{
-		SerialNumber:          serial,
-		Subject:               pkix.Name{CommonName: "bazUSOP Agent CA", Organization: []string{"bazUSOP"}},
-		NotBefore:             now.Add(-time.Minute),
-		NotAfter:              now.AddDate(10, 0, 0),
-		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
-		BasicConstraintsValid: true,
-		IsCA:                  true,
+	tokenHash := sha256.Sum256([]byte(bootstrapToken))
+	if err := store.RegisterEnrollmentToken(ctx, tokenHash); err != nil {
+		return nil, fmt.Errorf("register enrollment token: %w", err)
 	}
-	der, err := x509.CreateCertificate(rand.Reader, template, template, publicKey, privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("create CA certificate: %w", err)
-	}
-	certificate, err := x509.ParseCertificate(der)
-	if err != nil {
-		return nil, fmt.Errorf("parse CA certificate: %w", err)
-	}
-
-	return &Authority{
-		bootstrapHash: sha256.Sum256([]byte(bootstrapToken)),
-		caCertificate: certificate,
-		caPrivateKey:  privateKey,
-		caPEM:         encodeCertificate(der),
-		now:           time.Now,
-	}, nil
+	return authorityFromState(state, store)
 }
 
 func GenerateBootstrapToken() (string, error) {
@@ -108,22 +116,14 @@ func (authority *Authority) ClientCAPool() *x509.CertPool {
 }
 
 func (authority *Authority) Enroll(request Request) (Identity, error) {
+	return authority.EnrollContext(context.Background(), request)
+}
+
+func (authority *Authority) EnrollContext(ctx context.Context, request Request) (Identity, error) {
 	csr, err := parseCSR(request.CSRPEM)
 	if err != nil || strings.TrimSpace(request.Name) == "" || !supportedOS(request.OperatingSystem) {
 		return Identity{}, ErrInvalidRequest
 	}
-
-	authority.mu.Lock()
-	defer authority.mu.Unlock()
-
-	providedHash := sha256.Sum256([]byte(request.BootstrapToken))
-	if subtle.ConstantTimeCompare(providedHash[:], authority.bootstrapHash[:]) != 1 {
-		return Identity{}, ErrInvalidToken
-	}
-	if authority.tokenConsumed {
-		return Identity{}, ErrTokenConsumed
-	}
-
 	agentID, err := randomAgentID()
 	if err != nil {
 		return Identity{}, fmt.Errorf("generate agent ID: %w", err)
@@ -132,7 +132,10 @@ func (authority *Authority) Enroll(request Request) (Identity, error) {
 	if err != nil {
 		return Identity{}, err
 	}
-	authority.tokenConsumed = true
+	providedHash := sha256.Sum256([]byte(request.BootstrapToken))
+	if err := authority.tokens.ConsumeEnrollmentToken(ctx, providedHash); err != nil {
+		return Identity{}, err
+	}
 	return identity, nil
 }
 
@@ -150,9 +153,89 @@ func (authority *Authority) Renew(peer *x509.Certificate, csrPEM string) (Identi
 		operatingSystem = peer.Subject.OrganizationalUnit[0]
 	}
 
-	authority.mu.Lock()
-	defer authority.mu.Unlock()
 	return authority.issue(agentID, operatingSystem, csr)
+}
+
+type memoryTokenStore struct {
+	mu            sync.Mutex
+	bootstrapHash [sha256.Size]byte
+	consumed      bool
+}
+
+func (store *memoryTokenStore) ConsumeEnrollmentToken(_ context.Context, providedHash [sha256.Size]byte) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	if subtle.ConstantTimeCompare(providedHash[:], store.bootstrapHash[:]) != 1 {
+		return ErrInvalidToken
+	}
+	if store.consumed {
+		return ErrTokenConsumed
+	}
+	store.consumed = true
+	return nil
+}
+
+func validateBootstrapToken(token string) error {
+	if strings.TrimSpace(token) == "" {
+		return fmt.Errorf("%w: token is required", ErrInvalidToken)
+	}
+	return nil
+}
+
+func generateAuthorityState() (AuthorityState, error) {
+	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return AuthorityState{}, fmt.Errorf("generate CA key: %w", err)
+	}
+	now := time.Now().UTC()
+	serial, err := randomSerial()
+	if err != nil {
+		return AuthorityState{}, fmt.Errorf("generate CA serial: %w", err)
+	}
+	template := &x509.Certificate{
+		SerialNumber: serial, Subject: pkix.Name{CommonName: "bazUSOP Agent CA", Organization: []string{"bazUSOP"}},
+		NotBefore: now.Add(-time.Minute), NotAfter: now.AddDate(10, 0, 0),
+		KeyUsage:              x509.KeyUsageCertSign | x509.KeyUsageCRLSign | x509.KeyUsageDigitalSignature,
+		BasicConstraintsValid: true, IsCA: true,
+	}
+	der, err := x509.CreateCertificate(rand.Reader, template, template, publicKey, privateKey)
+	if err != nil {
+		return AuthorityState{}, fmt.Errorf("create CA certificate: %w", err)
+	}
+	privateDER, err := x509.MarshalPKCS8PrivateKey(privateKey)
+	if err != nil {
+		return AuthorityState{}, fmt.Errorf("encode CA private key: %w", err)
+	}
+	return AuthorityState{
+		CertificatePEM: encodeCertificate(der),
+		PrivateKeyPEM:  string(pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: privateDER})),
+	}, nil
+}
+
+func authorityFromState(state AuthorityState, tokens tokenConsumer) (*Authority, error) {
+	certificateBlock, _ := pem.Decode([]byte(state.CertificatePEM))
+	privateKeyBlock, _ := pem.Decode([]byte(state.PrivateKeyPEM))
+	if certificateBlock == nil || certificateBlock.Type != "CERTIFICATE" || privateKeyBlock == nil || privateKeyBlock.Type != "PRIVATE KEY" {
+		return nil, errors.New("stored enrollment authority is invalid")
+	}
+	certificate, err := x509.ParseCertificate(certificateBlock.Bytes)
+	if err != nil || !certificate.IsCA {
+		return nil, errors.New("stored enrollment CA certificate is invalid")
+	}
+	parsedKey, err := x509.ParsePKCS8PrivateKey(privateKeyBlock.Bytes)
+	if err != nil {
+		return nil, errors.New("stored enrollment CA private key is invalid")
+	}
+	privateKey, ok := parsedKey.(ed25519.PrivateKey)
+	if !ok || !bytes.Equal(certificate.RawSubjectPublicKeyInfo, mustMarshalPublicKey(privateKey.Public())) {
+		return nil, errors.New("stored enrollment CA key does not match certificate")
+	}
+	return &Authority{caCertificate: certificate, caPrivateKey: privateKey, caPEM: state.CertificatePEM, tokens: tokens, now: time.Now}, nil
+}
+
+func mustMarshalPublicKey(publicKey any) []byte {
+	der, _ := x509.MarshalPKIXPublicKey(publicKey)
+	return der
 }
 
 func (authority *Authority) Authenticate(peer *x509.Certificate) (string, error) {
