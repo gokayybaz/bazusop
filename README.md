@@ -12,7 +12,8 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   dosya yeterlidir.
 - Ayrı `bazusop-agent` binary'si Linux ve Windows'ta outbound bağlantı kurar;
   tek kullanımlık token'ı kalıcı Ed25519/mTLS kimliğine dönüştürür, sertifikayı
-  süresi dolmadan yeniler ve host envanterini periyodik raporlar.
+  süresi dolmadan yeniler; host envanteriyle CPU/bellek/disk/ağ telemetrisini
+  periyodik raporlar.
 - Normalize edilmiş host envanteri PostgreSQL'de saklanır.
 - CPU, bellek, disk ve ağ telemetrisi PostgreSQL veya TimescaleDB'ye yazılır;
   Timescale etkinse varsayılan 30 günlük, yapılandırılabilir retention uygulanır.
@@ -98,7 +99,7 @@ Agent değişkenleri:
 | `BAZUSOP_AGENT_ENROLLMENT_TOKEN` | Yalnız ilk kayıtta gereken bootstrap secret |
 | `BAZUSOP_AGENT_STATE_DIR` | Kimlik dizini; Linux varsayılanı `/var/lib/bazusop-agent`, Windows varsayılanı `%ProgramData%\\bazUSOP\\agent` |
 | `BAZUSOP_AGENT_SERVER_CA_FILE` | Özel hub server CA PEM dosyası; sistem trust store yeterliyse verilmez |
-| `BAZUSOP_AGENT_REPORT_INTERVAL` | Envanter periyodu; varsayılan `30s`, aralık `10s–1h` |
+| `BAZUSOP_AGENT_REPORT_INTERVAL` | Envanter ve telemetri periyodu; varsayılan `30s`, aralık `10s–1h` |
 
 TLS cert ve key birlikte verilmelidir. Hub TLS 1.3 kullanır ve kayıtlı client
 sertifikalarını mTLS için doğrular. `DATABASE_URL` verilmezse envanter ve telemetri

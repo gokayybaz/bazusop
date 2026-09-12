@@ -2,25 +2,33 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
 type HubClient interface {
 	EnsureIdentity(context.Context, string, string) (Identity, error)
 	ReportInventory(context.Context, Identity, inventory.Facts) error
+	ReportTelemetry(context.Context, Identity, telemetry.Sample) error
 }
 
 type FactCollector interface {
 	Collect() (inventory.Facts, error)
 }
 
+type MetricCollector interface {
+	Collect() (telemetry.Sample, error)
+}
+
 type Runner struct {
 	Hub             HubClient
 	Collector       FactCollector
+	Telemetry       MetricCollector
 	ReportInterval  time.Duration
 	Logger          *slog.Logger
 	Hostname        string
@@ -28,11 +36,11 @@ type Runner struct {
 }
 
 func (runner Runner) Run(ctx context.Context) error {
-	if runner.Hub == nil || runner.Collector == nil || runner.Logger == nil || runner.ReportInterval <= 0 {
+	if runner.Hub == nil || runner.Collector == nil || runner.Telemetry == nil || runner.Logger == nil || runner.ReportInterval <= 0 {
 		return fmt.Errorf("agent runner is incomplete")
 	}
 	if err := runner.report(ctx); err != nil {
-		runner.Logger.Error("initial inventory report failed; retrying", "error", err)
+		runner.Logger.Error("initial agent report failed; retrying", "error", err)
 	}
 	ticker := time.NewTicker(runner.ReportInterval)
 	defer ticker.Stop()
@@ -42,7 +50,7 @@ func (runner Runner) Run(ctx context.Context) error {
 			return nil
 		case <-ticker.C:
 			if err := runner.report(ctx); err != nil {
-				runner.Logger.Error("inventory report failed", "error", err)
+				runner.Logger.Error("agent report failed", "error", err)
 			}
 		}
 	}
@@ -53,13 +61,22 @@ func (runner Runner) report(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("ensure agent identity: %w", err)
 	}
-	facts, err := runner.Collector.Collect()
-	if err != nil {
-		return fmt.Errorf("collect host inventory: %w", err)
+	var reportErrors []error
+	facts, inventoryErr := runner.Collector.Collect()
+	if inventoryErr != nil {
+		reportErrors = append(reportErrors, fmt.Errorf("collect host inventory: %w", inventoryErr))
+	} else if err := runner.Hub.ReportInventory(ctx, identity, facts); err != nil {
+		reportErrors = append(reportErrors, err)
+	} else {
+		runner.Logger.Info("inventory reported", "agent_id", identity.AgentID, "hostname", facts.Hostname)
 	}
-	if err := runner.Hub.ReportInventory(ctx, identity, facts); err != nil {
-		return err
+	sample, telemetryErr := runner.Telemetry.Collect()
+	if telemetryErr != nil {
+		reportErrors = append(reportErrors, fmt.Errorf("collect host telemetry: %w", telemetryErr))
+	} else if err := runner.Hub.ReportTelemetry(ctx, identity, sample); err != nil {
+		reportErrors = append(reportErrors, err)
+	} else {
+		runner.Logger.Info("telemetry reported", "agent_id", identity.AgentID, "recorded_at", sample.RecordedAt)
 	}
-	runner.Logger.Info("inventory reported", "agent_id", identity.AgentID, "hostname", facts.Hostname)
-	return nil
+	return errors.Join(reportErrors...)
 }

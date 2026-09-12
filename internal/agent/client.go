@@ -20,6 +20,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
 const renewalWindow = time.Hour
@@ -111,6 +112,13 @@ func (client *Client) renew(ctx context.Context, current Identity) (Identity, er
 func (client *Client) ReportInventory(ctx context.Context, identity Identity, facts inventory.Facts) error {
 	if err := client.request(ctx, http.MethodPut, "/api/v1/agents/inventory", facts, &identity, http.StatusNoContent, nil); err != nil {
 		return fmt.Errorf("report inventory: %w", err)
+	}
+	return nil
+}
+
+func (client *Client) ReportTelemetry(ctx context.Context, identity Identity, sample telemetry.Sample) error {
+	if err := client.request(ctx, http.MethodPost, "/api/v1/agents/telemetry", sample, &identity, http.StatusNoContent, nil); err != nil {
+		return fmt.Errorf("report telemetry: %w", err)
 	}
 	return nil
 }

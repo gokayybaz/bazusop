@@ -14,6 +14,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/server"
+	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
 func TestClientEnrollsPersistsIdentityAndReportsInventoryOverMTLS(t *testing.T) {
@@ -22,7 +23,8 @@ func TestClientEnrollsPersistsIdentityAndReportsInventoryOverMTLS(t *testing.T) 
 		t.Fatal(err)
 	}
 	inventoryService := inventory.NewService(inventory.NewMemoryStore())
-	handler := server.NewHandler(server.WithEnrollment(authority), server.WithInventory(inventoryService))
+	telemetryService := telemetry.NewService(telemetry.NewMemoryStore())
+	handler := server.NewHandler(server.WithEnrollment(authority), server.WithInventory(inventoryService), server.WithTelemetry(telemetryService))
 
 	directory := t.TempDir()
 	configuration := Config{
@@ -53,6 +55,14 @@ func TestClientEnrollsPersistsIdentityAndReportsInventoryOverMTLS(t *testing.T) 
 	}
 	if hosts[0].AgentID != identity.AgentID || hosts[0].Hostname != "web-01" {
 		t.Fatalf("unexpected reported host: %#v", hosts[0])
+	}
+	recordedAt := time.Now().UTC().Truncate(time.Microsecond)
+	if err := client.ReportTelemetry(context.Background(), identity, telemetry.Sample{RecordedAt: recordedAt, CPUPercent: 12.5, MemoryPercent: 40, DiskPercent: 50}); err != nil {
+		t.Fatalf("report telemetry: %v", err)
+	}
+	samples, err := telemetryService.History(context.Background(), identity.AgentID, recordedAt.Add(-time.Second), recordedAt.Add(time.Second), 10)
+	if err != nil || len(samples) != 1 || samples[0].CPUPercent != 12.5 {
+		t.Fatalf("expected reported telemetry, samples=%#v err=%v", samples, err)
 	}
 	loaded, err := NewIdentityStore(configuration.StateDir).Load()
 	if err != nil || loaded.AgentID != identity.AgentID {
