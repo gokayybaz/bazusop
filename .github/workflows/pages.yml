@@ -6,6 +6,7 @@ on:
     paths:
       - ".github/workflows/pages.yml"
       - "web/landing/**"
+      - "web/public/**"
       - "web/src/landing-page.tsx"
       - "web/vite.landing.config.ts"
       - "web/tsconfig*.json"

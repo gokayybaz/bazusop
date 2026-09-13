@@ -5,6 +5,7 @@ import { defineConfig } from "vite"
 export default defineConfig({
   root: new URL("./landing", import.meta.url).pathname,
   base: "./",
+  publicDir: new URL("./public", import.meta.url).pathname,
   plugins: [react(), tailwindcss()],
   build: {
     emptyOutDir: true,
