@@ -61,6 +61,19 @@ React uygulaması önce derlenir, sonra Go hub binary'sine gömülür. `make bui
 hem `bin/bazusop-hub` hem `bin/bazusop-agent` üretir. Hub varsayılan olarak
 `http://127.0.0.1:8080` adresinden erişilebilir.
 
+Kurumsal landing page, operasyon konsolundan ayrı bir statik çıktı olarak
+hazırlanır:
+
+```bash
+cd web
+npm run dev:landing
+npm run build:landing
+```
+
+`main` dalına landing page kaynaklarını etkileyen bir değişiklik gönderildiğinde
+`.github/workflows/pages.yml` çıktıyı otomatik olarak GitHub Pages'e yayınlar.
+Depo ayarlarında **Pages → Source** seçeneğinin **GitHub Actions** olması gerekir.
+
 Binary'nin kaynak kimliğini yapılandırma yüklemeden görmek için:
 
 ```bash

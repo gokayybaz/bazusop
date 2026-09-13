@@ -3,6 +3,7 @@ node_modules/
 coverage/
 bin/
 /dist/
+/landing-dist/
 *.local
 *.tsbuildinfo
 web/vite.config.js

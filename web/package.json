@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "build": "tsc -b && vite build",
+    "build:landing": "tsc -b && vite build --config vite.landing.config.ts",
     "dev": "vite",
+    "dev:landing": "vite --config vite.landing.config.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },
@@ -31,4 +33,3 @@
     "vitest": "^3.2.4"
   }
 }
-
