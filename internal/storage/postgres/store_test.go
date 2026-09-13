@@ -16,11 +16,38 @@ func TestStorageMigrationsAreEmbeddedInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migrations: %v", err)
 	}
-	if len(entries) != 14 {
-		t.Fatalf("expected fourteen storage migrations, got %d", len(entries))
+	if len(entries) != 15 {
+		t.Fatalf("expected fifteen storage migrations, got %d", len(entries))
 	}
-	if entries[0].Name() != "001_hosts.sql" || entries[13].Name() != "014_enrollment_state.sql" {
-		t.Fatalf("unexpected migration range: %s through %s", entries[0].Name(), entries[13].Name())
+	if entries[0].Name() != "001_hosts.sql" || entries[14].Name() != "015_organization_sites.sql" {
+		t.Fatalf("unexpected migration range: %s through %s", entries[0].Name(), entries[14].Name())
+	}
+}
+
+func TestOrganizationSiteMigrationBackfillsEveryScopedTable(t *testing.T) {
+	t.Parallel()
+	migration, err := migrationFiles.ReadFile("migrations/015_organization_sites.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(migration)
+	for _, required := range []string{
+		"org_default", "site_default", "CREATE TABLE IF NOT EXISTS organizations",
+		"CREATE TABLE IF NOT EXISTS sites", "CREATE TABLE IF NOT EXISTS agents",
+		"ALTER TABLE hosts", "ALTER TABLE enrollment_tokens",
+		"ALTER TABLE telemetry_samples", "ALTER TABLE services", "ALTER TABLE log_entries",
+		"ALTER TABLE jobs", "ALTER TABLE job_events", "ALTER TABLE alert_rules",
+		"ALTER TABLE maintenance_windows", "ALTER TABLE alert_incidents",
+		"ALTER TABLE alert_events", "ALTER TABLE cloud_accounts", "ALTER TABLE cloud_instances",
+		"SET NOT NULL", "FOREIGN KEY (organization_id, site_id)",
+		"ADD COLUMN IF NOT EXISTS", "consumed_by_agent_id", "REFERENCES agents(id)",
+		"PRIMARY KEY (organization_id, site_id, agent_id, recorded_at)",
+		"UNIQUE (organization_id, site_id, provider, external_id)",
+		"site scope backfill incomplete",
+	} {
+		if !strings.Contains(contents, required) {
+			t.Errorf("site migration must contain %q", required)
+		}
 	}
 }
 
