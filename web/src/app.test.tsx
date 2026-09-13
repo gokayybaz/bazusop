@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { App } from "./app"
+import { LandingPage } from "./landing-page"
 
 describe("bazUSOP shell", () => {
   beforeEach(() => {
@@ -31,6 +32,21 @@ describe("bazUSOP shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Filo" }))
     expect(screen.getByRole("heading", { name: "Sunucu filosu" })).toBeInTheDocument()
     expect(screen.getByRole("table", { name: "Sunucu sağlığı" })).toBeInTheDocument()
+  })
+
+  it("presents a verifiable public product story", () => {
+    render(<LandingPage />)
+
+    expect(screen.getByRole("heading", { name: "Sunucu operasyonları için tek çalışma yüzeyi." })).toBeInTheDocument()
+    expect(screen.getByRole("navigation", { name: "Landing page navigasyonu" })).toBeInTheDocument()
+    expect(screen.getByRole("region", { name: "Canlı operasyon görünümü" })).toBeInTheDocument()
+    expect(screen.getByRole("list", { name: "Platform kabiliyetleri" }).children).toHaveLength(4)
+    expect(screen.getByRole("heading", { name: "Sinyalden müdahaleye, bağlam kaybetmeden." })).toBeInTheDocument()
+    expect(screen.getByRole("heading", { name: "Kimlikten başlayan güvenlik." })).toBeInTheDocument()
+    expect(screen.getAllByRole("link", { name: /GitHub'da incele/ })[0]).toHaveAttribute(
+      "href",
+      "https://github.com/gokayybaz/bazusop",
+    )
   })
 
   it("opens application pages directly from their URL", async () => {
