@@ -133,9 +133,10 @@ jobs:
       - uses: sigstore/cosign-installer@v4.1.2
       - name: Manifesti oluştur ve keyless imzala
         run: |
-          ./scripts/write-checksums.sh release-assets
-          cosign sign-blob release-assets/checksums.txt --bundle release-assets/checksums.txt.sigstore.json --yes
+          ./scripts/collect-release-assets.sh release-assets release-files
+          ./scripts/write-checksums.sh release-files
+          cosign sign-blob release-files/checksums.txt --bundle release-files/checksums.txt.sigstore.json --yes
       - name: GitHub sürümünü yayımla
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" release-assets/* --verify-tag --generate-notes --title "bazUSOP ${GITHUB_REF_NAME}"
+        run: gh release create "$GITHUB_REF_NAME" release-files/* --verify-tag --generate-notes --prerelease --title "bazUSOP ${GITHUB_REF_NAME}"

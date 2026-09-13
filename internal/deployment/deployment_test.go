@@ -150,6 +150,18 @@ func TestNativePackagesAndSignedReleaseAreDefined(t *testing.T) {
 			t.Errorf("signed package workflow must contain %q", required)
 		}
 	}
+	for _, required := range []string{"collect-release-assets.sh", "release-files/checksums.txt", "release-files/*"} {
+		if !strings.Contains(workflow, required) {
+			t.Errorf("release publishing must flatten and checksum every artifact with %q", required)
+		}
+	}
+
+	collector := readProjectFile(t, "scripts/collect-release-assets.sh")
+	for _, required := range []string{"find \"$source_directory\" -type f", "basename", "Aynı adlı release artifact"} {
+		if !strings.Contains(collector, required) {
+			t.Errorf("release artifact collector must contain %q", required)
+		}
+	}
 }
 
 func TestAgentNativePackagesInstallManagedServices(t *testing.T) {
