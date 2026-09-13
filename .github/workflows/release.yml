@@ -93,7 +93,7 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
       - name: İmaj kimliğini hazırla
         id: image
         run: |
@@ -130,7 +130,7 @@ jobs:
           pattern: release-*
           merge-multiple: true
           path: release-assets
-      - uses: sigstore/cosign-installer@v4
+      - uses: sigstore/cosign-installer@v4.1.2
       - name: Manifesti oluştur ve keyless imzala
         run: |
           ./scripts/write-checksums.sh release-assets

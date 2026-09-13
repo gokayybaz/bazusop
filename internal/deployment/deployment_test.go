@@ -125,6 +125,11 @@ func TestReleaseBuildProducesVersionedCrossPlatformArtifacts(t *testing.T) {
 func TestNativePackagesAndSignedReleaseAreDefined(t *testing.T) {
 	t.Parallel()
 
+	goModule := readProjectFile(t, "go.mod")
+	if !strings.Contains(goModule, "go 1.26.4") {
+		t.Error("release toolchain must satisfy nFPM's minimum Go 1.26.4 requirement")
+	}
+
 	nfpm := readProjectFile(t, "packaging/nfpm.yaml")
 	for _, required := range []string{"name: bazusop-hub", "${VERSION}", "${ARCH}", "bazusop-hub.service", "upgrade-hub.sh"} {
 		if !strings.Contains(nfpm, required) {
@@ -140,7 +145,7 @@ func TestNativePackagesAndSignedReleaseAreDefined(t *testing.T) {
 	}
 
 	workflow := readProjectFile(t, ".github/workflows/release.yml")
-	for _, required := range []string{"nfpm@v2.47.0", "wix --version 4.0.6", "cosign-installer@v4", "cosign sign-blob", "cosign sign --yes", "docker/build-push-action", "id-token: write", "packages: write"} {
+	for _, required := range []string{"nfpm@v2.47.0", "wix --version 4.0.6", "cosign-installer@v4.1.2", "cosign sign-blob", "cosign sign --yes", "docker/build-push-action", "id-token: write", "packages: write"} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("signed package workflow must contain %q", required)
 		}
@@ -165,7 +170,7 @@ func TestAgentNativePackagesInstallManagedServices(t *testing.T) {
 	}
 
 	wix := readProjectFile(t, "packaging/windows/AgentPackage.wxs")
-	for _, required := range []string{"bazusop-agent.exe", "ServiceInstall", "ServiceControl", "ProgramDataFolder", "BAZUSOP_AGENT_STATE_DIR", "MajorUpgrade"} {
+	for _, required := range []string{"bazusop-agent.exe", "ServiceInstall", "ServiceControl", "CommonAppDataFolder", "BAZUSOP_AGENT_STATE_DIR", "MajorUpgrade"} {
 		if !strings.Contains(wix, required) {
 			t.Errorf("agent WiX package must contain %q", required)
 		}
@@ -195,6 +200,12 @@ func TestAgentNativePackagesInstallManagedServices(t *testing.T) {
 	for _, required := range []string{"AgentPackage.wxs", "bazusop-agent_${version}_windows_amd64.msi", "bazusop-agent.exe"} {
 		if !strings.Contains(workflow, required) {
 			t.Errorf("release workflow must build agent MSI with %q", required)
+		}
+	}
+	ciWorkflow := readProjectFile(t, ".github/workflows/ci.yml")
+	for _, required := range []string{"AgentPackage.wxs", "bazusop-agent_0.0.0_windows_amd64.msi"} {
+		if !strings.Contains(ciWorkflow, required) {
+			t.Errorf("CI must compile the agent MSI contract with %q", required)
 		}
 	}
 }

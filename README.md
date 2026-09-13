@@ -44,7 +44,7 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
 
 ## Hızlı başlangıç
 
-Gereksinimler: Go 1.26+, Node.js 24+ ve npm.
+Gereksinimler: Go 1.26.4+, Node.js 24+ ve npm.
 
 ```bash
 make test

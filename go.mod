@@ -1,6 +1,6 @@
 module github.com/gokayybaz/bazusop
 
-go 1.26.0
+go 1.26.4
 
 require (
 	github.com/jackc/pgx/v5 v5.11.0

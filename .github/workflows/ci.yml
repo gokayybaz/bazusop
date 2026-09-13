@@ -74,3 +74,4 @@ jobs:
           go build -trimpath -ldflags "-s -w -X github.com/gokayybaz/bazusop/internal/version.Version=0.0.0-ci" -o dist/windows/bazusop-agent.exe ./cmd/bazusop-agent
           dotnet tool install --global wix --version 4.0.6
           wix build packaging/windows/Package.wxs -arch x64 -d "Version=0.0.0" -d "SourceDir=$pwd\dist\windows" -o dist/bazusop-hub_0.0.0_windows_amd64.msi
+          wix build packaging/windows/AgentPackage.wxs -arch x64 -d "Version=0.0.0" -d "SourceDir=$pwd\dist\windows" -o dist/bazusop-agent_0.0.0_windows_amd64.msi

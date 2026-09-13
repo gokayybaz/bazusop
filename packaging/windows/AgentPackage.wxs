@@ -32,7 +32,7 @@
       </Directory>
     </StandardDirectory>
 
-    <StandardDirectory Id="ProgramDataFolder">
+    <StandardDirectory Id="CommonAppDataFolder">
       <Directory Id="BazusopDataFolder" Name="bazUSOP">
         <Directory Id="AgentStateFolder" Name="agent">
           <Component Id="AgentState" Guid="48D7F092-02A5-4F44-9F62-60130B3F0265" Bitness="always64">
