@@ -188,7 +188,7 @@ func evaluateReachability(ctx context.Context, logger *slog.Logger, inventorySer
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			hosts, err := inventoryService.List(ctx)
+			hosts, err := inventoryService.List(ctx, tenancy.DefaultScope())
 			if err != nil {
 				logger.Error("could not evaluate reachability alerts", "error", err)
 				continue

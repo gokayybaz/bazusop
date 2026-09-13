@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 var (
@@ -84,7 +85,7 @@ type Store interface {
 }
 
 type HostLister interface {
-	List(context.Context) ([]inventory.Host, error)
+	List(context.Context, tenancy.Scope) ([]inventory.Host, error)
 }
 
 type Service struct {
@@ -141,7 +142,7 @@ func (service *Service) Reconcile(ctx context.Context, accountID string, discove
 	if err != nil {
 		return nil, err
 	}
-	hosts, err := service.hosts.List(ctx)
+	hosts, err := service.hosts.List(ctx, tenancy.DefaultScope())
 	if err != nil {
 		return nil, err
 	}

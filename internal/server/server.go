@@ -19,6 +19,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 	"github.com/gokayybaz/bazusop/internal/webui"
 )
 
@@ -285,7 +286,7 @@ func handleInventoryReport(authority *enrollment.Authority, service *inventory.S
 			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-		agentID, err := authority.Authenticate(request.TLS.PeerCertificates[0])
+		agent, err := authority.AuthenticateContext(request.Context(), request.TLS.PeerCertificates[0])
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
@@ -294,7 +295,7 @@ func handleInventoryReport(authority *enrollment.Authority, service *inventory.S
 		if err := decodeJSON(response, request, &facts); err != nil {
 			return
 		}
-		if err := service.Report(request.Context(), agentID, facts); errors.Is(err, inventory.ErrInvalidFacts) {
+		if err := service.Report(request.Context(), agent, facts); errors.Is(err, inventory.ErrInvalidFacts) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		} else if err != nil {
@@ -307,7 +308,7 @@ func handleInventoryReport(authority *enrollment.Authority, service *inventory.S
 
 func handleListInstances(service *inventory.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		instances, err := service.List(request.Context())
+		instances, err := service.List(request.Context(), tenancy.DefaultScope())
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 			return

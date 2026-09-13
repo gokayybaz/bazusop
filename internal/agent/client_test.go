@@ -21,6 +21,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
@@ -61,7 +62,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 		t.Fatalf("report inventory: %v", err)
 	}
 
-	hosts, err := inventoryService.List(context.Background())
+	hosts, err := inventoryService.List(context.Background(), tenancy.DefaultScope())
 	if err != nil || len(hosts) != 1 {
 		t.Fatalf("expected reported host, hosts=%#v err=%v", hosts, err)
 	}

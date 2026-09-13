@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/inventory"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func TestDiscoveryReconcilesOnlyVerifiedAgentIdentityAutomatically(t *testing.T) {
@@ -13,7 +14,7 @@ func TestDiscoveryReconcilesOnlyVerifiedAgentIdentityAutomatically(t *testing.T)
 	ctx := context.Background()
 	now := time.Date(2026, 9, 11, 18, 0, 0, 0, time.UTC)
 	hosts := inventory.NewService(inventory.NewMemoryStore(), inventory.WithClock(func() time.Time { return now }))
-	if err := hosts.Report(ctx, "agent-01", inventory.Facts{Hostname: "edge-01.example.com", OSFamily: "linux", OSName: "Ubuntu", OSVersion: "24.04", Architecture: "amd64", CPUCores: 4, MemoryBytes: 8 << 30, IPAddresses: []string{"10.0.0.8"}, AgentVersion: "0.1.0"}); err != nil {
+	if err := hosts.Report(ctx, tenancy.Agent{ID: "agent-01", OrganizationID: "org_default", SiteID: "site_default"}, inventory.Facts{Hostname: "edge-01.example.com", OSFamily: "linux", OSName: "Ubuntu", OSVersion: "24.04", Architecture: "amd64", CPUCores: 4, MemoryBytes: 8 << 30, IPAddresses: []string{"10.0.0.8"}, AgentVersion: "0.1.0"}); err != nil {
 		t.Fatalf("seed host: %v", err)
 	}
 
