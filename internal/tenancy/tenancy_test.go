@@ -21,6 +21,7 @@ func TestScopeRejectsMissingOrOversizedIdentifiers(t *testing.T) {
 		{},
 		{OrganizationID: DefaultOrganizationID},
 		{OrganizationID: strings.Repeat("x", 129), SiteID: DefaultSiteID},
+		{OrganizationID: DefaultOrganizationID, SiteID: strings.Repeat("x", 129)},
 	} {
 		if !errors.Is(scope.Validate(), ErrInvalidScope) {
 			t.Fatalf("expected invalid scope for %#v", scope)
@@ -32,5 +33,17 @@ func TestAgentRequiresIDAndValidScope(t *testing.T) {
 	agent := Agent{ID: "agent-1", OrganizationID: DefaultOrganizationID, SiteID: DefaultSiteID}
 	if err := agent.Validate(); err != nil {
 		t.Fatalf("valid agent rejected: %v", err)
+	}
+
+	for _, agent := range []Agent{
+		{ID: "", OrganizationID: DefaultOrganizationID, SiteID: DefaultSiteID},
+		{ID: "   ", OrganizationID: DefaultOrganizationID, SiteID: DefaultSiteID},
+		{ID: strings.Repeat("x", 129), OrganizationID: DefaultOrganizationID, SiteID: DefaultSiteID},
+		{ID: "agent-1", SiteID: DefaultSiteID},
+		{ID: "agent-1", OrganizationID: DefaultOrganizationID},
+	} {
+		if !errors.Is(agent.Validate(), ErrInvalidScope) {
+			t.Fatalf("expected invalid agent for %#v", agent)
+		}
 	}
 }
