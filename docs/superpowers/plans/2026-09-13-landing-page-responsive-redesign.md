@@ -256,7 +256,7 @@ git commit -m "fix: stabilize landing page layouts"
 
 **Interfaces:**
 - Consumes: the landing component and stylesheet from Tasks 1 and 2
-- Produces: a verified `web/landing-dist/` GitHub Pages artifact without changing the normal application build contract
+- Produces: a verified `landing-dist/` GitHub Pages artifact without changing the normal application build contract
 
 - [ ] **Step 1: Run the full component test suite**
 
@@ -273,7 +273,7 @@ cd web && npm run build
 cd web && npm run build:landing
 ```
 
-Expected: both commands exit with code 0; the landing build emits `web/landing-dist/index.html` and hashed assets.
+Expected: both commands exit with code 0; the landing build emits `landing-dist/index.html` and hashed assets.
 
 - [ ] **Step 3: Inspect all required viewports**
 

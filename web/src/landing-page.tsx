@@ -114,7 +114,7 @@ export function LandingPage() {
                 <div className="surface-content">
                   <div className="surface-heading">
                     <div><span>Filo sağlığı</span><strong>Tüm sistemler izleniyor</strong></div>
-                    <button type="button">Son 24 saat</button>
+                    <span className="surface-range">Son 24 saat</span>
                   </div>
 
                   <div className="surface-stats" aria-label="Örnek filo durumu">

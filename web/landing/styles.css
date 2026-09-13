@@ -1152,6 +1152,14 @@ button {
     display: none;
   }
 
+  .surface-body {
+    display: block;
+  }
+
+  .surface-rail {
+    display: none;
+  }
+
   .section-heading {
     grid-template-columns: minmax(110px, 0.32fr) minmax(0, 1fr);
   }
