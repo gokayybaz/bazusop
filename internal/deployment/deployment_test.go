@@ -35,6 +35,37 @@ func TestCIExercisesPostgresIntegration(t *testing.T) {
 	}
 }
 
+func TestReleaseSmokeUsesAnIsolatedComposeStack(t *testing.T) {
+	t.Parallel()
+
+	makefile := readProjectFile(t, "Makefile")
+	if !strings.Contains(makefile, "smoke-compose:") || !strings.Contains(makefile, "scripts/smoke-compose.sh") {
+		t.Error("Makefile must expose the isolated Compose smoke test")
+	}
+
+	script := readProjectFile(t, "scripts/smoke-compose.sh")
+	for _, required := range []string{
+		"set -euo pipefail",
+		"docker compose",
+		"--project-name",
+		"up --detach --build --wait",
+		"/api/v1/health",
+		"/api/v1/system/configuration",
+		"BAZUSOP_TEST_DATABASE_URL",
+		"go test -count=1 ./internal/storage/postgres -run TestPostgres",
+		"down --volumes",
+	} {
+		if !strings.Contains(script, required) {
+			t.Errorf("Compose smoke test must contain %q", required)
+		}
+	}
+
+	workflow := readProjectFile(t, ".github/workflows/ci.yml")
+	if !strings.Contains(workflow, "make smoke-compose") {
+		t.Error("CI must execute the isolated Compose smoke test")
+	}
+}
+
 func TestHelmChartDefinesScalableSafeWorkload(t *testing.T) {
 	t.Parallel()
 

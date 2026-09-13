@@ -1,4 +1,4 @@
-.PHONY: build build-web release release-native test test-go test-web dev-web container compose-up compose-down helm-lint clean
+.PHONY: build build-web release release-native test test-go test-web dev-web container compose-up compose-down smoke-compose helm-lint clean
 
 GOCACHE ?= /tmp/bazusop-go-cache
 VERSION ?= dev
@@ -40,6 +40,9 @@ compose-up:
 
 compose-down:
 	docker compose down
+
+smoke-compose:
+	./scripts/smoke-compose.sh
 
 helm-lint:
 	docker run --rm -v "$(CURDIR):/work" alpine/helm:3.18.6 lint /work/deploy/helm/bazusop

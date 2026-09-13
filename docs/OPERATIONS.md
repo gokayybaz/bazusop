@@ -39,6 +39,16 @@ POSTGRES_PASSWORD=yerel-parola BAZUSOP_ENROLLMENT_TOKEN=yerel-token BAZUSOP_OPER
 Compose TimescaleDB PostgreSQL 18 imajını kullanır, database health bekler ve hub
 başlangıcında migration’ları uygular.
 
+İzole bir Compose projesinde container build, hub sağlık/yapılandırma uçları ve
+gerçek PostgreSQL entegrasyon testlerini tek seferde doğrulamak için:
+
+```bash
+make smoke-compose
+```
+
+Komut rastgele bir Docker proje adı ve host portu kullanır; tamamlandığında test
+container'larını, network'ü ve geçici veritabanı volume'ünü otomatik kaldırır.
+
 ## Sürüm üretimi ve doğrulama
 
 SemVer sürüm arşivlerini üret:
