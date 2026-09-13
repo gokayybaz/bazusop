@@ -24,6 +24,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	postgresstore "github.com/gokayybaz/bazusop/internal/storage/postgres"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 	"github.com/gokayybaz/bazusop/internal/version"
 )
 
@@ -73,7 +74,7 @@ func main() {
 			logger.Error("could not initialize PostgreSQL inventory store", "error", err)
 			os.Exit(1)
 		}
-		authority, err = enrollment.NewPersistentAuthority(startupContext, bootstrapToken, postgresStore)
+		authority, err = enrollment.NewPersistentAuthority(startupContext, bootstrapToken, tenancy.DefaultScope(), postgresStore)
 		cancel()
 		if err != nil {
 			postgresStore.Close()
