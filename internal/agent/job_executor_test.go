@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/gokayybaz/bazusop/internal/jobs"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func TestJobExecutorRunsJobSignedByPinnedEnrollmentAuthority(t *testing.T) {
@@ -149,11 +150,11 @@ func claimedJob(t *testing.T, signer ed25519.PrivateKey, agentID string, action 
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.Create(context.Background(), agentID, jobs.CreateRequest{Action: action, Target: target, ApprovedBy: "ops", Reason: "maintenance"})
+	_, err = service.Create(context.Background(), tenancy.DefaultScope(), agentID, jobs.CreateRequest{Action: action, Target: target, ApprovedBy: "ops", Reason: "maintenance"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	job, err := service.ClaimNext(context.Background(), agentID)
+	job, err := service.ClaimNext(context.Background(), tenancy.Agent{ID: agentID, OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID})
 	if err != nil || job == nil {
 		t.Fatalf("claim test job: %#v %v", job, err)
 	}

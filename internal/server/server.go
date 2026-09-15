@@ -575,7 +575,7 @@ func handleCreateJob(service *jobs.Service, tokens accessTokens) http.HandlerFun
 		if err := decodeJSON(response, request, &createRequest); err != nil {
 			return
 		}
-		job, err := service.Create(request.Context(), request.PathValue("agentID"), createRequest)
+		job, err := service.Create(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"), createRequest)
 		if errors.Is(err, jobs.ErrInvalidJob) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -860,7 +860,7 @@ func handleListJobs(service *jobs.Service) http.HandlerFunc {
 				return
 			}
 		}
-		values, err := service.List(request.Context(), request.PathValue("agentID"), limit)
+		values, err := service.List(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"), limit)
 		if errors.Is(err, jobs.ErrInvalidJob) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -877,7 +877,7 @@ func handleListJobs(service *jobs.Service) http.HandlerFunc {
 
 func handleJobEvents(service *jobs.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		events, err := service.Events(request.Context(), request.PathValue("agentID"), request.PathValue("jobID"))
+		events, err := service.Events(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"), request.PathValue("jobID"))
 		if errors.Is(err, jobs.ErrInvalidJob) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -898,11 +898,11 @@ func handleJobEvents(service *jobs.Service) http.HandlerFunc {
 
 func handleClaimJob(authority *enrollment.Authority, service *jobs.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		agentID, ok := authenticateAgent(response, request, authority)
+		agent, ok := authenticateAgent(response, request, authority)
 		if !ok {
 			return
 		}
-		job, err := service.ClaimNext(request.Context(), agentID)
+		job, err := service.ClaimNext(request.Context(), agent)
 		if errors.Is(err, jobs.ErrInvalidJob) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -921,7 +921,7 @@ func handleClaimJob(authority *enrollment.Authority, service *jobs.Service) http
 
 func handleReportJobEvent(authority *enrollment.Authority, service *jobs.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		agentID, ok := authenticateAgent(response, request, authority)
+		agent, ok := authenticateAgent(response, request, authority)
 		if !ok {
 			return
 		}
@@ -929,7 +929,7 @@ func handleReportJobEvent(authority *enrollment.Authority, service *jobs.Service
 		if err := decodeJSON(response, request, &eventRequest); err != nil {
 			return
 		}
-		job, err := service.Report(request.Context(), agentID, request.PathValue("jobID"), eventRequest)
+		job, err := service.Report(request.Context(), agent, request.PathValue("jobID"), eventRequest)
 		switch {
 		case errors.Is(err, jobs.ErrInvalidJob):
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
@@ -945,17 +945,17 @@ func handleReportJobEvent(authority *enrollment.Authority, service *jobs.Service
 	}
 }
 
-func authenticateAgent(response http.ResponseWriter, request *http.Request, authority *enrollment.Authority) (string, bool) {
+func authenticateAgent(response http.ResponseWriter, request *http.Request, authority *enrollment.Authority) (tenancy.Agent, bool) {
 	if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
 		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-		return "", false
+		return tenancy.Agent{}, false
 	}
-	agentID, err := authority.Authenticate(request.TLS.PeerCertificates[0])
+	agent, err := authority.AuthenticateContext(request.Context(), request.TLS.PeerCertificates[0])
 	if err != nil {
 		http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-		return "", false
+		return tenancy.Agent{}, false
 	}
-	return agentID, true
+	return agent, true
 }
 
 func decodeJSON(response http.ResponseWriter, request *http.Request, target any) error {

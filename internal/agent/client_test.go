@@ -93,7 +93,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	if err != nil || len(entries) != 1 || entries[0].Message != "retrying upstream" {
 		t.Fatalf("expected reported logs, entries=%#v err=%v", entries, err)
 	}
-	created, err := jobService.Create(context.Background(), identity.AgentID, jobs.CreateRequest{Action: jobs.ActionServiceRestart, Target: "nginx.service", ApprovedBy: "ops", Reason: "deploy"})
+	created, err := jobService.Create(context.Background(), tenancy.DefaultScope(), identity.AgentID, jobs.CreateRequest{Action: jobs.ActionServiceRestart, Target: "nginx.service", ApprovedBy: "ops", Reason: "deploy"})
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -104,7 +104,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	if err := client.ReportJobEvent(context.Background(), identity, claimed.ID, jobs.EventRequest{Sequence: 2, Type: jobs.EventSucceeded, Message: "nginx restarted"}); err != nil {
 		t.Fatalf("report job event: %v", err)
 	}
-	events, err := jobService.Events(context.Background(), identity.AgentID, claimed.ID)
+	events, err := jobService.Events(context.Background(), tenancy.DefaultScope(), identity.AgentID, claimed.ID)
 	if err != nil || len(events) != 3 || events[2].Type != jobs.EventSucceeded {
 		t.Fatalf("expected completed job audit, events=%#v err=%v", events, err)
 	}
