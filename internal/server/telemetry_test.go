@@ -13,6 +13,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func TestAgentTelemetryReachesInstanceHistory(t *testing.T) {
@@ -26,6 +27,7 @@ func TestAgentTelemetryReachesInstanceHistory(t *testing.T) {
 	)
 	recordedAt := time.Date(2026, time.September, 11, 4, 0, 0, 0, time.UTC)
 	report := httptest.NewRequest(http.MethodPost, "/api/v1/agents/telemetry", encodeJSON(t, telemetry.Sample{
+		AgentID: "forged-agent", OrganizationID: "forged-org", SiteID: "forged-site",
 		RecordedAt:     recordedAt,
 		CPUPercent:     42.5,
 		MemoryPercent:  63.4,
@@ -41,9 +43,10 @@ func TestAgentTelemetryReachesInstanceHistory(t *testing.T) {
 	}
 
 	query := url.Values{
-		"from":  []string{recordedAt.Add(-time.Minute).Format(time.RFC3339)},
-		"to":    []string{recordedAt.Add(time.Minute).Format(time.RFC3339)},
-		"limit": []string{"100"},
+		"from":            []string{recordedAt.Add(-time.Minute).Format(time.RFC3339)},
+		"to":              []string{recordedAt.Add(time.Minute).Format(time.RFC3339)},
+		"limit":           []string{"100"},
+		"organization_id": []string{"forged-org"}, "site_id": []string{"forged-site"},
 	}
 	history := httptest.NewRequest(http.MethodGet, "/api/v1/instances/"+identity.AgentID+"/telemetry?"+query.Encode(), nil)
 	historyResponse := httptest.NewRecorder()
@@ -60,6 +63,9 @@ func TestAgentTelemetryReachesInstanceHistory(t *testing.T) {
 	}
 	if payload.Latest == nil || payload.Latest.CPUPercent != 42.5 || len(payload.Samples) != 1 {
 		t.Fatalf("expected current and historical telemetry, got %#v", payload)
+	}
+	if payload.Latest.AgentID != identity.AgentID || payload.Latest.OrganizationID != tenancy.DefaultOrganizationID || payload.Latest.SiteID != tenancy.DefaultSiteID {
+		t.Fatalf("untrusted telemetry scope: %#v", payload.Latest)
 	}
 }
 

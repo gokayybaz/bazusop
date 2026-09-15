@@ -73,7 +73,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	if err := client.ReportTelemetry(context.Background(), identity, telemetry.Sample{RecordedAt: recordedAt, CPUPercent: 12.5, MemoryPercent: 40, DiskPercent: 50}); err != nil {
 		t.Fatalf("report telemetry: %v", err)
 	}
-	samples, err := telemetryService.History(context.Background(), identity.AgentID, recordedAt.Add(-time.Second), recordedAt.Add(time.Second), 10)
+	samples, err := telemetryService.History(context.Background(), tenancy.DefaultScope(), identity.AgentID, recordedAt.Add(-time.Second), recordedAt.Add(time.Second), 10)
 	if err != nil || len(samples) != 1 || samples[0].CPUPercent != 12.5 {
 		t.Fatalf("expected reported telemetry, samples=%#v err=%v", samples, err)
 	}
@@ -81,7 +81,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	if err := client.ReportServices(context.Background(), identity, serviceSnapshot); err != nil {
 		t.Fatalf("report services: %v", err)
 	}
-	services, err := serviceInventory.List(context.Background(), identity.AgentID, serviceinventory.Filter{})
+	services, err := serviceInventory.List(context.Background(), tenancy.DefaultScope(), identity.AgentID, serviceinventory.Filter{})
 	if err != nil || len(services) != 1 || services[0].Name != "nginx.service" {
 		t.Fatalf("expected reported services, services=%#v err=%v", services, err)
 	}
@@ -89,7 +89,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	if err := client.ReportLogs(context.Background(), identity, logstream.Batch{Entries: []logstream.Entry{{OccurredAt: logTime, Collector: "journald", Source: "nginx.service", Severity: "warn", Message: "retrying upstream"}}}); err != nil {
 		t.Fatalf("report logs: %v", err)
 	}
-	entries, err := logs.Search(context.Background(), logstream.Query{AgentID: identity.AgentID, From: recordedAt, To: logTime.Add(time.Second), Limit: 10})
+	entries, err := logs.Search(context.Background(), logstream.Query{Scope: tenancy.DefaultScope(), AgentID: identity.AgentID, From: recordedAt, To: logTime.Add(time.Second), Limit: 10})
 	if err != nil || len(entries) != 1 || entries[0].Message != "retrying upstream" {
 		t.Fatalf("expected reported logs, entries=%#v err=%v", entries, err)
 	}

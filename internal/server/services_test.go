@@ -12,6 +12,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func TestEnrolledAgentReportsFilterableServices(t *testing.T) {
@@ -57,6 +58,9 @@ func TestEnrolledAgentReportsFilterableServices(t *testing.T) {
 	}
 	if len(payload.Services) != 1 || payload.Services[0].Name != "nginx.service" {
 		t.Fatalf("expected filtered nginx service, got %#v", payload.Services)
+	}
+	if payload.Services[0].AgentID != identity.AgentID || payload.Services[0].OrganizationID != tenancy.DefaultOrganizationID || payload.Services[0].SiteID != tenancy.DefaultSiteID {
+		t.Fatalf("untrusted service scope: %#v", payload.Services)
 	}
 }
 

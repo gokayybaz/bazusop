@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gokayybaz/bazusop/internal/tenancy"
+
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
@@ -16,7 +18,7 @@ func TestSamplesAreValidatedAndReturnedChronologically(t *testing.T) {
 	start := time.Date(2026, time.September, 11, 3, 0, 0, 0, time.UTC)
 
 	for index, cpu := range []float64{42.5, 51.2, 47.8} {
-		err := service.Report(context.Background(), "agent-01", telemetry.Sample{
+		err := service.Report(context.Background(), tenancy.Agent{ID: "agent-01", OrganizationID: "org_default", SiteID: "site_default"}, telemetry.Sample{
 			RecordedAt:     start.Add(time.Duration(index) * time.Minute),
 			CPUPercent:     cpu,
 			MemoryPercent:  63.4,
@@ -29,7 +31,7 @@ func TestSamplesAreValidatedAndReturnedChronologically(t *testing.T) {
 		}
 	}
 
-	samples, err := service.History(context.Background(), "agent-01", start.Add(30*time.Second), start.Add(3*time.Minute), 2)
+	samples, err := service.History(context.Background(), tenancy.DefaultScope(), "agent-01", start.Add(30*time.Second), start.Add(3*time.Minute), 2)
 	if err != nil {
 		t.Fatalf("query history: %v", err)
 	}
@@ -45,7 +47,7 @@ func TestInvalidSampleIsRejected(t *testing.T) {
 	t.Parallel()
 
 	service := telemetry.NewService(telemetry.NewMemoryStore())
-	err := service.Report(context.Background(), "agent-01", telemetry.Sample{
+	err := service.Report(context.Background(), tenancy.Agent{ID: "agent-01", OrganizationID: "org_default", SiteID: "site_default"}, telemetry.Sample{
 		RecordedAt:    time.Now(),
 		CPUPercent:    101,
 		MemoryPercent: 50,

@@ -325,7 +325,7 @@ func handleTelemetryReport(authority *enrollment.Authority, service *telemetry.S
 			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-		agentID, err := authority.Authenticate(request.TLS.PeerCertificates[0])
+		agent, err := authority.AuthenticateContext(request.Context(), request.TLS.PeerCertificates[0])
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
@@ -335,7 +335,7 @@ func handleTelemetryReport(authority *enrollment.Authority, service *telemetry.S
 			return
 		}
 		sample.RecordedAt = sample.RecordedAt.UTC().Truncate(time.Microsecond)
-		if err := service.Report(request.Context(), agentID, sample); errors.Is(err, telemetry.ErrInvalidSample) {
+		if err := service.Report(request.Context(), agent, sample); errors.Is(err, telemetry.ErrInvalidSample) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		} else if err != nil {
@@ -347,13 +347,13 @@ func handleTelemetryReport(authority *enrollment.Authority, service *telemetry.S
 			if !sample.RecordedAt.Before(upperBound) {
 				upperBound = sample.RecordedAt.Add(time.Second)
 			}
-			latest, err := service.History(request.Context(), agentID, sample.RecordedAt, upperBound, 1)
+			latest, err := service.History(request.Context(), agent.Scope(), agent.ID, sample.RecordedAt, upperBound, 1)
 			if err != nil {
 				http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 				return
 			}
 			if len(latest) > 0 && latest[len(latest)-1].RecordedAt.Equal(sample.RecordedAt) {
-				if err := alerts.EvaluateTelemetry(request.Context(), agentID, alerting.Telemetry{CPUPercent: sample.CPUPercent, MemoryPercent: sample.MemoryPercent, DiskPercent: sample.DiskPercent}); err != nil {
+				if err := alerts.EvaluateTelemetry(request.Context(), agent.ID, alerting.Telemetry{CPUPercent: sample.CPUPercent, MemoryPercent: sample.MemoryPercent, DiskPercent: sample.DiskPercent}); err != nil {
 					http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 					return
 				}
@@ -391,7 +391,7 @@ func handleTelemetryHistory(service *telemetry.Service) http.HandlerFunc {
 			}
 		}
 
-		samples, err := service.History(request.Context(), request.PathValue("agentID"), from, to, limit)
+		samples, err := service.History(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"), from, to, limit)
 		if errors.Is(err, telemetry.ErrInvalidSample) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -417,7 +417,7 @@ func handleServiceReport(authority *enrollment.Authority, service *serviceinvent
 			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-		agentID, err := authority.Authenticate(request.TLS.PeerCertificates[0])
+		agent, err := authority.AuthenticateContext(request.Context(), request.TLS.PeerCertificates[0])
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
@@ -426,7 +426,7 @@ func handleServiceReport(authority *enrollment.Authority, service *serviceinvent
 		if err := decodeJSON(response, request, &snapshot); err != nil {
 			return
 		}
-		if err := service.Report(request.Context(), agentID, snapshot); errors.Is(err, serviceinventory.ErrInvalidSnapshot) {
+		if err := service.Report(request.Context(), agent, snapshot); errors.Is(err, serviceinventory.ErrInvalidSnapshot) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		} else if err != nil {
@@ -443,7 +443,7 @@ func handleListServices(service *serviceinventory.Manager) http.HandlerFunc {
 			State: serviceinventory.State(request.URL.Query().Get("state")),
 			Query: request.URL.Query().Get("q"),
 		}
-		services, err := service.List(request.Context(), request.PathValue("agentID"), filter)
+		services, err := service.List(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"), filter)
 		if errors.Is(err, serviceinventory.ErrInvalidSnapshot) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -464,7 +464,7 @@ func handleLogIngest(authority *enrollment.Authority, service *logstream.Service
 			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
 		}
-		agentID, err := authority.Authenticate(request.TLS.PeerCertificates[0])
+		agent, err := authority.AuthenticateContext(request.Context(), request.TLS.PeerCertificates[0])
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
@@ -473,7 +473,7 @@ func handleLogIngest(authority *enrollment.Authority, service *logstream.Service
 		if err := decodeJSON(response, request, &batch); err != nil {
 			return
 		}
-		if err := service.Ingest(request.Context(), agentID, batch); errors.Is(err, logstream.ErrInvalidLogs) {
+		if err := service.Ingest(request.Context(), agent, batch); errors.Is(err, logstream.ErrInvalidLogs) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		} else if err != nil {
@@ -511,7 +511,7 @@ func handleSearchLogs(service *logstream.Service) http.HandlerFunc {
 				return
 			}
 		}
-		entries, err := service.Search(request.Context(), logstream.Query{
+		entries, err := service.Search(request.Context(), logstream.Query{Scope: tenancy.DefaultScope(),
 			AgentID: request.PathValue("agentID"), From: from, To: to,
 			Collector: logstream.Collector(request.URL.Query().Get("collector")),
 			Severity:  logstream.Severity(request.URL.Query().Get("severity")),
@@ -538,7 +538,7 @@ func handleStreamLogs(service *logstream.Service) http.HandlerFunc {
 			http.Error(response, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
 			return
 		}
-		stream, err := service.Subscribe(request.Context(), request.PathValue("agentID"))
+		stream, err := service.Subscribe(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"))
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return

@@ -5,6 +5,8 @@ import (
 	"errors"
 	"testing"
 	"time"
+
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func TestReportNormalizesAndReplacesAgentServices(t *testing.T) {
@@ -13,7 +15,7 @@ func TestReportNormalizesAndReplacesAgentServices(t *testing.T) {
 	service := NewService(store)
 	observedAt := time.Date(2026, 9, 11, 4, 0, 0, 0, time.FixedZone("TRT", 3*60*60))
 
-	err := service.Report(context.Background(), " agent-01 ", Snapshot{
+	err := service.Report(context.Background(), tenancy.Agent{ID: " agent-01 ", OrganizationID: "org_default", SiteID: "site_default"}, Snapshot{
 		ObservedAt: observedAt,
 		Services: []Fact{
 			{Name: " SSH.Service ", DisplayName: " OpenSSH Server ", State: "RUNNING", StartupType: "Automatic"},
@@ -24,7 +26,7 @@ func TestReportNormalizesAndReplacesAgentServices(t *testing.T) {
 		t.Fatalf("report services: %v", err)
 	}
 
-	services, err := service.List(context.Background(), "agent-01", Filter{})
+	services, err := service.List(context.Background(), tenancy.DefaultScope(), "agent-01", Filter{})
 	if err != nil {
 		t.Fatalf("list services: %v", err)
 	}
@@ -41,13 +43,13 @@ func TestReportNormalizesAndReplacesAgentServices(t *testing.T) {
 		t.Fatalf("expected UTC observation time, got %s", services[1].ObservedAt)
 	}
 
-	if err := service.Report(context.Background(), "agent-01", Snapshot{
+	if err := service.Report(context.Background(), tenancy.Agent{ID: "agent-01", OrganizationID: "org_default", SiteID: "site_default"}, Snapshot{
 		ObservedAt: observedAt.Add(time.Minute),
 		Services:   []Fact{{Name: "ssh.service", State: "stopped", StartupType: "disabled"}},
 	}); err != nil {
 		t.Fatalf("replace services: %v", err)
 	}
-	services, err = service.List(context.Background(), "agent-01", Filter{})
+	services, err = service.List(context.Background(), tenancy.DefaultScope(), "agent-01", Filter{})
 	if err != nil || len(services) != 1 || services[0].State != StateStopped {
 		t.Fatalf("expected replacement snapshot, got %#v, %v", services, err)
 	}
@@ -57,7 +59,7 @@ func TestListFiltersServicesByStateAndQuery(t *testing.T) {
 	t.Parallel()
 	store := NewMemoryStore()
 	service := NewService(store)
-	if err := service.Report(context.Background(), "agent-01", Snapshot{
+	if err := service.Report(context.Background(), tenancy.Agent{ID: "agent-01", OrganizationID: "org_default", SiteID: "site_default"}, Snapshot{
 		ObservedAt: time.Now(),
 		Services: []Fact{
 			{Name: "nginx.service", DisplayName: "NGINX Web Server", State: "running", StartupType: "enabled"},
@@ -67,7 +69,7 @@ func TestListFiltersServicesByStateAndQuery(t *testing.T) {
 		t.Fatalf("report services: %v", err)
 	}
 
-	services, err := service.List(context.Background(), "agent-01", Filter{State: StateRunning, Query: "web"})
+	services, err := service.List(context.Background(), tenancy.DefaultScope(), "agent-01", Filter{State: StateRunning, Query: "web"})
 	if err != nil {
 		t.Fatalf("filter services: %v", err)
 	}
@@ -85,7 +87,7 @@ func TestReportRejectsInvalidSnapshot(t *testing.T) {
 		{ObservedAt: time.Now(), Services: []Fact{{Name: "nginx", State: "paused"}}},
 	}
 	for _, snapshot := range cases {
-		if err := service.Report(context.Background(), "agent-01", snapshot); !errors.Is(err, ErrInvalidSnapshot) {
+		if err := service.Report(context.Background(), tenancy.Agent{ID: "agent-01", OrganizationID: "org_default", SiteID: "site_default"}, snapshot); !errors.Is(err, ErrInvalidSnapshot) {
 			t.Fatalf("expected invalid snapshot for %#v, got %v", snapshot, err)
 		}
 	}

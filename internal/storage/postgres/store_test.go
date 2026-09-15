@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gokayybaz/bazusop/internal/logstream"
 )
@@ -16,11 +17,11 @@ func TestStorageMigrationsAreEmbeddedInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migrations: %v", err)
 	}
-	if len(entries) != 15 {
-		t.Fatalf("expected fifteen storage migrations, got %d", len(entries))
+	if len(entries) != 16 {
+		t.Fatalf("expected sixteen storage migrations, got %d", len(entries))
 	}
-	if entries[0].Name() != "001_hosts.sql" || entries[14].Name() != "015_organization_sites.sql" {
-		t.Fatalf("unexpected migration range: %s through %s", entries[0].Name(), entries[14].Name())
+	if entries[0].Name() != "001_hosts.sql" || entries[15].Name() != "016_scoped_service_log_keys.sql" {
+		t.Fatalf("unexpected migration range: %s through %s", entries[0].Name(), entries[len(entries)-1].Name())
 	}
 }
 
@@ -69,7 +70,7 @@ func TestLogNotificationsStayBelowPostgresPayloadLimit(t *testing.T) {
 	t.Parallel()
 	entries := make([]logstream.Entry, 1000)
 	for index := range entries {
-		entries[index] = logstream.Entry{ID: strings.Repeat("a", 28) + string(rune('A'+index%26)), Message: strings.Repeat("x", 64*1024)}
+		entries[index] = logstream.Entry{OrganizationID: strings.Repeat("o", 128), SiteID: strings.Repeat("s", 128), ID: strings.Repeat("a", 32), OccurredAt: time.Date(2026, 9, 13, 10, 0, 0, index*1000, time.UTC), Message: strings.Repeat("x", 64*1024)}
 	}
 
 	payloads, err := encodeLogNotificationBatches(entries)
@@ -81,11 +82,21 @@ func TestLogNotificationsStayBelowPostgresPayloadLimit(t *testing.T) {
 		if len(payload) >= postgresNotifyPayloadLimit {
 			t.Fatalf("notification payload is %d bytes", len(payload))
 		}
-		var ids []string
+		var ids []struct {
+			OrganizationID string    `json:"organization_id"`
+			SiteID         string    `json:"site_id"`
+			ID             string    `json:"id"`
+			OccurredAt     time.Time `json:"occurred_at"`
+		}
 		if err := json.Unmarshal([]byte(payload), &ids); err != nil {
 			t.Fatalf("decode notification: %v", err)
 		}
-		decoded += len(ids)
+		for _, identity := range ids {
+			if identity.OrganizationID != entries[decoded].OrganizationID || identity.SiteID != entries[decoded].SiteID || identity.ID != entries[decoded].ID || !identity.OccurredAt.Equal(entries[decoded].OccurredAt) {
+				t.Fatalf("notification lost scoped identity: %#v", identity)
+			}
+			decoded++
+		}
 		if strings.Contains(payload, strings.Repeat("x", 32)) {
 			t.Fatal("notification must not contain log message content")
 		}

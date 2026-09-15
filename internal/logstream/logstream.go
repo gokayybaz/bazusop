@@ -10,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 var ErrInvalidLogs = errors.New("invalid logs")
@@ -39,14 +41,16 @@ const (
 )
 
 type Entry struct {
-	ID         string    `json:"id,omitempty"`
-	AgentID    string    `json:"agent_id,omitempty"`
-	OccurredAt time.Time `json:"occurred_at"`
-	Collector  Collector `json:"collector"`
-	Source     string    `json:"source"`
-	Severity   Severity  `json:"severity"`
-	Message    string    `json:"message"`
-	SourceID   string    `json:"-"`
+	OrganizationID string    `json:"organization_id"`
+	SiteID         string    `json:"site_id"`
+	ID             string    `json:"id,omitempty"`
+	AgentID        string    `json:"agent_id,omitempty"`
+	OccurredAt     time.Time `json:"occurred_at"`
+	Collector      Collector `json:"collector"`
+	Source         string    `json:"source"`
+	Severity       Severity  `json:"severity"`
+	Message        string    `json:"message"`
+	SourceID       string    `json:"-"`
 }
 
 type Batch struct {
@@ -54,6 +58,7 @@ type Batch struct {
 }
 
 type Query struct {
+	Scope     tenancy.Scope
 	AgentID   string
 	From      time.Time
 	To        time.Time
@@ -72,21 +77,24 @@ type Store interface {
 // SharedLiveStore lets multiple hub processes share live log delivery through
 // their common durable store while the default memory store stays process-local.
 type SharedLiveStore interface {
-	SubscribeLogs(context.Context, string) (<-chan Entry, error)
+	SubscribeLogs(context.Context, tenancy.Scope, string) (<-chan Entry, error)
 }
 
 type Service struct {
 	store       Store
 	mu          sync.RWMutex
-	subscribers map[string]map[chan Entry]struct{}
+	subscribers map[tenancy.Agent]map[chan Entry]struct{}
 }
 
 func NewService(store Store) *Service {
-	return &Service{store: store, subscribers: make(map[string]map[chan Entry]struct{})}
+	return &Service{store: store, subscribers: make(map[tenancy.Agent]map[chan Entry]struct{})}
 }
 
-func (service *Service) Ingest(ctx context.Context, agentID string, batch Batch) error {
-	agentID = strings.TrimSpace(agentID)
+func (service *Service) Ingest(ctx context.Context, agent tenancy.Agent, batch Batch) error {
+	if err := agent.Validate(); err != nil {
+		return err
+	}
+	agentID := strings.TrimSpace(agent.ID)
 	if agentID == "" || len(batch.Entries) == 0 || len(batch.Entries) > MaxBatchEntries {
 		return ErrInvalidLogs
 	}
@@ -110,6 +118,7 @@ func (service *Service) Ingest(ctx context.Context, agentID string, batch Batch)
 			return ErrInvalidLogs
 		}
 		entries = append(entries, Entry{
+			OrganizationID: agent.OrganizationID, SiteID: agent.SiteID,
 			ID: id, AgentID: agentID, OccurredAt: candidate.OccurredAt.UTC(),
 			Collector: collector, Source: source, Severity: severity, Message: message,
 		})
@@ -127,6 +136,9 @@ func (service *Service) Ingest(ctx context.Context, agentID string, batch Batch)
 }
 
 func (service *Service) Search(ctx context.Context, query Query) ([]Entry, error) {
+	if err := query.Scope.Validate(); err != nil {
+		return nil, err
+	}
 	query.AgentID = strings.TrimSpace(query.AgentID)
 	query.Source = strings.TrimSpace(query.Source)
 	query.Text = strings.TrimSpace(query.Text)
@@ -152,27 +164,31 @@ func (service *Service) Search(ctx context.Context, query Query) ([]Entry, error
 	return service.store.SearchLogs(ctx, query)
 }
 
-func (service *Service) Subscribe(ctx context.Context, agentID string) (<-chan Entry, error) {
+func (service *Service) Subscribe(ctx context.Context, scope tenancy.Scope, agentID string) (<-chan Entry, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	agentID = strings.TrimSpace(agentID)
 	if agentID == "" {
 		return nil, ErrInvalidLogs
 	}
 	if shared, ok := service.store.(SharedLiveStore); ok {
-		return shared.SubscribeLogs(ctx, agentID)
+		return shared.SubscribeLogs(ctx, scope, agentID)
 	}
+	key := tenancy.Agent{ID: agentID, OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}
 	stream := make(chan Entry, LiveSubscriberBuffer)
 	service.mu.Lock()
-	if service.subscribers[agentID] == nil {
-		service.subscribers[agentID] = make(map[chan Entry]struct{})
+	if service.subscribers[key] == nil {
+		service.subscribers[key] = make(map[chan Entry]struct{})
 	}
-	service.subscribers[agentID][stream] = struct{}{}
+	service.subscribers[key][stream] = struct{}{}
 	service.mu.Unlock()
 	go func() {
 		<-ctx.Done()
 		service.mu.Lock()
-		delete(service.subscribers[agentID], stream)
-		if len(service.subscribers[agentID]) == 0 {
-			delete(service.subscribers, agentID)
+		delete(service.subscribers[key], stream)
+		if len(service.subscribers[key]) == 0 {
+			delete(service.subscribers, key)
 		}
 		service.mu.Unlock()
 	}()
@@ -182,7 +198,7 @@ func (service *Service) Subscribe(ctx context.Context, agentID string) (<-chan E
 func (service *Service) publish(entry Entry) {
 	service.mu.RLock()
 	defer service.mu.RUnlock()
-	for stream := range service.subscribers[entry.AgentID] {
+	for stream := range service.subscribers[tenancy.Agent{ID: entry.AgentID, OrganizationID: entry.OrganizationID, SiteID: entry.SiteID}] {
 		select {
 		case stream <- entry:
 		default:
@@ -230,31 +246,42 @@ func newID() (string, error) {
 
 type MemoryStore struct {
 	mu      sync.RWMutex
-	entries map[string][]Entry
+	entries map[tenancy.Agent][]Entry
 }
 
-func NewMemoryStore() *MemoryStore { return &MemoryStore{entries: make(map[string][]Entry)} }
+func NewMemoryStore() *MemoryStore { return &MemoryStore{entries: make(map[tenancy.Agent][]Entry)} }
 
 func (store *MemoryStore) AppendLogs(_ context.Context, entries []Entry) ([]Entry, error) {
+	for _, entry := range entries {
+		if err := (tenancy.Agent{ID: entry.AgentID, OrganizationID: entry.OrganizationID, SiteID: entry.SiteID}).Validate(); err != nil {
+			return nil, err
+		}
+	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	affected := make(map[string]struct{})
-	existingKeys := make(map[string]struct{})
+	affected := make(map[tenancy.Agent]struct{})
+	type logKey struct {
+		Scope tenancy.Scope
+		ID    string
+		At    time.Time
+	}
+	existingKeys := make(map[logKey]struct{})
 	for _, values := range store.entries {
 		for _, entry := range values {
-			existingKeys[entry.ID+"\x00"+entry.OccurredAt.UTC().Format(time.RFC3339Nano)] = struct{}{}
+			existingKeys[logKey{tenancy.Scope{OrganizationID: entry.OrganizationID, SiteID: entry.SiteID}, entry.ID, entry.OccurredAt.UTC()}] = struct{}{}
 		}
 	}
 	stored := make([]Entry, 0, len(entries))
 	for _, entry := range entries {
-		key := entry.ID + "\x00" + entry.OccurredAt.UTC().Format(time.RFC3339Nano)
+		key := logKey{tenancy.Scope{OrganizationID: entry.OrganizationID, SiteID: entry.SiteID}, entry.ID, entry.OccurredAt.UTC()}
 		if _, duplicate := existingKeys[key]; duplicate {
 			continue
 		}
 		existingKeys[key] = struct{}{}
-		store.entries[entry.AgentID] = append(store.entries[entry.AgentID], entry)
+		agent := tenancy.Agent{ID: entry.AgentID, OrganizationID: entry.OrganizationID, SiteID: entry.SiteID}
+		store.entries[agent] = append(store.entries[agent], entry)
 		stored = append(stored, entry)
-		affected[entry.AgentID] = struct{}{}
+		affected[agent] = struct{}{}
 	}
 	for agentID := range affected {
 		values := store.entries[agentID]
@@ -273,10 +300,13 @@ func (store *MemoryStore) AppendLogs(_ context.Context, entries []Entry) ([]Entr
 }
 
 func (store *MemoryStore) SearchLogs(_ context.Context, query Query) ([]Entry, error) {
+	if err := query.Scope.Validate(); err != nil {
+		return nil, err
+	}
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 	result := make([]Entry, 0)
-	for _, entry := range store.entries[query.AgentID] {
+	for _, entry := range store.entries[tenancy.Agent{ID: query.AgentID, OrganizationID: query.Scope.OrganizationID, SiteID: query.Scope.SiteID}] {
 		if entry.OccurredAt.Before(query.From) || entry.OccurredAt.After(query.To) {
 			continue
 		}

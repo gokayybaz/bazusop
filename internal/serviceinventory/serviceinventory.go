@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 var ErrInvalidSnapshot = errors.New("invalid service inventory snapshot")
@@ -42,12 +44,14 @@ type Snapshot struct {
 }
 
 type Service struct {
-	AgentID     string      `json:"agent_id"`
-	Name        string      `json:"name"`
-	DisplayName string      `json:"display_name"`
-	State       State       `json:"state"`
-	StartupType StartupType `json:"startup_type"`
-	ObservedAt  time.Time   `json:"observed_at"`
+	OrganizationID string      `json:"organization_id"`
+	SiteID         string      `json:"site_id"`
+	AgentID        string      `json:"agent_id"`
+	Name           string      `json:"name"`
+	DisplayName    string      `json:"display_name"`
+	State          State       `json:"state"`
+	StartupType    StartupType `json:"startup_type"`
+	ObservedAt     time.Time   `json:"observed_at"`
 }
 
 type Filter struct {
@@ -56,8 +60,8 @@ type Filter struct {
 }
 
 type Store interface {
-	ReplaceServices(context.Context, string, []Service) error
-	ListServices(context.Context, string, Filter) ([]Service, error)
+	ReplaceServices(context.Context, tenancy.Scope, string, []Service) error
+	ListServices(context.Context, tenancy.Scope, string, Filter) ([]Service, error)
 }
 
 type Manager struct {
@@ -68,8 +72,11 @@ func NewService(store Store) *Manager {
 	return &Manager{store: store}
 }
 
-func (manager *Manager) Report(ctx context.Context, agentID string, snapshot Snapshot) error {
-	agentID = strings.TrimSpace(agentID)
+func (manager *Manager) Report(ctx context.Context, agent tenancy.Agent, snapshot Snapshot) error {
+	if err := agent.Validate(); err != nil {
+		return err
+	}
+	agentID := strings.TrimSpace(agent.ID)
 	if agentID == "" || snapshot.ObservedAt.IsZero() || len(snapshot.Services) > 5000 {
 		return ErrInvalidSnapshot
 	}
@@ -88,24 +95,29 @@ func (manager *Manager) Report(ctx context.Context, agentID string, snapshot Sna
 		}
 		seen[name] = struct{}{}
 		services = append(services, Service{
-			AgentID:     agentID,
-			Name:        name,
-			DisplayName: bounded(strings.TrimSpace(fact.DisplayName), 256),
-			State:       state,
-			StartupType: startupType,
-			ObservedAt:  observedAt,
+			OrganizationID: agent.OrganizationID,
+			SiteID:         agent.SiteID,
+			AgentID:        agentID,
+			Name:           name,
+			DisplayName:    bounded(strings.TrimSpace(fact.DisplayName), 256),
+			State:          state,
+			StartupType:    startupType,
+			ObservedAt:     observedAt,
 		})
 	}
-	return manager.store.ReplaceServices(ctx, agentID, services)
+	return manager.store.ReplaceServices(ctx, agent.Scope(), agentID, services)
 }
 
-func (manager *Manager) List(ctx context.Context, agentID string, filter Filter) ([]Service, error) {
+func (manager *Manager) List(ctx context.Context, scope tenancy.Scope, agentID string, filter Filter) ([]Service, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	agentID = strings.TrimSpace(agentID)
 	filter.Query = strings.TrimSpace(filter.Query)
 	if agentID == "" || len(filter.Query) > 256 || (filter.State != "" && !validNormalizedState(filter.State)) {
 		return nil, ErrInvalidSnapshot
 	}
-	return manager.store.ListServices(ctx, agentID, filter)
+	return manager.store.ListServices(ctx, scope, agentID, filter)
 }
 
 func normalizeState(value string) (State, bool) {
@@ -151,26 +163,38 @@ func bounded(value string, limit int) string {
 
 type MemoryStore struct {
 	mu       sync.RWMutex
-	services map[string][]Service
+	services map[tenancy.Agent][]Service
 }
 
 func NewMemoryStore() *MemoryStore {
-	return &MemoryStore{services: make(map[string][]Service)}
+	return &MemoryStore{services: make(map[tenancy.Agent][]Service)}
 }
 
-func (store *MemoryStore) ReplaceServices(_ context.Context, agentID string, services []Service) error {
+func (store *MemoryStore) ReplaceServices(_ context.Context, scope tenancy.Scope, agentID string, services []Service) error {
+	key := tenancy.Agent{ID: agentID, OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}
+	if err := key.Validate(); err != nil {
+		return err
+	}
+	for _, service := range services {
+		if service.AgentID != agentID || service.OrganizationID != scope.OrganizationID || service.SiteID != scope.SiteID {
+			return tenancy.ErrInvalidScope
+		}
+	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	store.services[agentID] = append([]Service(nil), services...)
+	store.services[key] = append([]Service(nil), services...)
 	return nil
 }
 
-func (store *MemoryStore) ListServices(_ context.Context, agentID string, filter Filter) ([]Service, error) {
+func (store *MemoryStore) ListServices(_ context.Context, scope tenancy.Scope, agentID string, filter Filter) ([]Service, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 	query := strings.ToLower(filter.Query)
 	result := make([]Service, 0)
-	for _, service := range store.services[agentID] {
+	for _, service := range store.services[tenancy.Agent{ID: agentID, OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}] {
 		if filter.State != "" && service.State != filter.State {
 			continue
 		}
