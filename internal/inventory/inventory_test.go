@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -180,4 +181,32 @@ func TestReportUsesTrustedAgentScopeAndSerializesIt(t *testing.T) {
 
 func validFacts(hostname string) inventory.Facts {
 	return inventory.Facts{Hostname: hostname, OSFamily: "linux", Architecture: "amd64", CPUCores: 2, MemoryBytes: 1024}
+}
+
+func TestReportsRejectNULKeyCollisionsWithoutChangingExistingHost(t *testing.T) {
+	firstSeen := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
+	now := firstSeen
+	service := inventory.NewService(inventory.NewMemoryStore(), inventory.WithClock(func() time.Time { return now }))
+	baseline := tenancy.Agent{ID: "agent", OrganizationID: "org", SiteID: "site"}
+	if err := service.Report(t.Context(), baseline, validFacts("original-edge")); err != nil {
+		t.Fatal(err)
+	}
+	before, err := service.List(t.Context(), baseline.Scope())
+	if err != nil || len(before) != 1 || !before[0].FirstSeenAt.Equal(firstSeen) {
+		t.Fatalf("baseline host=%#v, err=%v", before, err)
+	}
+	now = now.Add(time.Minute)
+	// Both malformed tuples previously encoded as org\x00site\x00extra\x00agent.
+	for _, agent := range []tenancy.Agent{
+		{ID: "agent", OrganizationID: "org\x00site", SiteID: "extra"},
+		{ID: "agent", OrganizationID: "org", SiteID: "site\x00extra"},
+	} {
+		if err := service.Report(t.Context(), agent, validFacts("replacement-edge")); !errors.Is(err, tenancy.ErrInvalidScope) {
+			t.Errorf("colliding identity accepted: %#v, err=%v", agent, err)
+		}
+	}
+	after, err := service.List(t.Context(), baseline.Scope())
+	if err != nil || !reflect.DeepEqual(after, before) {
+		t.Fatalf("existing host changed: before=%#v, after=%#v, err=%v", before, after, err)
+	}
 }

@@ -27,7 +27,8 @@ func DefaultScope() Scope {
 
 func (scope Scope) Validate() error {
 	if strings.TrimSpace(scope.OrganizationID) == "" || strings.TrimSpace(scope.SiteID) == "" ||
-		len(scope.OrganizationID) > 128 || len(scope.SiteID) > 128 {
+		len(scope.OrganizationID) > 128 || len(scope.SiteID) > 128 ||
+		strings.ContainsRune(scope.OrganizationID, '\x00') || strings.ContainsRune(scope.SiteID, '\x00') {
 		return ErrInvalidScope
 	}
 	return nil
@@ -58,7 +59,7 @@ func (agent Agent) Scope() Scope {
 }
 
 func (agent Agent) Validate() error {
-	if strings.TrimSpace(agent.ID) == "" || len(agent.ID) > 128 {
+	if strings.TrimSpace(agent.ID) == "" || len(agent.ID) > 128 || strings.ContainsRune(agent.ID, '\x00') {
 		return ErrInvalidScope
 	}
 	return agent.Scope().Validate()
