@@ -194,7 +194,7 @@ func evaluateReachability(ctx context.Context, logger *slog.Logger, inventorySer
 				continue
 			}
 			for _, host := range hosts {
-				if err := alertService.EvaluateReachability(ctx, host.AgentID, host.LastSeenAt); err != nil {
+				if err := alertService.EvaluateReachability(ctx, host.Scope(), host.AgentID, host.LastSeenAt); err != nil {
 					logger.Error("could not evaluate host reachability", "agent_id", host.AgentID, "error", err)
 				}
 			}

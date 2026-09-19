@@ -353,7 +353,7 @@ func handleTelemetryReport(authority *enrollment.Authority, service *telemetry.S
 				return
 			}
 			if len(latest) > 0 && latest[len(latest)-1].RecordedAt.Equal(sample.RecordedAt) {
-				if err := alerts.EvaluateTelemetry(request.Context(), agent.ID, alerting.Telemetry{CPUPercent: sample.CPUPercent, MemoryPercent: sample.MemoryPercent, DiskPercent: sample.DiskPercent}); err != nil {
+				if err := alerts.EvaluateTelemetry(request.Context(), agent.Scope(), agent.ID, alerting.Telemetry{CPUPercent: sample.CPUPercent, MemoryPercent: sample.MemoryPercent, DiskPercent: sample.DiskPercent}); err != nil {
 					http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 					return
 				}
@@ -597,7 +597,7 @@ func handleCreateAlertRule(service *alerting.Service, tokens accessTokens) http.
 		if err := decodeJSON(response, request, &value); err != nil {
 			return
 		}
-		rule, err := service.CreateRule(request.Context(), value)
+		rule, err := service.CreateRule(request.Context(), tenancy.DefaultScope(), value)
 		if errors.Is(err, alerting.ErrInvalidAlert) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -612,7 +612,7 @@ func handleCreateAlertRule(service *alerting.Service, tokens accessTokens) http.
 
 func handleListAlertRules(service *alerting.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		values, err := service.ListRules(request.Context())
+		values, err := service.ListRules(request.Context(), tenancy.DefaultScope())
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 			return
@@ -632,9 +632,13 @@ func handleCreateMaintenance(service *alerting.Service, tokens accessTokens) htt
 		if err := decodeJSON(response, request, &value); err != nil {
 			return
 		}
-		window, err := service.CreateMaintenance(request.Context(), value)
+		window, err := service.CreateMaintenance(request.Context(), tenancy.DefaultScope(), value)
 		if errors.Is(err, alerting.ErrInvalidAlert) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
+		if errors.Is(err, alerting.ErrNotFound) {
+			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
 		}
 		if err != nil {
@@ -647,7 +651,7 @@ func handleCreateMaintenance(service *alerting.Service, tokens accessTokens) htt
 
 func handleListMaintenance(service *alerting.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		values, err := service.ListMaintenance(request.Context())
+		values, err := service.ListMaintenance(request.Context(), tenancy.DefaultScope())
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 			return
@@ -669,7 +673,7 @@ func handleListIncidents(service *alerting.Service) http.HandlerFunc {
 			}
 			limit = parsed
 		}
-		values, err := service.ListIncidents(request.Context(), limit)
+		values, err := service.ListIncidents(request.Context(), tenancy.DefaultScope(), limit)
 		if errors.Is(err, alerting.ErrInvalidAlert) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -686,7 +690,7 @@ func handleListIncidents(service *alerting.Service) http.HandlerFunc {
 
 func handleAlertEvents(service *alerting.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		values, err := service.ListEvents(request.Context(), request.PathValue("incidentID"))
+		values, err := service.ListEvents(request.Context(), tenancy.DefaultScope(), request.PathValue("incidentID"))
 		if errors.Is(err, alerting.ErrNotFound) {
 			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
@@ -716,7 +720,7 @@ func handleAcknowledgeIncident(service *alerting.Service, tokens accessTokens) h
 		if err := decodeJSON(response, request, &body); err != nil {
 			return
 		}
-		incident, err := service.Acknowledge(request.Context(), request.PathValue("incidentID"), body.Actor)
+		incident, err := service.Acknowledge(request.Context(), tenancy.DefaultScope(), request.PathValue("incidentID"), body.Actor)
 		if errors.Is(err, alerting.ErrInvalidAlert) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
