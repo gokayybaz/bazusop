@@ -47,8 +47,8 @@ func TestMemoryStoreRejectsForgedEventScopeAndUsesAuthoritativeIncidentID(t *tes
 	if _, err := store.AcknowledgeIncident(context.Background(), scope, incident.ID, "ops", now, Event{OrganizationID: "other-org", SiteID: scope.SiteID, IncidentID: "forged", ID: "event-2", Type: EventAcknowledged, OccurredAt: now}); err != tenancy.ErrInvalidScope {
 		t.Fatalf("expected forged event scope rejection, got %v", err)
 	}
-	if events, err := store.ListAlertEvents(context.Background(), scope, incident.ID); err != nil || len(events) != 1 {
-		t.Fatalf("forged event mutated history: %#v, %v", events, err)
+	if events, err := store.ListAlertEvents(context.Background(), scope, incident.ID); err != nil || len(events) != 1 || events[0].IncidentID != incident.ID {
+		t.Fatalf("opening event did not use authoritative incident id: %#v, %v", events, err)
 	}
 	if _, err := store.AcknowledgeIncident(context.Background(), scope, incident.ID, "ops", now, Event{OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, IncidentID: "forged", ID: "event-3", Type: EventAcknowledged, OccurredAt: now}); err != nil {
 		t.Fatalf("acknowledge with forged incident id: %v", err)

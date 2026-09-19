@@ -434,6 +434,7 @@ func (store *MemoryStore) EnsureIncident(_ context.Context, scope tenancy.Scope,
 		}
 	}
 	store.incidents[incident.ID] = incident
+	event.IncidentID = incident.ID
 	store.events[incident.ID] = []Event{event}
 	return incident, true, nil
 }
