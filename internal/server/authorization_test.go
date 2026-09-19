@@ -10,6 +10,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/server"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func TestOperatorCannotChangeAdministrativePolicy(t *testing.T) {
@@ -41,10 +42,7 @@ func TestOperatorCannotChangeAdministrativePolicy(t *testing.T) {
 
 func TestAdminCanChangePolicyAndRunOperations(t *testing.T) {
 	t.Parallel()
-	jobService, err := jobs.NewService(jobs.NewMemoryStore())
-	if err != nil {
-		t.Fatalf("create job service: %v", err)
-	}
+	jobService := newServerJobService(t, tenancy.Agent{ID: "agent-01", OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID})
 	handler := server.NewHandler(
 		server.WithJobs(jobService, "operator-secret"),
 		server.WithAlerts(alerting.NewService(alerting.NewMemoryStore()), "operator-secret"),

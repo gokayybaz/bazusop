@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
@@ -146,7 +147,12 @@ func (client *fakeJobClient) ReportJobEvent(_ context.Context, _ Identity, _ str
 
 func claimedJob(t *testing.T, signer ed25519.PrivateKey, agentID string, action jobs.Action, target string) *jobs.Job {
 	t.Helper()
-	service, err := jobs.NewService(jobs.NewMemoryStore(), jobs.WithSigningKey(signer))
+	registry := inventory.NewService(inventory.NewMemoryStore())
+	agent := tenancy.Agent{ID: agentID, OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID}
+	if err := registry.Report(context.Background(), agent, inventory.Facts{Hostname: "edge-" + agentID, OSFamily: "linux", OSName: "Ubuntu", OSVersion: "24.04", Architecture: "amd64", CPUCores: 2, MemoryBytes: 1024, IPAddresses: []string{"10.0.0.1"}, AgentVersion: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	service, err := jobs.NewService(jobs.NewMemoryStore(), jobs.WithSigningKey(signer), jobs.WithHostScopeChecker(registry.HasHost))
 	if err != nil {
 		t.Fatal(err)
 	}

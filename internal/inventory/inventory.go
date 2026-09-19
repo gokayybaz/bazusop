@@ -113,6 +113,23 @@ func (service *Service) List(ctx context.Context, scope tenancy.Scope) ([]Host, 
 	return hosts, nil
 }
 
+func (service *Service) HasHost(ctx context.Context, scope tenancy.Scope, agentID string) (bool, error) {
+	agent := tenancy.Agent{ID: strings.TrimSpace(agentID), OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}
+	if err := agent.Validate(); err != nil {
+		return false, err
+	}
+	hosts, err := service.store.List(ctx, scope)
+	if err != nil {
+		return false, err
+	}
+	for _, host := range hosts {
+		if host.AgentID == agent.ID && host.OrganizationID == scope.OrganizationID && host.SiteID == scope.SiteID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 func normalize(agent tenancy.Agent, facts Facts, observedAt time.Time) (Host, error) {
 	hostname := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(facts.Hostname), "."))
 	osFamily := strings.ToLower(strings.TrimSpace(facts.OSFamily))

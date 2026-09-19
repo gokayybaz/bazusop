@@ -9,16 +9,57 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
-func TestJobsAreIsolatedByStoredScope(t *testing.T) {
-	service, err := NewService(NewMemoryStore())
+func newMemoryService(t *testing.T, agents []tenancy.Agent, options ...Option) *Service {
+	t.Helper()
+	registry := inventory.NewService(inventory.NewMemoryStore())
+	for _, agent := range agents {
+		if err := registry.Report(t.Context(), agent, inventory.Facts{Hostname: "host-" + agent.ID + "-" + agent.SiteID, OSFamily: "linux", OSName: "Ubuntu", OSVersion: "24.04", Architecture: "amd64", CPUCores: 2, MemoryBytes: 1024, IPAddresses: []string{"10.0.0.1"}, AgentVersion: "test"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	options = append(options, WithHostScopeChecker(registry.HasHost))
+	service, err := NewService(NewMemoryStore(), options...)
 	if err != nil {
 		t.Fatal(err)
 	}
+	return service
+}
+
+func defaultJobAgent() tenancy.Agent {
+	return tenancy.Agent{ID: "agent-01", OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID}
+}
+
+func TestCreateRejectsUnknownAndWrongSiteHosts(t *testing.T) {
+	registry := inventory.NewService(inventory.NewMemoryStore())
+	service, err := NewService(NewMemoryStore(), WithHostScopeChecker(registry.HasHost))
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := tenancy.Agent{ID: "agent-01", OrganizationID: "org-a", SiteID: "site-old"}
+	wrongSite := tenancy.Scope{OrganizationID: old.OrganizationID, SiteID: "site-new"}
+	request := CreateRequest{Action: ActionHostReboot, ApprovedBy: "ops", Reason: "maintenance"}
+	if _, err := service.Create(t.Context(), old.Scope(), old.ID, request); !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("unknown host created a job: %v", err)
+	}
+	if err := registry.Report(t.Context(), old, inventory.Facts{Hostname: "edge-01", OSFamily: "linux", OSName: "Ubuntu", OSVersion: "24.04", Architecture: "amd64", CPUCores: 2, MemoryBytes: 1024, IPAddresses: []string{"10.0.0.1"}, AgentVersion: "test"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.Create(t.Context(), wrongSite, old.ID, request); !errors.Is(err, ErrJobNotFound) {
+		t.Fatalf("wrong-site host created a job: %v", err)
+	}
+	if _, err := service.Create(t.Context(), old.Scope(), old.ID, request); err != nil {
+		t.Fatalf("known scoped host create: %v", err)
+	}
+}
+
+func TestJobsAreIsolatedByStoredScope(t *testing.T) {
 	old := tenancy.Agent{ID: "agent-01", OrganizationID: "org_default", SiteID: "site_old"}
 	moved := tenancy.Agent{ID: old.ID, OrganizationID: "org_default", SiteID: "site_new"}
+	service := newMemoryService(t, []tenancy.Agent{old, moved})
 	request := CreateRequest{Action: ActionHostReboot, ApprovedBy: "ops", Reason: "maintenance"}
 
 	oldJob, err := service.Create(t.Context(), old.Scope(), old.ID, request)
@@ -53,11 +94,9 @@ func TestJobsAreIsolatedByStoredScope(t *testing.T) {
 }
 
 func TestJobSignatureCoversScope(t *testing.T) {
-	service, err := NewService(NewMemoryStore())
-	if err != nil {
-		t.Fatal(err)
-	}
-	job, err := service.Create(t.Context(), tenancy.Scope{OrganizationID: "org-a", SiteID: "site-a"}, "agent-01", CreateRequest{Action: ActionHostReboot, ApprovedBy: "ops", Reason: "maintenance"})
+	agent := tenancy.Agent{ID: "agent-01", OrganizationID: "org-a", SiteID: "site-a"}
+	service := newMemoryService(t, []tenancy.Agent{agent})
+	job, err := service.Create(t.Context(), agent.Scope(), agent.ID, CreateRequest{Action: ActionHostReboot, ApprovedBy: "ops", Reason: "maintenance"})
 	if err != nil || !Verify(job) {
 		t.Fatalf("create signed scoped job: %#v %v", job, err)
 	}
@@ -72,10 +111,7 @@ func TestServiceUsesConfiguredSigningKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	service, err := NewService(NewMemoryStore(), WithSigningKey(privateKey))
-	if err != nil {
-		t.Fatal(err)
-	}
+	service := newMemoryService(t, []tenancy.Agent{defaultJobAgent()}, WithSigningKey(privateKey))
 	job, err := service.Create(context.Background(), tenancy.DefaultScope(), "agent-01", CreateRequest{Action: ActionHostReboot, ApprovedBy: "ops", Reason: "patching"})
 	if err != nil {
 		t.Fatal(err)
@@ -86,10 +122,7 @@ func TestServiceUsesConfiguredSigningKey(t *testing.T) {
 }
 
 func TestServiceRejectsUnsafeServiceTarget(t *testing.T) {
-	service, err := NewService(NewMemoryStore())
-	if err != nil {
-		t.Fatal(err)
-	}
+	service := newMemoryService(t, []tenancy.Agent{defaultJobAgent()})
 	for _, target := range []string{"--no-block", "nginx.service;reboot", "name with spaces"} {
 		if _, err := service.Create(context.Background(), tenancy.DefaultScope(), "agent-01", CreateRequest{Action: ActionServiceRestart, Target: target, ApprovedBy: "ops", Reason: "test"}); !errors.Is(err, ErrInvalidJob) {
 			t.Fatalf("expected unsafe target %q to be rejected, got %v", target, err)
@@ -100,10 +133,7 @@ func TestServiceRejectsUnsafeServiceTarget(t *testing.T) {
 func TestApprovedJobIsSignedClaimedAndAudited(t *testing.T) {
 	t.Parallel()
 	clock := time.Date(2026, 9, 11, 6, 0, 0, 123456789, time.UTC)
-	service, err := NewService(NewMemoryStore(), WithClock(func() time.Time { return clock }))
-	if err != nil {
-		t.Fatalf("create service: %v", err)
-	}
+	service := newMemoryService(t, []tenancy.Agent{defaultJobAgent()}, WithClock(func() time.Time { return clock }))
 
 	job, err := service.Create(context.Background(), tenancy.DefaultScope(), "agent-01", CreateRequest{
 		Action: ActionServiceRestart, Target: "nginx.service", ApprovedBy: "gokay", Reason: "Yeni yapılandırmayı etkinleştir",
@@ -158,10 +188,7 @@ func TestApprovedJobIsSignedClaimedAndAudited(t *testing.T) {
 
 func TestJobsAreAllowlistedAndSequenced(t *testing.T) {
 	t.Parallel()
-	service, err := NewService(NewMemoryStore())
-	if err != nil {
-		t.Fatalf("create service: %v", err)
-	}
+	service := newMemoryService(t, []tenancy.Agent{defaultJobAgent()})
 	invalid := []CreateRequest{
 		{Action: "shell.exec", Target: "rm", ApprovedBy: "ops", Reason: "test"},
 		{Action: ActionServiceRestart, ApprovedBy: "ops", Reason: "test"},
@@ -188,10 +215,7 @@ func TestJobsAreAllowlistedAndSequenced(t *testing.T) {
 
 func TestClaimReturnsNilWhenQueueIsEmpty(t *testing.T) {
 	t.Parallel()
-	service, err := NewService(NewMemoryStore())
-	if err != nil {
-		t.Fatalf("create service: %v", err)
-	}
+	service := newMemoryService(t, []tenancy.Agent{defaultJobAgent()})
 	job, err := service.ClaimNext(context.Background(), tenancy.Agent{ID: "agent-01", OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID})
 	if err != nil || job != nil {
 		t.Fatalf("expected empty queue, got %#v, %v", job, err)
@@ -200,10 +224,7 @@ func TestClaimReturnsNilWhenQueueIsEmpty(t *testing.T) {
 
 func TestClaimResumesRunningJobWithoutDuplicateClaimEvent(t *testing.T) {
 	clock := time.Date(2026, 9, 12, 12, 0, 0, 0, time.UTC)
-	service, err := NewService(NewMemoryStore(), WithClock(func() time.Time { return clock }), WithJobLease(time.Minute))
-	if err != nil {
-		t.Fatal(err)
-	}
+	service := newMemoryService(t, []tenancy.Agent{defaultJobAgent()}, WithClock(func() time.Time { return clock }), WithJobLease(time.Minute))
 	created, err := service.Create(context.Background(), tenancy.DefaultScope(), "agent-01", CreateRequest{Action: ActionServiceRestart, Target: "nginx.service", ApprovedBy: "ops", Reason: "deploy"})
 	if err != nil {
 		t.Fatal(err)
@@ -227,10 +248,7 @@ func TestClaimResumesRunningJobWithoutDuplicateClaimEvent(t *testing.T) {
 }
 
 func TestDuplicateJobEventIsIdempotent(t *testing.T) {
-	service, err := NewService(NewMemoryStore())
-	if err != nil {
-		t.Fatal(err)
-	}
+	service := newMemoryService(t, []tenancy.Agent{defaultJobAgent()})
 	created, _ := service.Create(context.Background(), tenancy.DefaultScope(), "agent-01", CreateRequest{Action: ActionServiceRestart, Target: "nginx.service", ApprovedBy: "ops", Reason: "deploy"})
 	_, _ = service.ClaimNext(context.Background(), tenancy.Agent{ID: "agent-01", OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID})
 	event := EventRequest{Sequence: 2, Type: EventOutput, Message: "restarted"}

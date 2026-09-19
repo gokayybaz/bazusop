@@ -102,12 +102,15 @@ type Store interface {
 	ListJobEvents(context.Context, tenancy.Scope, string, string) ([]Event, error)
 }
 
+type HostScopeChecker func(context.Context, tenancy.Scope, string) (bool, error)
+
 type Service struct {
 	store      Store
 	privateKey ed25519.PrivateKey
 	publicKey  ed25519.PublicKey
 	now        func() time.Time
 	jobLease   time.Duration
+	hostExists HostScopeChecker
 }
 
 type Option func(*Service)
@@ -124,6 +127,9 @@ func WithSigningKey(privateKey ed25519.PrivateKey) Option {
 		}
 	}
 }
+func WithHostScopeChecker(checker HostScopeChecker) Option {
+	return func(service *Service) { service.hostExists = checker }
+}
 
 func NewService(store Store, options ...Option) (*Service, error) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
@@ -136,6 +142,9 @@ func NewService(store Store, options ...Option) (*Service, error) {
 	}
 	if len(service.privateKey) != ed25519.PrivateKeySize || len(service.publicKey) != ed25519.PublicKeySize || service.jobLease <= 0 {
 		return nil, errors.New("job signing key is invalid")
+	}
+	if service.hostExists == nil {
+		return nil, errors.New("job host scope checker is required")
 	}
 	return service, nil
 }
@@ -150,6 +159,13 @@ func (service *Service) Create(ctx context.Context, scope tenancy.Scope, agentID
 	}
 	if agentID == "" || request.ApprovedBy == "" || request.Reason == "" || len(request.ApprovedBy) > 128 || len(request.Reason) > 1024 || len(request.Target) > 256 || !validActionTarget(request.Action, request.Target) {
 		return Job{}, ErrInvalidJob
+	}
+	exists, err := service.hostExists(ctx, scope, agentID)
+	if err != nil {
+		return Job{}, err
+	}
+	if !exists {
+		return Job{}, ErrJobNotFound
 	}
 	id, err := newID()
 	if err != nil {

@@ -55,7 +55,7 @@ func TestPostgresJobsUseStoredScopeAfterAgentMove(t *testing.T) {
 	if err := hosts.Report(ctx, old, facts); err != nil {
 		t.Fatal(err)
 	}
-	service, err := jobs.NewService(store)
+	service, err := jobs.NewService(store, jobs.WithHostScopeChecker(hosts.HasHost))
 	if err != nil {
 		t.Fatal(err)
 	}

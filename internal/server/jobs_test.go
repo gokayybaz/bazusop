@@ -9,9 +9,26 @@ import (
 	"testing"
 
 	"github.com/gokayybaz/bazusop/internal/enrollment"
+	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/server"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
+
+func newServerJobService(t *testing.T, agents ...tenancy.Agent) *jobs.Service {
+	t.Helper()
+	registry := inventory.NewService(inventory.NewMemoryStore())
+	for _, agent := range agents {
+		if err := registry.Report(t.Context(), agent, inventory.Facts{Hostname: "host-" + agent.ID + "-" + agent.SiteID, OSFamily: "linux", OSName: "Ubuntu", OSVersion: "24.04", Architecture: "amd64", CPUCores: 2, MemoryBytes: 1024, IPAddresses: []string{"10.0.0.1"}, AgentVersion: "test"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	service, err := jobs.NewService(jobs.NewMemoryStore(), jobs.WithHostScopeChecker(registry.HasHost))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service
+}
 
 func TestApprovedJobFlowsToAuthenticatedAgent(t *testing.T) {
 	t.Parallel()
@@ -23,10 +40,7 @@ func TestApprovedJobFlowsToAuthenticatedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enroll identity: %v", err)
 	}
-	jobService, err := jobs.NewService(jobs.NewMemoryStore())
-	if err != nil {
-		t.Fatalf("create job service: %v", err)
-	}
+	jobService := newServerJobService(t, tenancy.Agent{ID: identity.AgentID, OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID})
 	handler := server.NewHandler(server.WithEnrollment(authority), server.WithJobs(jobService, "operator-secret"))
 
 	createResponse := httptest.NewRecorder()
@@ -81,10 +95,7 @@ func TestJobClaimRequiresAgentIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create authority: %v", err)
 	}
-	jobService, err := jobs.NewService(jobs.NewMemoryStore())
-	if err != nil {
-		t.Fatalf("create job service: %v", err)
-	}
+	jobService := newServerJobService(t)
 	handler := server.NewHandler(server.WithEnrollment(authority), server.WithJobs(jobService, "operator-secret"))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/agents/jobs/next", nil))
@@ -95,10 +106,7 @@ func TestJobClaimRequiresAgentIdentity(t *testing.T) {
 
 func TestJobCreationRequiresOperatorToken(t *testing.T) {
 	t.Parallel()
-	jobService, err := jobs.NewService(jobs.NewMemoryStore())
-	if err != nil {
-		t.Fatalf("create job service: %v", err)
-	}
+	jobService := newServerJobService(t)
 	handler := server.NewHandler(server.WithJobs(jobService, "operator-secret"))
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/instances/agent-01/jobs", encodeJSON(t, jobs.CreateRequest{
 		Action: jobs.ActionHostReboot, ApprovedBy: "gokay", Reason: "kernel rollout",
@@ -112,10 +120,7 @@ func TestJobCreationRequiresOperatorToken(t *testing.T) {
 
 func TestJobCreationIsUnavailableWithoutConfiguredOperatorToken(t *testing.T) {
 	t.Parallel()
-	jobService, err := jobs.NewService(jobs.NewMemoryStore())
-	if err != nil {
-		t.Fatalf("create job service: %v", err)
-	}
+	jobService := newServerJobService(t)
 	handler := server.NewHandler(server.WithJobs(jobService, ""))
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/instances/agent-01/jobs", encodeJSON(t, jobs.CreateRequest{
 		Action: jobs.ActionHostReboot, ApprovedBy: "gokay", Reason: "kernel rollout",

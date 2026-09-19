@@ -33,7 +33,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	telemetryService := telemetry.NewService(telemetry.NewMemoryStore())
 	serviceInventory := serviceinventory.NewService(serviceinventory.NewMemoryStore())
 	logs := logstream.NewService(logstream.NewMemoryStore())
-	jobService, err := jobs.NewService(jobs.NewMemoryStore(), jobs.WithSigningKey(authority.JobSigningKey()))
+	jobService, err := jobs.NewService(jobs.NewMemoryStore(), jobs.WithSigningKey(authority.JobSigningKey()), jobs.WithHostScopeChecker(inventoryService.HasHost))
 	if err != nil {
 		t.Fatal(err)
 	}
