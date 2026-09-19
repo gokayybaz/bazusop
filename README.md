@@ -230,6 +230,7 @@ oluşturmaz.
 - [Agent kurulum ve güven rehberi](docs/AGENT.md)
 - [Mimari](docs/ARCHITECTURE.md)
 - [Operasyon rehberi](docs/OPERATIONS.md)
+- [Runbook](docs/RUNBOOK.md)
 - [Tasarım sistemi](docs/DESIGN.md)
 - [Teslimat yol haritası](docs/ROADMAP.md)
 
