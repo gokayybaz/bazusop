@@ -1149,6 +1149,7 @@ func (store *Store) AcknowledgeIncident(ctx context.Context, scope tenancy.Scope
 	incident.Status = alerting.StatusAcknowledged
 	incident.AcknowledgedAt = &at
 	incident.AcknowledgedBy = actor
+	event.IncidentID = incident.ID
 	if _, err := tx.Exec(ctx, `UPDATE alert_incidents SET status=$2,acknowledged_at=$3,acknowledged_by=$4 WHERE id=$1 AND organization_id=$5 AND site_id=$6`, id, incident.Status, at, actor, scope.OrganizationID, scope.SiteID); err != nil {
 		return alerting.Incident{}, fmt.Errorf("acknowledge incident: %w", err)
 	}

@@ -110,7 +110,11 @@ func main() {
 		logger.Error("could not initialize job signing authority", "error", err)
 		os.Exit(1)
 	}
-	alertService := alerting.NewService(alertStore)
+	alertService, err := alerting.NewService(alertStore, alerting.WithHostScopeChecker(inventoryService.HasHost))
+	if err != nil {
+		logger.Error("could not initialize alert service", "error", err)
+		os.Exit(1)
+	}
 	cloudInventoryService := cloudinventory.NewService(cloudInventoryStore, inventoryService)
 	buildIdentity := version.Current()
 	if configuration.OperatorToken == "" && configuration.AdminToken == "" {

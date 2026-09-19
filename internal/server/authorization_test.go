@@ -16,7 +16,7 @@ import (
 func TestOperatorCannotChangeAdministrativePolicy(t *testing.T) {
 	t.Parallel()
 	handler := server.NewHandler(
-		server.WithAlerts(alerting.NewService(alerting.NewMemoryStore()), "operator-secret"),
+		server.WithAlerts(newAlertService(t), "operator-secret"),
 		server.WithCloudInventory(cloudinventory.NewService(cloudinventory.NewMemoryStore(), inventory.NewService(inventory.NewMemoryStore())), "operator-secret"),
 		server.WithAdminToken("admin-secret"),
 	)
@@ -45,7 +45,7 @@ func TestAdminCanChangePolicyAndRunOperations(t *testing.T) {
 	jobService := newServerJobService(t, tenancy.Agent{ID: "agent-01", OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID})
 	handler := server.NewHandler(
 		server.WithJobs(jobService, "operator-secret"),
-		server.WithAlerts(alerting.NewService(alerting.NewMemoryStore()), "operator-secret"),
+		server.WithAlerts(newAlertService(t), "operator-secret"),
 		server.WithAdminToken("admin-secret"),
 	)
 
@@ -74,7 +74,7 @@ func TestAdminCanChangePolicyAndRunOperations(t *testing.T) {
 func TestUnknownBearerTokenIsUnauthorizedForAdminRoute(t *testing.T) {
 	t.Parallel()
 	handler := server.NewHandler(
-		server.WithAlerts(alerting.NewService(alerting.NewMemoryStore()), "operator-secret"),
+		server.WithAlerts(newAlertService(t), "operator-secret"),
 		server.WithAdminToken("admin-secret"),
 	)
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/alert-rules", encodeJSON(t, alerting.RuleRequest{}))

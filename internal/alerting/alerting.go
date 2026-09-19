@@ -116,22 +116,30 @@ type Store interface {
 	AcknowledgeIncident(context.Context, tenancy.Scope, string, string, time.Time, Event) (Incident, error)
 	ListAlertIncidents(context.Context, tenancy.Scope, int) ([]Incident, error)
 	ListAlertEvents(context.Context, tenancy.Scope, string) ([]Event, error)
-	HasHost(context.Context, tenancy.Scope, string) (bool, error)
 }
 
+type HostScopeChecker func(context.Context, tenancy.Scope, string) (bool, error)
+
 type Service struct {
-	store Store
-	now   func() time.Time
+	store      Store
+	now        func() time.Time
+	hostExists HostScopeChecker
 }
 type Option func(*Service)
 
 func WithClock(clock func() time.Time) Option { return func(service *Service) { service.now = clock } }
-func NewService(store Store, options ...Option) *Service {
+func WithHostScopeChecker(checker HostScopeChecker) Option {
+	return func(service *Service) { service.hostExists = checker }
+}
+func NewService(store Store, options ...Option) (*Service, error) {
 	service := &Service{store: store, now: time.Now}
 	for _, option := range options {
 		option(service)
 	}
-	return service
+	if service.hostExists == nil {
+		return nil, errors.New("alert host scope checker is required")
+	}
+	return service, nil
 }
 
 func (service *Service) CreateRule(ctx context.Context, scope tenancy.Scope, request RuleRequest) (Rule, error) {
@@ -170,7 +178,7 @@ func (service *Service) CreateMaintenance(ctx context.Context, scope tenancy.Sco
 		return MaintenanceWindow{}, ErrInvalidAlert
 	}
 	if request.AgentID != "" {
-		hostExists, err := service.store.HasHost(ctx, scope, request.AgentID)
+		hostExists, err := service.hostExists(ctx, scope, request.AgentID)
 		if err != nil {
 			return MaintenanceWindow{}, err
 		}
@@ -433,6 +441,9 @@ func (store *MemoryStore) ResolveIncident(_ context.Context, scope tenancy.Scope
 	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
+	if event.OrganizationID != scope.OrganizationID || event.SiteID != scope.SiteID {
+		return nil, tenancy.ErrInvalidScope
+	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	for id, v := range store.incidents {
@@ -442,7 +453,7 @@ func (store *MemoryStore) ResolveIncident(_ context.Context, scope tenancy.Scope
 			v.ResolvedAt = &now
 			v.LatestValue = value
 			v.Message = message
-			event.IncidentID = id
+			event.IncidentID = v.ID
 			store.incidents[id] = v
 			store.events[id] = append(store.events[id], event)
 			return &v, nil
@@ -453,6 +464,9 @@ func (store *MemoryStore) ResolveIncident(_ context.Context, scope tenancy.Scope
 func (store *MemoryStore) AcknowledgeIncident(_ context.Context, scope tenancy.Scope, id, actor string, at time.Time, event Event) (Incident, error) {
 	if err := scope.Validate(); err != nil {
 		return Incident{}, err
+	}
+	if event.OrganizationID != scope.OrganizationID || event.SiteID != scope.SiteID {
+		return Incident{}, tenancy.ErrInvalidScope
 	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -466,6 +480,7 @@ func (store *MemoryStore) AcknowledgeIncident(_ context.Context, scope tenancy.S
 	v.Status = StatusAcknowledged
 	v.AcknowledgedAt = &at
 	v.AcknowledgedBy = actor
+	event.IncidentID = v.ID
 	store.incidents[id] = v
 	store.events[id] = append(store.events[id], event)
 	return v, nil

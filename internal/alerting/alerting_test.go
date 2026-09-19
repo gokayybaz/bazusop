@@ -5,14 +5,84 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
+
+func newTestService(t *testing.T, store Store, clock func() time.Time, agents ...tenancy.Agent) *Service {
+	t.Helper()
+	registry := inventory.NewService(inventory.NewMemoryStore())
+	for _, agent := range agents {
+		if err := registry.Report(t.Context(), agent, inventory.Facts{Hostname: "host-" + agent.ID + "-" + agent.SiteID, OSFamily: "linux", Architecture: "amd64", CPUCores: 2, MemoryBytes: 1024}); err != nil {
+			t.Fatalf("register test host: %v", err)
+		}
+	}
+	options := []Option{WithHostScopeChecker(registry.HasHost)}
+	if clock != nil {
+		options = append(options, WithClock(clock))
+	}
+	service, err := NewService(store, options...)
+	if err != nil {
+		t.Fatalf("new alert service: %v", err)
+	}
+	return service
+}
+
+func TestNewServiceRequiresHostScopeChecker(t *testing.T) {
+	t.Parallel()
+	if _, err := NewService(NewMemoryStore()); err == nil {
+		t.Fatal("expected host scope checker to be required")
+	}
+}
+
+func TestMemoryStoreRejectsForgedEventScopeAndUsesAuthoritativeIncidentID(t *testing.T) {
+	t.Parallel()
+	now := time.Now().UTC().Truncate(time.Microsecond)
+	scope := tenancy.DefaultScope()
+	incident := Incident{OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, ID: "incident-1", RuleID: "rule-1", RuleName: "CPU", AgentID: "agent-1", Severity: SeverityCritical, Status: StatusOpen, Message: "high", OpenedAt: now}
+	store := NewMemoryStore()
+	if _, _, err := store.EnsureIncident(context.Background(), scope, incident, Event{OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, IncidentID: "forged", ID: "event-1", Type: EventOpened, OccurredAt: now}); err != nil {
+		t.Fatalf("ensure incident: %v", err)
+	}
+	if _, err := store.AcknowledgeIncident(context.Background(), scope, incident.ID, "ops", now, Event{OrganizationID: "other-org", SiteID: scope.SiteID, IncidentID: "forged", ID: "event-2", Type: EventAcknowledged, OccurredAt: now}); err != tenancy.ErrInvalidScope {
+		t.Fatalf("expected forged event scope rejection, got %v", err)
+	}
+	if events, err := store.ListAlertEvents(context.Background(), scope, incident.ID); err != nil || len(events) != 1 {
+		t.Fatalf("forged event mutated history: %#v, %v", events, err)
+	}
+	if _, err := store.AcknowledgeIncident(context.Background(), scope, incident.ID, "ops", now, Event{OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, IncidentID: "forged", ID: "event-3", Type: EventAcknowledged, OccurredAt: now}); err != nil {
+		t.Fatalf("acknowledge with forged incident id: %v", err)
+	}
+	events, err := store.ListAlertEvents(context.Background(), scope, incident.ID)
+	if err != nil || len(events) != 2 || events[1].IncidentID != incident.ID {
+		t.Fatalf("expected authoritative incident id, got %#v, %v", events, err)
+	}
+	incident2 := incident
+	incident2.ID = "incident-2"
+	incident2.RuleID = "rule-2"
+	incident2.Status = StatusOpen
+	if _, _, err := store.EnsureIncident(context.Background(), scope, incident2, Event{OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, ID: "event-4", Type: EventOpened, OccurredAt: now}); err != nil {
+		t.Fatalf("ensure second incident: %v", err)
+	}
+	if _, err := store.ResolveIncident(context.Background(), scope, incident2.RuleID, incident2.AgentID, 10, "recovered", Event{OrganizationID: "other-org", SiteID: scope.SiteID, IncidentID: "forged", ID: "event-5", Type: EventResolved, OccurredAt: now}); err != tenancy.ErrInvalidScope {
+		t.Fatalf("expected forged resolution scope rejection, got %v", err)
+	}
+	if events, err := store.ListAlertEvents(context.Background(), scope, incident2.ID); err != nil || len(events) != 1 {
+		t.Fatalf("forged resolution mutated history: %#v, %v", events, err)
+	}
+	if _, err := store.ResolveIncident(context.Background(), scope, incident2.RuleID, incident2.AgentID, 10, "recovered", Event{OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, IncidentID: "forged", ID: "event-6", Type: EventResolved, OccurredAt: now}); err != nil {
+		t.Fatalf("resolve with forged incident id: %v", err)
+	}
+	if events, err := store.ListAlertEvents(context.Background(), scope, incident2.ID); err != nil || len(events) != 2 || events[1].IncidentID != incident2.ID {
+		t.Fatalf("expected authoritative resolution incident id: %#v, %v", events, err)
+	}
+}
 
 func TestMetricIncidentLifecycle(t *testing.T) {
 	t.Parallel()
 	now := time.Date(2026, 9, 11, 8, 0, 0, 0, time.UTC)
 	scope := tenancy.DefaultScope()
-	service := NewService(NewMemoryStore(), WithClock(func() time.Time { return now }))
+	service := newTestService(t, NewMemoryStore(), func() time.Time { return now }, tenancy.Agent{ID: "agent-01", OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID})
 	_, err := service.CreateRule(context.Background(), scope, RuleRequest{Name: "Yüksek CPU", Kind: KindMetric, Metric: MetricCPU, Threshold: 90, Severity: SeverityCritical, Enabled: true})
 	if err != nil {
 		t.Fatalf("create rule: %v", err)
@@ -52,7 +122,7 @@ func TestMaintenanceWindowSuppressesReachabilityIncident(t *testing.T) {
 	scope := tenancy.DefaultScope()
 	store := NewMemoryStore()
 	store.RegisterHost(scope, "agent-01")
-	service := NewService(store, WithClock(func() time.Time { return now }))
+	service := newTestService(t, store, func() time.Time { return now }, tenancy.Agent{ID: "agent-01", OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID})
 	_, err := service.CreateRule(context.Background(), scope, RuleRequest{Name: "Agent erişilemiyor", Kind: KindReachability, StaleAfterSeconds: 120, Severity: SeverityWarning, Enabled: true})
 	if err != nil {
 		t.Fatalf("create rule: %v", err)
@@ -91,7 +161,7 @@ func TestMaintenanceWindowSuppressesReachabilityIncident(t *testing.T) {
 
 func TestInvalidRulesAndMaintenanceAreRejected(t *testing.T) {
 	t.Parallel()
-	service := NewService(NewMemoryStore())
+	service := newTestService(t, NewMemoryStore(), nil)
 	scope := tenancy.DefaultScope()
 	invalidRules := []RuleRequest{
 		{Name: "shell", Kind: "command", Enabled: true},
@@ -116,7 +186,7 @@ func TestMaintenanceTargetMustBelongToScope(t *testing.T) {
 	scope := tenancy.Scope{OrganizationID: "org-a", SiteID: "site-a"}
 	otherScope := tenancy.Scope{OrganizationID: "org-a", SiteID: "site-b"}
 	store.RegisterHost(scope, "agent-01")
-	service := NewService(store)
+	service := newTestService(t, store, nil, tenancy.Agent{ID: "agent-01", OrganizationID: scope.OrganizationID, SiteID: scope.SiteID})
 	request := MaintenanceRequest{Name: "patch", AgentID: "agent-01", StartsAt: now, EndsAt: now.Add(time.Hour), CreatedBy: "ops"}
 	if _, err := service.CreateMaintenance(context.Background(), otherScope, request); err != ErrNotFound {
 		t.Fatalf("expected mismatched maintenance target to be not found, got %v", err)
@@ -131,7 +201,9 @@ func TestAlertStateIsolatedBySite(t *testing.T) {
 	newScope := tenancy.Scope{OrganizationID: "org-a", SiteID: "site-new"}
 	store.RegisterHost(oldScope, "shared-agent")
 	store.RegisterHost(newScope, "shared-agent")
-	service := NewService(store, WithClock(func() time.Time { return now }))
+	service := newTestService(t, store, func() time.Time { return now },
+		tenancy.Agent{ID: "shared-agent", OrganizationID: oldScope.OrganizationID, SiteID: oldScope.SiteID},
+		tenancy.Agent{ID: "shared-agent", OrganizationID: newScope.OrganizationID, SiteID: newScope.SiteID})
 
 	oldRule, err := service.CreateRule(context.Background(), oldScope, RuleRequest{Name: "Old CPU", Kind: KindMetric, Metric: MetricCPU, Threshold: 90, Severity: SeverityCritical, Enabled: true})
 	if err != nil {
