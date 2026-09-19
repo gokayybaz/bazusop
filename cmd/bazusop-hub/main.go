@@ -42,6 +42,7 @@ func main() {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
+	defaultScope := tenancy.DefaultScope()
 	bootstrapToken := configuration.EnrollmentToken
 	if bootstrapToken == "" {
 		var err error
@@ -74,7 +75,7 @@ func main() {
 			logger.Error("could not initialize PostgreSQL inventory store", "error", err)
 			os.Exit(1)
 		}
-		authority, err = enrollment.NewPersistentAuthority(startupContext, bootstrapToken, tenancy.DefaultScope(), postgresStore)
+		authority, err = enrollment.NewPersistentAuthority(startupContext, bootstrapToken, defaultScope, postgresStore)
 		cancel()
 		if err != nil {
 			postgresStore.Close()
@@ -126,6 +127,7 @@ func main() {
 	httpServer := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: server.NewHandler(
+			server.WithDefaultScope(defaultScope),
 			server.WithEnrollment(authority),
 			server.WithInventory(inventoryService),
 			server.WithTelemetry(telemetryService),
@@ -158,7 +160,7 @@ func main() {
 
 	shutdownSignal, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	go evaluateReachability(shutdownSignal, logger, inventoryService, alertService)
+	go evaluateReachability(shutdownSignal, logger, inventoryService, alertService, defaultScope)
 
 	go func() {
 		logger.Info("bazUSOP hub listening", "address", httpServer.Addr)
@@ -184,7 +186,7 @@ func main() {
 	}
 }
 
-func evaluateReachability(ctx context.Context, logger *slog.Logger, inventoryService *inventory.Service, alertService *alerting.Service) {
+func evaluateReachability(ctx context.Context, logger *slog.Logger, inventoryService *inventory.Service, alertService *alerting.Service, scope tenancy.Scope) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -192,7 +194,7 @@ func evaluateReachability(ctx context.Context, logger *slog.Logger, inventorySer
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			hosts, err := inventoryService.List(ctx, tenancy.DefaultScope())
+			hosts, err := inventoryService.List(ctx, scope)
 			if err != nil {
 				logger.Error("could not evaluate reachability alerts", "error", err)
 				continue

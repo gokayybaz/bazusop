@@ -26,6 +26,7 @@ import (
 type Option func(*handlerOptions)
 
 type handlerOptions struct {
+	scope                tenancy.Scope
 	enrollmentAuthority  *enrollment.Authority
 	inventoryService     *inventory.Service
 	telemetryService     *telemetry.Service
@@ -126,10 +127,19 @@ func WithRuntimeConfiguration(configuration RuntimeConfiguration) Option {
 	}
 }
 
+func WithDefaultScope(scope tenancy.Scope) Option {
+	return func(options *handlerOptions) {
+		options.scope = scope
+	}
+}
+
 func NewHandler(options ...Option) http.Handler {
-	configuration := handlerOptions{}
+	configuration := handlerOptions{scope: tenancy.DefaultScope()}
 	for _, option := range options {
 		option(&configuration)
+	}
+	if err := configuration.scope.Validate(); err != nil {
+		panic(fmt.Sprintf("invalid handler scope: %v", err))
 	}
 
 	mux := http.NewServeMux()
@@ -142,35 +152,35 @@ func NewHandler(options ...Option) http.Handler {
 		mux.HandleFunc("POST /api/v1/agents/renew", handleRenew(configuration.enrollmentAuthority))
 	}
 	if configuration.inventoryService != nil {
-		mux.HandleFunc("GET /api/v1/instances", handleListInstances(configuration.inventoryService))
+		mux.HandleFunc("GET /api/v1/instances", handleListInstances(configuration.inventoryService, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
 			mux.HandleFunc("PUT /api/v1/agents/inventory", handleInventoryReport(configuration.enrollmentAuthority, configuration.inventoryService))
 		}
 	}
 	if configuration.telemetryService != nil {
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/telemetry", handleTelemetryHistory(configuration.telemetryService))
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/telemetry", handleTelemetryHistory(configuration.telemetryService, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
 			mux.HandleFunc("POST /api/v1/agents/telemetry", handleTelemetryReport(configuration.enrollmentAuthority, configuration.telemetryService, configuration.alertService))
 		}
 	}
 	if configuration.serviceInventory != nil {
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/services", handleListServices(configuration.serviceInventory))
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/services", handleListServices(configuration.serviceInventory, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
 			mux.HandleFunc("PUT /api/v1/agents/services", handleServiceReport(configuration.enrollmentAuthority, configuration.serviceInventory))
 		}
 	}
 	if configuration.logService != nil {
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/logs", handleSearchLogs(configuration.logService))
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/logs/stream", handleStreamLogs(configuration.logService))
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/logs", handleSearchLogs(configuration.logService, configuration.scope))
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/logs/stream", handleStreamLogs(configuration.logService, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
 			mux.HandleFunc("POST /api/v1/agents/logs", handleLogIngest(configuration.enrollmentAuthority, configuration.logService))
 		}
 	}
 	if configuration.jobService != nil {
 		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		mux.HandleFunc("POST /api/v1/instances/{agentID}/jobs", handleCreateJob(configuration.jobService, tokens))
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/jobs", handleListJobs(configuration.jobService))
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/jobs/{jobID}/events", handleJobEvents(configuration.jobService))
+		mux.HandleFunc("POST /api/v1/instances/{agentID}/jobs", handleCreateJob(configuration.jobService, tokens, configuration.scope))
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/jobs", handleListJobs(configuration.jobService, configuration.scope))
+		mux.HandleFunc("GET /api/v1/instances/{agentID}/jobs/{jobID}/events", handleJobEvents(configuration.jobService, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
 			mux.HandleFunc("GET /api/v1/agents/jobs/next", handleClaimJob(configuration.enrollmentAuthority, configuration.jobService))
 			mux.HandleFunc("POST /api/v1/agents/jobs/{jobID}/events", handleReportJobEvent(configuration.enrollmentAuthority, configuration.jobService))
@@ -178,20 +188,20 @@ func NewHandler(options ...Option) http.Handler {
 	}
 	if configuration.alertService != nil {
 		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		mux.HandleFunc("GET /api/v1/alert-rules", handleListAlertRules(configuration.alertService))
-		mux.HandleFunc("POST /api/v1/alert-rules", handleCreateAlertRule(configuration.alertService, tokens))
-		mux.HandleFunc("GET /api/v1/maintenance-windows", handleListMaintenance(configuration.alertService))
-		mux.HandleFunc("POST /api/v1/maintenance-windows", handleCreateMaintenance(configuration.alertService, tokens))
-		mux.HandleFunc("GET /api/v1/incidents", handleListIncidents(configuration.alertService))
-		mux.HandleFunc("GET /api/v1/incidents/{incidentID}/events", handleAlertEvents(configuration.alertService))
-		mux.HandleFunc("POST /api/v1/incidents/{incidentID}/acknowledge", handleAcknowledgeIncident(configuration.alertService, tokens))
+		mux.HandleFunc("GET /api/v1/alert-rules", handleListAlertRules(configuration.alertService, configuration.scope))
+		mux.HandleFunc("POST /api/v1/alert-rules", handleCreateAlertRule(configuration.alertService, tokens, configuration.scope))
+		mux.HandleFunc("GET /api/v1/maintenance-windows", handleListMaintenance(configuration.alertService, configuration.scope))
+		mux.HandleFunc("POST /api/v1/maintenance-windows", handleCreateMaintenance(configuration.alertService, tokens, configuration.scope))
+		mux.HandleFunc("GET /api/v1/incidents", handleListIncidents(configuration.alertService, configuration.scope))
+		mux.HandleFunc("GET /api/v1/incidents/{incidentID}/events", handleAlertEvents(configuration.alertService, configuration.scope))
+		mux.HandleFunc("POST /api/v1/incidents/{incidentID}/acknowledge", handleAcknowledgeIncident(configuration.alertService, tokens, configuration.scope))
 	}
 	if configuration.cloudInventory != nil {
 		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		mux.HandleFunc("GET /api/v1/cloud/accounts", handleListCloudAccounts(configuration.cloudInventory))
-		mux.HandleFunc("POST /api/v1/cloud/accounts", handleCreateCloudAccount(configuration.cloudInventory, tokens))
-		mux.HandleFunc("GET /api/v1/cloud/instances", handleListCloudInstances(configuration.cloudInventory))
-		mux.HandleFunc("PUT /api/v1/cloud/accounts/{accountID}/instances", handleReconcileCloudInstances(configuration.cloudInventory, tokens))
+		mux.HandleFunc("GET /api/v1/cloud/accounts", handleListCloudAccounts(configuration.cloudInventory, configuration.scope))
+		mux.HandleFunc("POST /api/v1/cloud/accounts", handleCreateCloudAccount(configuration.cloudInventory, tokens, configuration.scope))
+		mux.HandleFunc("GET /api/v1/cloud/instances", handleListCloudInstances(configuration.cloudInventory, configuration.scope))
+		mux.HandleFunc("PUT /api/v1/cloud/accounts/{accountID}/instances", handleReconcileCloudInstances(configuration.cloudInventory, tokens, configuration.scope))
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
 		http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
@@ -257,8 +267,7 @@ func secureEnrollmentTransport(request *http.Request) bool {
 
 func handleRenew(authority *enrollment.Authority) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
-			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		if _, ok := authenticateAgent(response, request, authority); !ok {
 			return
 		}
 		var renewalRequest struct {
@@ -267,7 +276,7 @@ func handleRenew(authority *enrollment.Authority) http.HandlerFunc {
 		if err := decodeJSON(response, request, &renewalRequest); err != nil {
 			return
 		}
-		identity, err := authority.Renew(request.TLS.PeerCertificates[0], renewalRequest.CSRPEM)
+		identity, err := authority.RenewContext(request.Context(), request.TLS.PeerCertificates[0], renewalRequest.CSRPEM)
 		if errors.Is(err, enrollment.ErrInvalidIdentity) {
 			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 			return
@@ -282,13 +291,8 @@ func handleRenew(authority *enrollment.Authority) http.HandlerFunc {
 
 func handleInventoryReport(authority *enrollment.Authority, service *inventory.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
-			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-			return
-		}
-		agent, err := authority.AuthenticateContext(request.Context(), request.TLS.PeerCertificates[0])
-		if err != nil {
-			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		agent, ok := authenticateAgent(response, request, authority)
+		if !ok {
 			return
 		}
 		var facts inventory.Facts
@@ -306,9 +310,9 @@ func handleInventoryReport(authority *enrollment.Authority, service *inventory.S
 	}
 }
 
-func handleListInstances(service *inventory.Service) http.HandlerFunc {
+func handleListInstances(service *inventory.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		instances, err := service.List(request.Context(), tenancy.DefaultScope())
+		instances, err := service.List(request.Context(), scope)
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 			return
@@ -321,13 +325,8 @@ func handleListInstances(service *inventory.Service) http.HandlerFunc {
 
 func handleTelemetryReport(authority *enrollment.Authority, service *telemetry.Service, alerts *alerting.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
-			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-			return
-		}
-		agent, err := authority.AuthenticateContext(request.Context(), request.TLS.PeerCertificates[0])
-		if err != nil {
-			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		agent, ok := authenticateAgent(response, request, authority)
+		if !ok {
 			return
 		}
 		var sample telemetry.Sample
@@ -363,7 +362,7 @@ func handleTelemetryReport(authority *enrollment.Authority, service *telemetry.S
 	}
 }
 
-func handleTelemetryHistory(service *telemetry.Service) http.HandlerFunc {
+func handleTelemetryHistory(service *telemetry.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		to := time.Now().UTC()
 		from := to.Add(-24 * time.Hour)
@@ -391,7 +390,7 @@ func handleTelemetryHistory(service *telemetry.Service) http.HandlerFunc {
 			}
 		}
 
-		samples, err := service.History(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"), from, to, limit)
+		samples, err := service.History(request.Context(), scope, request.PathValue("agentID"), from, to, limit)
 		if errors.Is(err, telemetry.ErrInvalidSample) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -413,13 +412,8 @@ func handleTelemetryHistory(service *telemetry.Service) http.HandlerFunc {
 
 func handleServiceReport(authority *enrollment.Authority, service *serviceinventory.Manager) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
-			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-			return
-		}
-		agent, err := authority.AuthenticateContext(request.Context(), request.TLS.PeerCertificates[0])
-		if err != nil {
-			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		agent, ok := authenticateAgent(response, request, authority)
+		if !ok {
 			return
 		}
 		var snapshot serviceinventory.Snapshot
@@ -437,13 +431,13 @@ func handleServiceReport(authority *enrollment.Authority, service *serviceinvent
 	}
 }
 
-func handleListServices(service *serviceinventory.Manager) http.HandlerFunc {
+func handleListServices(service *serviceinventory.Manager, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		filter := serviceinventory.Filter{
 			State: serviceinventory.State(request.URL.Query().Get("state")),
 			Query: request.URL.Query().Get("q"),
 		}
-		services, err := service.List(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"), filter)
+		services, err := service.List(request.Context(), scope, request.PathValue("agentID"), filter)
 		if errors.Is(err, serviceinventory.ErrInvalidSnapshot) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -460,13 +454,8 @@ func handleListServices(service *serviceinventory.Manager) http.HandlerFunc {
 
 func handleLogIngest(authority *enrollment.Authority, service *logstream.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if request.TLS == nil || len(request.TLS.PeerCertificates) == 0 {
-			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
-			return
-		}
-		agent, err := authority.AuthenticateContext(request.Context(), request.TLS.PeerCertificates[0])
-		if err != nil {
-			http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+		agent, ok := authenticateAgent(response, request, authority)
+		if !ok {
 			return
 		}
 		var batch logstream.Batch
@@ -484,7 +473,7 @@ func handleLogIngest(authority *enrollment.Authority, service *logstream.Service
 	}
 }
 
-func handleSearchLogs(service *logstream.Service) http.HandlerFunc {
+func handleSearchLogs(service *logstream.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		to := time.Now().UTC()
 		from := to.Add(-time.Hour)
@@ -511,7 +500,7 @@ func handleSearchLogs(service *logstream.Service) http.HandlerFunc {
 				return
 			}
 		}
-		entries, err := service.Search(request.Context(), logstream.Query{Scope: tenancy.DefaultScope(),
+		entries, err := service.Search(request.Context(), logstream.Query{Scope: scope,
 			AgentID: request.PathValue("agentID"), From: from, To: to,
 			Collector: logstream.Collector(request.URL.Query().Get("collector")),
 			Severity:  logstream.Severity(request.URL.Query().Get("severity")),
@@ -531,14 +520,14 @@ func handleSearchLogs(service *logstream.Service) http.HandlerFunc {
 	}
 }
 
-func handleStreamLogs(service *logstream.Service) http.HandlerFunc {
+func handleStreamLogs(service *logstream.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		flusher, ok := response.(http.Flusher)
 		if !ok {
 			http.Error(response, http.StatusText(http.StatusNotImplemented), http.StatusNotImplemented)
 			return
 		}
-		stream, err := service.Subscribe(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"))
+		stream, err := service.Subscribe(request.Context(), scope, request.PathValue("agentID"))
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -566,7 +555,7 @@ func handleStreamLogs(service *logstream.Service) http.HandlerFunc {
 	}
 }
 
-func handleCreateJob(service *jobs.Service, tokens accessTokens) http.HandlerFunc {
+func handleCreateJob(service *jobs.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if !authorizeRole(response, request, tokens, roleOperator) {
 			return
@@ -575,7 +564,7 @@ func handleCreateJob(service *jobs.Service, tokens accessTokens) http.HandlerFun
 		if err := decodeJSON(response, request, &createRequest); err != nil {
 			return
 		}
-		job, err := service.Create(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"), createRequest)
+		job, err := service.Create(request.Context(), scope, request.PathValue("agentID"), createRequest)
 		if errors.Is(err, jobs.ErrInvalidJob) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -588,7 +577,7 @@ func handleCreateJob(service *jobs.Service, tokens accessTokens) http.HandlerFun
 	}
 }
 
-func handleCreateAlertRule(service *alerting.Service, tokens accessTokens) http.HandlerFunc {
+func handleCreateAlertRule(service *alerting.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if !authorizeRole(response, request, tokens, roleAdmin) {
 			return
@@ -597,7 +586,7 @@ func handleCreateAlertRule(service *alerting.Service, tokens accessTokens) http.
 		if err := decodeJSON(response, request, &value); err != nil {
 			return
 		}
-		rule, err := service.CreateRule(request.Context(), tenancy.DefaultScope(), value)
+		rule, err := service.CreateRule(request.Context(), scope, value)
 		if errors.Is(err, alerting.ErrInvalidAlert) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -610,9 +599,9 @@ func handleCreateAlertRule(service *alerting.Service, tokens accessTokens) http.
 	}
 }
 
-func handleListAlertRules(service *alerting.Service) http.HandlerFunc {
+func handleListAlertRules(service *alerting.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		values, err := service.ListRules(request.Context(), tenancy.DefaultScope())
+		values, err := service.ListRules(request.Context(), scope)
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 			return
@@ -623,7 +612,7 @@ func handleListAlertRules(service *alerting.Service) http.HandlerFunc {
 	}
 }
 
-func handleCreateMaintenance(service *alerting.Service, tokens accessTokens) http.HandlerFunc {
+func handleCreateMaintenance(service *alerting.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if !authorizeRole(response, request, tokens, roleAdmin) {
 			return
@@ -632,7 +621,7 @@ func handleCreateMaintenance(service *alerting.Service, tokens accessTokens) htt
 		if err := decodeJSON(response, request, &value); err != nil {
 			return
 		}
-		window, err := service.CreateMaintenance(request.Context(), tenancy.DefaultScope(), value)
+		window, err := service.CreateMaintenance(request.Context(), scope, value)
 		if errors.Is(err, alerting.ErrInvalidAlert) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -649,9 +638,9 @@ func handleCreateMaintenance(service *alerting.Service, tokens accessTokens) htt
 	}
 }
 
-func handleListMaintenance(service *alerting.Service) http.HandlerFunc {
+func handleListMaintenance(service *alerting.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		values, err := service.ListMaintenance(request.Context(), tenancy.DefaultScope())
+		values, err := service.ListMaintenance(request.Context(), scope)
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 			return
@@ -662,7 +651,7 @@ func handleListMaintenance(service *alerting.Service) http.HandlerFunc {
 	}
 }
 
-func handleListIncidents(service *alerting.Service) http.HandlerFunc {
+func handleListIncidents(service *alerting.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		limit := 100
 		if value := request.URL.Query().Get("limit"); value != "" {
@@ -673,7 +662,7 @@ func handleListIncidents(service *alerting.Service) http.HandlerFunc {
 			}
 			limit = parsed
 		}
-		values, err := service.ListIncidents(request.Context(), tenancy.DefaultScope(), limit)
+		values, err := service.ListIncidents(request.Context(), scope, limit)
 		if errors.Is(err, alerting.ErrInvalidAlert) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -688,9 +677,9 @@ func handleListIncidents(service *alerting.Service) http.HandlerFunc {
 	}
 }
 
-func handleAlertEvents(service *alerting.Service) http.HandlerFunc {
+func handleAlertEvents(service *alerting.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		values, err := service.ListEvents(request.Context(), tenancy.DefaultScope(), request.PathValue("incidentID"))
+		values, err := service.ListEvents(request.Context(), scope, request.PathValue("incidentID"))
 		if errors.Is(err, alerting.ErrNotFound) {
 			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
@@ -709,7 +698,7 @@ func handleAlertEvents(service *alerting.Service) http.HandlerFunc {
 	}
 }
 
-func handleAcknowledgeIncident(service *alerting.Service, tokens accessTokens) http.HandlerFunc {
+func handleAcknowledgeIncident(service *alerting.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if !authorizeRole(response, request, tokens, roleOperator) {
 			return
@@ -720,7 +709,7 @@ func handleAcknowledgeIncident(service *alerting.Service, tokens accessTokens) h
 		if err := decodeJSON(response, request, &body); err != nil {
 			return
 		}
-		incident, err := service.Acknowledge(request.Context(), tenancy.DefaultScope(), request.PathValue("incidentID"), body.Actor)
+		incident, err := service.Acknowledge(request.Context(), scope, request.PathValue("incidentID"), body.Actor)
 		if errors.Is(err, alerting.ErrInvalidAlert) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -741,7 +730,7 @@ func handleAcknowledgeIncident(service *alerting.Service, tokens accessTokens) h
 	}
 }
 
-func handleCreateCloudAccount(service *cloudinventory.Service, tokens accessTokens) http.HandlerFunc {
+func handleCreateCloudAccount(service *cloudinventory.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if !authorizeRole(response, request, tokens, roleAdmin) {
 			return
@@ -750,7 +739,7 @@ func handleCreateCloudAccount(service *cloudinventory.Service, tokens accessToke
 		if err := decodeJSON(response, request, &value); err != nil {
 			return
 		}
-		account, err := service.CreateAccount(request.Context(), tenancy.DefaultScope(), value)
+		account, err := service.CreateAccount(request.Context(), scope, value)
 		if errors.Is(err, cloudinventory.ErrInvalidCloudInventory) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -763,9 +752,9 @@ func handleCreateCloudAccount(service *cloudinventory.Service, tokens accessToke
 	}
 }
 
-func handleListCloudAccounts(service *cloudinventory.Service) http.HandlerFunc {
+func handleListCloudAccounts(service *cloudinventory.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		accounts, err := service.ListAccounts(request.Context(), tenancy.DefaultScope())
+		accounts, err := service.ListAccounts(request.Context(), scope)
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 			return
@@ -776,7 +765,7 @@ func handleListCloudAccounts(service *cloudinventory.Service) http.HandlerFunc {
 	}
 }
 
-func handleReconcileCloudInstances(service *cloudinventory.Service, tokens accessTokens) http.HandlerFunc {
+func handleReconcileCloudInstances(service *cloudinventory.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		if !authorizeRole(response, request, tokens, roleAdmin) {
 			return
@@ -787,7 +776,7 @@ func handleReconcileCloudInstances(service *cloudinventory.Service, tokens acces
 		if err := decodeJSON(response, request, &payload); err != nil {
 			return
 		}
-		instances, err := service.Reconcile(request.Context(), tenancy.DefaultScope(), request.PathValue("accountID"), payload.Instances)
+		instances, err := service.Reconcile(request.Context(), scope, request.PathValue("accountID"), payload.Instances)
 		if errors.Is(err, cloudinventory.ErrInvalidCloudInventory) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -806,9 +795,9 @@ func handleReconcileCloudInstances(service *cloudinventory.Service, tokens acces
 	}
 }
 
-func handleListCloudInstances(service *cloudinventory.Service) http.HandlerFunc {
+func handleListCloudInstances(service *cloudinventory.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		instances, err := service.ListInstances(request.Context(), tenancy.DefaultScope())
+		instances, err := service.ListInstances(request.Context(), scope)
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 			return
@@ -853,7 +842,7 @@ func validBearerToken(authorization, expected string) bool {
 	return subtle.ConstantTimeCompare([]byte(provided), []byte(expected)) == 1
 }
 
-func handleListJobs(service *jobs.Service) http.HandlerFunc {
+func handleListJobs(service *jobs.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		limit := 50
 		var err error
@@ -864,7 +853,7 @@ func handleListJobs(service *jobs.Service) http.HandlerFunc {
 				return
 			}
 		}
-		values, err := service.List(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"), limit)
+		values, err := service.List(request.Context(), scope, request.PathValue("agentID"), limit)
 		if errors.Is(err, jobs.ErrInvalidJob) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -879,9 +868,9 @@ func handleListJobs(service *jobs.Service) http.HandlerFunc {
 	}
 }
 
-func handleJobEvents(service *jobs.Service) http.HandlerFunc {
+func handleJobEvents(service *jobs.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		events, err := service.Events(request.Context(), tenancy.DefaultScope(), request.PathValue("agentID"), request.PathValue("jobID"))
+		events, err := service.Events(request.Context(), scope, request.PathValue("agentID"), request.PathValue("jobID"))
 		if errors.Is(err, jobs.ErrInvalidJob) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
