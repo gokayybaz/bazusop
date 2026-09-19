@@ -431,4 +431,3 @@ CREATE INDEX IF NOT EXISTS cloud_accounts_site_created_idx
     ON cloud_accounts (organization_id, site_id, created_at, id);
 CREATE INDEX IF NOT EXISTS cloud_instances_site_match_idx
     ON cloud_instances (organization_id, site_id, match_status, provider_instance_id);
-
