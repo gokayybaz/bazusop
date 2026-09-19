@@ -9,7 +9,6 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"errors"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -19,30 +18,13 @@ import (
 )
 
 func TestPostgresSharesEnrollmentAuthorityAndConsumesTokenOnce(t *testing.T) {
-	databaseURL := os.Getenv("BAZUSOP_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set BAZUSOP_TEST_DATABASE_URL to run PostgreSQL integration tests")
-	}
+	database := newIsolatedPostgres(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	firstStore, err := Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open first store: %v", err)
-	}
-	defer firstStore.Close()
-	secondStore, err := Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatalf("open second store: %v", err)
-	}
-	defer secondStore.Close()
+	firstStore := database.Open(t)
+	secondStore := database.Open(t)
 
 	token := "integration-" + time.Now().UTC().Format("20060102150405.000000000")
-	tokenHash := sha256.Sum256([]byte(token))
-	var agentID string
-	defer func() {
-		_, _ = firstStore.pool.Exec(context.Background(), "DELETE FROM enrollment_tokens WHERE token_hash=$1", tokenHash[:])
-		_, _ = firstStore.pool.Exec(context.Background(), "DELETE FROM agents WHERE id=$1", agentID)
-	}()
 	first, err := enrollment.NewPersistentAuthority(ctx, token, tenancy.DefaultScope(), firstStore)
 	if err != nil {
 		t.Fatalf("create first persistent authority: %v", err)
@@ -57,7 +39,6 @@ func TestPostgresSharesEnrollmentAuthorityAndConsumesTokenOnce(t *testing.T) {
 	if err != nil {
 		t.Fatalf("enroll through first store: %v", err)
 	}
-	agentID = identity.AgentID
 	if agent, err := second.AuthenticateContext(ctx, integrationCertificate(t, identity.CertificatePEM)); err != nil || agent.ID != identity.AgentID || agent.Scope() != tenancy.DefaultScope() {
 		t.Fatalf("authenticate through second store authority: %v", err)
 	}
@@ -70,11 +51,6 @@ func TestPostgresSharesEnrollmentAuthorityAndConsumesTokenOnce(t *testing.T) {
 
 	staleToken := token + "-stale"
 	rotatedToken := token + "-rotated"
-	staleHash := sha256.Sum256([]byte(staleToken))
-	rotatedHash := sha256.Sum256([]byte(rotatedToken))
-	defer func() {
-		_, _ = firstStore.pool.Exec(context.Background(), "DELETE FROM enrollment_tokens WHERE token_hash = ANY($1)", [][]byte{staleHash[:], rotatedHash[:]})
-	}()
 	staleAuthority, err := enrollment.NewPersistentAuthority(ctx, staleToken, tenancy.DefaultScope(), firstStore)
 	if err != nil {
 		t.Fatalf("register stale token: %v", err)
@@ -91,17 +67,10 @@ func TestPostgresSharesEnrollmentAuthorityAndConsumesTokenOnce(t *testing.T) {
 }
 
 func TestPostgresEnrollmentSiteIsolationAndAtomicConsumption(t *testing.T) {
-	databaseURL := os.Getenv("BAZUSOP_TEST_DATABASE_URL")
-	if databaseURL == "" {
-		t.Skip("set BAZUSOP_TEST_DATABASE_URL to run PostgreSQL integration tests")
-	}
+	database := newIsolatedPostgres(t)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
-	store, err := Open(ctx, databaseURL)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer store.Close()
+	store := database.Open(t)
 	suffix := time.Now().UTC().Format("20060102150405.000000000")
 	org := "enrollment-org-" + suffix
 	scopeA := tenancy.Scope{OrganizationID: org, SiteID: "site-a-" + suffix}
@@ -109,12 +78,6 @@ func TestPostgresEnrollmentSiteIsolationAndAtomicConsumption(t *testing.T) {
 	if _, err := store.pool.Exec(ctx, `INSERT INTO organizations (id, name) VALUES ($1, 'Enrollment test')`, org); err != nil {
 		t.Fatal(err)
 	}
-	defer func() {
-		_, _ = store.pool.Exec(context.Background(), `DELETE FROM enrollment_tokens WHERE organization_id=$1`, org)
-		_, _ = store.pool.Exec(context.Background(), `DELETE FROM agents WHERE organization_id=$1`, org)
-		_, _ = store.pool.Exec(context.Background(), `DELETE FROM sites WHERE organization_id=$1`, org)
-		_, _ = store.pool.Exec(context.Background(), `DELETE FROM organizations WHERE id=$1`, org)
-	}()
 	for _, scope := range []tenancy.Scope{scopeA, scopeB} {
 		if _, err := store.pool.Exec(ctx, `INSERT INTO sites (id, organization_id, name, slug) VALUES ($1, $2, $1, $1)`, scope.SiteID, org); err != nil {
 			t.Fatal(err)
