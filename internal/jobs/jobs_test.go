@@ -308,3 +308,28 @@ func TestDuplicateJobEventIsIdempotent(t *testing.T) {
 		t.Fatalf("terminal retry should be idempotent: %#v %v", job, err)
 	}
 }
+
+func TestMemoryStoreAllEventsIsScopedAndCarriesAgentID(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryStore()
+	scope := tenancy.DefaultScope()
+	job := Job{ID: "job-01", OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, AgentID: "agent-01", Action: ActionServiceRestart, Target: "nginx.service", ApprovedBy: "ops", Reason: "deploy", RequestedAt: time.Now().UTC(), Status: StatusQueued}
+	event := Event{JobID: job.ID, OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, Sequence: 0, Type: EventApproved, Message: job.Reason, Actor: job.ApprovedBy, OccurredAt: job.RequestedAt}
+	if err := store.CreateJob(context.Background(), job, event); err != nil {
+		t.Fatal(err)
+	}
+	otherScope := tenancy.Scope{OrganizationID: "org-other", SiteID: "site-other"}
+	otherJob := Job{ID: "job-02", OrganizationID: otherScope.OrganizationID, SiteID: otherScope.SiteID, AgentID: "agent-02", Action: ActionHostReboot, ApprovedBy: "ops", Reason: "patch", RequestedAt: time.Now().UTC(), Status: StatusQueued}
+	otherEvent := Event{JobID: otherJob.ID, OrganizationID: otherScope.OrganizationID, SiteID: otherScope.SiteID, Sequence: 0, Type: EventApproved, Message: otherJob.Reason, Actor: otherJob.ApprovedBy, OccurredAt: otherJob.RequestedAt}
+	if err := store.CreateJob(context.Background(), otherJob, otherEvent); err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := store.AllEvents(context.Background(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].AgentID != "agent-01" || records[0].Event.JobID != job.ID {
+		t.Fatalf("expected only the in-scope event with its agent ID, got %#v", records)
+	}
+}

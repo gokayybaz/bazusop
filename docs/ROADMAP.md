@@ -37,6 +37,7 @@ Her spike aynı teslimat döngüsünü izler:
 | 10.7 — Güvenli uzak iş çalıştırma | Agent imzalı servis restart ve host reboot işlerini platform API'leriyle çalıştırır | İmza enrollment CA'ya pinlenir; keyfi komut reddedilir; çıktı ve terminal durum sıralı audit olaylarına ulaşır |
 | 10.8 — Kesinti güvenli iş kurtarma | Agent yürütme/audit state'ini diskte korur; hub yarım işi korumalı biçimde yeniden sunar | Aktif teslim çift çalışmaz; audit retry idempotenttir; belirsiz crash sonrası komut tekrarlanmadan iş terminale taşınır |
 | 10.9 — Kalıcı log checkpoint'i | Agent log cursor'unu diskte korur ve replay'i kararlı kimlikle gönderir | Restart kaldığı yerden sürer; kabul/checkpoint çökme penceresindeki tekrar history veya SSE'de çoğalmaz |
+| 11 — Birleşik denetim izi | İş ve alarm olayları `GET /api/v1/audit/events` ile tek zaman çizelgesinde birleşir; `/audit` sayfası gerçek veriyi gösterir | İki farklı kaynaktan gelen olay tek zaman çizelgesinde doğru sırada görünür; site'lar arası sızıntı yok; `limit` çalışır |
 
 ## Mimari kısıtlar
 

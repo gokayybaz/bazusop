@@ -243,3 +243,28 @@ func TestAlertStateIsolatedBySite(t *testing.T) {
 		t.Fatal("expected distinct scoped rules")
 	}
 }
+
+func TestMemoryStoreAllEventsIsScopedAndCarriesAgentID(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryStore()
+	scope := tenancy.DefaultScope()
+	incident := Incident{OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, ID: "incident-01", RuleID: "rule-01", RuleName: "Yüksek CPU", AgentID: "agent-01", Severity: SeverityCritical, Status: StatusOpen, Message: "CPU %96", LatestValue: 96, OpenedAt: time.Now().UTC()}
+	event := Event{OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, ID: "event-01", IncidentID: incident.ID, Type: EventOpened, Actor: "hub", Message: incident.Message, OccurredAt: incident.OpenedAt}
+	if _, _, err := store.EnsureIncident(context.Background(), scope, incident, event); err != nil {
+		t.Fatal(err)
+	}
+	otherScope := tenancy.Scope{OrganizationID: "org-other", SiteID: "site-other"}
+	otherIncident := Incident{OrganizationID: otherScope.OrganizationID, SiteID: otherScope.SiteID, ID: "incident-02", RuleID: "rule-02", RuleName: "Disk kritik", AgentID: "agent-02", Severity: SeverityCritical, Status: StatusOpen, Message: "Disk %98", LatestValue: 98, OpenedAt: time.Now().UTC()}
+	otherEvent := Event{OrganizationID: otherScope.OrganizationID, SiteID: otherScope.SiteID, ID: "event-02", IncidentID: otherIncident.ID, Type: EventOpened, Actor: "hub", Message: otherIncident.Message, OccurredAt: otherIncident.OpenedAt}
+	if _, _, err := store.EnsureIncident(context.Background(), otherScope, otherIncident, otherEvent); err != nil {
+		t.Fatal(err)
+	}
+
+	records, err := store.AllEvents(context.Background(), scope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(records) != 1 || records[0].AgentID != "agent-01" || records[0].Event.IncidentID != incident.ID {
+		t.Fatalf("expected only the in-scope event with its agent ID, got %#v", records)
+	}
+}

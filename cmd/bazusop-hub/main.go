@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
+	"github.com/gokayybaz/bazusop/internal/audit"
 	"github.com/gokayybaz/bazusop/internal/cloudinventory"
 	"github.com/gokayybaz/bazusop/internal/config"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
@@ -58,9 +59,12 @@ func main() {
 	var telemetryStore telemetry.Store = telemetry.NewMemoryStore()
 	var serviceInventoryStore serviceinventory.Store = serviceinventory.NewMemoryStore()
 	var logStore logstream.Store = logstream.NewMemoryStore()
-	var jobStore jobs.Store = jobs.NewMemoryStore()
-	var alertStore alerting.Store = alerting.NewMemoryStore()
+	jobMemoryStore := jobs.NewMemoryStore()
+	var jobStore jobs.Store = jobMemoryStore
+	alertMemoryStore := alerting.NewMemoryStore()
+	var alertStore alerting.Store = alertMemoryStore
 	var cloudInventoryStore cloudinventory.Store = cloudinventory.NewMemoryStore()
+	var auditStore audit.Store = audit.NewMemoryStore(jobMemoryStore, alertMemoryStore)
 	storageMode := "memory"
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -90,6 +94,7 @@ func main() {
 		jobStore = postgresStore
 		alertStore = postgresStore
 		cloudInventoryStore = postgresStore
+		auditStore = postgresStore
 		storageMode = "postgresql"
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
@@ -117,6 +122,7 @@ func main() {
 		os.Exit(1)
 	}
 	cloudInventoryService := cloudinventory.NewService(cloudInventoryStore, inventoryService)
+	auditService := audit.NewService(auditStore)
 	buildIdentity := version.Current()
 	if configuration.OperatorToken == "" && configuration.AdminToken == "" {
 		logger.Warn("BAZUSOP_OPERATOR_TOKEN and BAZUSOP_ADMIN_TOKEN are not set; authorized mutations are disabled")
@@ -136,6 +142,7 @@ func main() {
 			server.WithJobs(jobService, configuration.OperatorToken),
 			server.WithAlerts(alertService, configuration.OperatorToken),
 			server.WithCloudInventory(cloudInventoryService, configuration.OperatorToken),
+			server.WithAudit(auditService),
 			server.WithAdminToken(configuration.AdminToken),
 			server.WithRuntimeConfiguration(server.RuntimeConfiguration{
 				Storage: storageMode, TimescaleEnabled: configuration.TimescaleEnabled && storageMode == "postgresql",

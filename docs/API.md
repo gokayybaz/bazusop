@@ -312,6 +312,17 @@ onaylanabilir; terminal/önceden onaylı olay `409`, bilinmeyen olay `404` döne
 Olayın `opened`, `acknowledged`, `resolved` yaşam döngüsünü zaman sırasıyla
 `{ "events": [...] }` zarfında verir. Bilinmeyen olay `404` döner.
 
+### `GET /api/v1/audit/events`
+
+İş (`approved`, `claimed`, `output`, `succeeded`, `failed`) ve alarm
+(`opened`, `acknowledged`, `resolved`) olaylarını ortak `source` alanıyla
+(`job` veya `alert`) ayrıştırılmış, en yeniden eskiye sıralı tek bir
+`{ "events": [...] }` zarfında verir. `limit` değeri `1–500`, varsayılan
+`100` olur. Her olay kendi üst kaydına (`reference_id`: job veya incident
+kimliği) ve hedef `agent_id`'ye işaret eder; tam iş veya alarm geçmişi için
+ilgili tekil uç noktalar (`/jobs/{job_id}/events`,
+`/incidents/{incident_id}/events`) kullanılmaya devam eder.
+
 ### `GET|POST /api/v1/cloud/accounts`
 
 Listeleme `{ "accounts": [...] }` zarfıyla salt-okunurdur. Oluşturma yönetici

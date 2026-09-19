@@ -33,6 +33,9 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   koşul normale dönünce çözülür ve bakım pencerelerinde yeni alarm bastırılır.
 - Arayüz; genel bakış, filo, servisler, metrikler, loglar, işler, alarmlar,
   bulut hesapları, denetim izi ve ayarlar için ayrı, doğrudan açılabilir sayfalar sunar.
+- İş ve alarm olayları, sunucu bazlı kendi geçmişlerinin yanında
+  `GET /api/v1/audit/events` ile tek bir birleşik, site bazlı zaman
+  çizelgesinde de görüntülenebilir.
 - Ayarlar sayfası etkin storage/Timescale modunu ve telemetri-log retention
   değerlerini ve çalışan hub'ın sürüm kimliğini secret bilgisi göstermeden okur.
 - Serin nötr açık ve grafit koyu tema arasında geçiş yapılabilir; cihaz tercihi

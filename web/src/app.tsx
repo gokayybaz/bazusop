@@ -1,12 +1,12 @@
-import { Bell, Command, Search, ShieldCheck } from "lucide-react"
+import { Bell, Command, Search } from "lucide-react"
 import { useEffect, useState } from "react"
 
 import { ThemeToggle } from "./components/theme-toggle"
 import { Badge } from "./components/ui/badge"
-import { EmptyFeature } from "./components/empty-feature"
 import { InstancePage } from "./components/instance-page"
 import { navigation, pageFromPath, pageMeta, secondaryNavigation } from "./navigation"
 import { AlarmCenter } from "./pages/alarm-center"
+import { AuditPage } from "./pages/audit"
 import { CloudInventoryPage } from "./pages/cloud-inventory"
 import { FleetPage } from "./pages/fleet"
 import { JobPanel } from "./pages/job-panel"
@@ -204,7 +204,7 @@ export function App() {
                   state={jobState}
                 /> : null}</InstancePage> : null}
             {activePage === "cloud" ? <CloudInventoryPage /> : null}
-            {activePage === "audit" ? <EmptyFeature icon={ShieldCheck} title="Denetim kaynakları ayrıştırıldı" text="İş ve alarm olayları kendi sayfalarında tutuluyor; birleşik denetim zaman çizelgesi bu sayfada sunulacak." /> : null}
+            {activePage === "audit" ? <AuditPage /> : null}
             {activePage === "settings" ? <SettingsPage /> : null}
           </div>
         </main>

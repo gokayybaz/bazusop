@@ -435,3 +435,31 @@ func (store *MemoryStore) ListJobEvents(_ context.Context, scope tenancy.Scope, 
 	}
 	return append(make([]Event, 0, len(store.events[key])), store.events[key]...), nil
 }
+
+// EventRecord pairs a job event with the agent it targeted, for cross-domain audit views
+// that cannot join back to the parent job the way the PostgreSQL store does in SQL.
+type EventRecord struct {
+	Event   Event
+	AgentID string
+}
+
+// AllEvents returns every job event in scope across all jobs, for the audit package to merge
+// with alert events into a single feed. Unlike ListJobEvents it is not scoped to one job.
+func (store *MemoryStore) AllEvents(_ context.Context, scope tenancy.Scope) ([]EventRecord, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	result := make([]EventRecord, 0)
+	for key, events := range store.events {
+		if key.scope != scope {
+			continue
+		}
+		agentID := store.jobs[key].AgentID
+		for _, event := range events {
+			result = append(result, EventRecord{Event: event, AgentID: agentID})
+		}
+	}
+	return result, nil
+}
