@@ -44,7 +44,9 @@ type AccountRequest struct {
 }
 
 type Account struct {
-	ID string `json:"id"`
+	OrganizationID string `json:"organization_id"`
+	SiteID         string `json:"site_id"`
+	ID             string `json:"id"`
 	AccountRequest
 	Status     AccountStatus `json:"status"`
 	LastSyncAt *time.Time    `json:"last_sync_at,omitempty"`
@@ -65,9 +67,11 @@ type DiscoveredInstance struct {
 }
 
 type Instance struct {
-	AccountID   string   `json:"account_id"`
-	AccountName string   `json:"account_name"`
-	Provider    Provider `json:"provider"`
+	OrganizationID string   `json:"organization_id"`
+	SiteID         string   `json:"site_id"`
+	AccountID      string   `json:"account_id"`
+	AccountName    string   `json:"account_name"`
+	Provider       Provider `json:"provider"`
 	DiscoveredInstance
 	AgentID          string      `json:"agent_id"`
 	CandidateAgentID string      `json:"candidate_agent_id,omitempty"`
@@ -77,11 +81,11 @@ type Instance struct {
 }
 
 type Store interface {
-	CreateCloudAccount(context.Context, Account) error
-	GetCloudAccount(context.Context, string) (Account, error)
-	ListCloudAccounts(context.Context) ([]Account, error)
-	ReplaceCloudInstances(context.Context, Account, []Instance) error
-	ListCloudInstances(context.Context) ([]Instance, error)
+	CreateCloudAccount(context.Context, tenancy.Scope, Account) error
+	GetCloudAccount(context.Context, tenancy.Scope, string) (Account, error)
+	ListCloudAccounts(context.Context, tenancy.Scope) ([]Account, error)
+	ReplaceCloudInstances(context.Context, tenancy.Scope, Account, []Instance) error
+	ListCloudInstances(context.Context, tenancy.Scope) ([]Instance, error)
 }
 
 type HostLister interface {
@@ -108,7 +112,10 @@ func NewService(store Store, hosts HostLister, options ...Option) *Service {
 	return service
 }
 
-func (service *Service) CreateAccount(ctx context.Context, request AccountRequest) (Account, error) {
+func (service *Service) CreateAccount(ctx context.Context, scope tenancy.Scope, request AccountRequest) (Account, error) {
+	if err := scope.Validate(); err != nil {
+		return Account{}, err
+	}
 	request.Name = strings.TrimSpace(request.Name)
 	request.ExternalID = strings.TrimSpace(request.ExternalID)
 	if request.Name == "" || len(request.Name) > 128 || request.ExternalID == "" || len(request.ExternalID) > 256 || !validProvider(request.Provider) {
@@ -118,36 +125,50 @@ func (service *Service) CreateAccount(ctx context.Context, request AccountReques
 	if err != nil {
 		return Account{}, err
 	}
-	account := Account{ID: id, AccountRequest: request, Status: AccountPending, CreatedAt: service.now().UTC().Truncate(time.Microsecond)}
-	if err := service.store.CreateCloudAccount(ctx, account); err != nil {
+	account := Account{OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, ID: id, AccountRequest: request, Status: AccountPending, CreatedAt: service.now().UTC().Truncate(time.Microsecond)}
+	if err := service.store.CreateCloudAccount(ctx, scope, account); err != nil {
 		return Account{}, err
 	}
 	return account, nil
 }
 
-func (service *Service) ListAccounts(ctx context.Context) ([]Account, error) {
-	return service.store.ListCloudAccounts(ctx)
+func (service *Service) ListAccounts(ctx context.Context, scope tenancy.Scope) ([]Account, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	return service.store.ListCloudAccounts(ctx, scope)
 }
 
-func (service *Service) ListInstances(ctx context.Context) ([]Instance, error) {
-	return service.store.ListCloudInstances(ctx)
+func (service *Service) ListInstances(ctx context.Context, scope tenancy.Scope) ([]Instance, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	return service.store.ListCloudInstances(ctx, scope)
 }
 
-func (service *Service) Reconcile(ctx context.Context, accountID string, discovered []DiscoveredInstance) ([]Instance, error) {
+func (service *Service) Reconcile(ctx context.Context, scope tenancy.Scope, accountID string, discovered []DiscoveredInstance) ([]Instance, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	accountID = strings.TrimSpace(accountID)
 	if accountID == "" || len(discovered) > 10000 {
 		return nil, ErrInvalidCloudInventory
 	}
-	account, err := service.store.GetCloudAccount(ctx, accountID)
+	account, err := service.store.GetCloudAccount(ctx, scope, accountID)
 	if err != nil {
 		return nil, err
 	}
-	hosts, err := service.hosts.List(ctx, tenancy.DefaultScope())
+	hosts, err := service.hosts.List(ctx, scope)
 	if err != nil {
 		return nil, err
 	}
+	scopedHosts := make([]inventory.Host, 0, len(hosts))
 	hostByID := make(map[string]inventory.Host, len(hosts))
 	for _, host := range hosts {
+		if host.OrganizationID != scope.OrganizationID || host.SiteID != scope.SiteID {
+			continue
+		}
+		scopedHosts = append(scopedHosts, host)
 		hostByID[host.AgentID] = host
 	}
 
@@ -163,14 +184,14 @@ func (service *Service) Reconcile(ctx context.Context, accountID string, discove
 			return nil, ErrInvalidCloudInventory
 		}
 		seen[normalized.ProviderInstanceID] = struct{}{}
-		instance := Instance{AccountID: account.ID, AccountName: account.Name, Provider: account.Provider, DiscoveredInstance: normalized, MatchStatus: MatchUnmatched, MatchReason: "no_agent_signal", DiscoveredAt: now}
+		instance := Instance{OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, AccountID: account.ID, AccountName: account.Name, Provider: account.Provider, DiscoveredInstance: normalized, MatchStatus: MatchUnmatched, MatchReason: "no_agent_signal", DiscoveredAt: now}
 		if host, found := hostByID[normalized.AgentIDHint]; normalized.AgentIDHint != "" && found {
 			instance.AgentID = host.AgentID
 			instance.MatchStatus = MatchVerified
 			instance.MatchReason = "provider_agent_id"
 		} else if normalized.AgentIDHint != "" {
 			instance.MatchReason = "agent_identity_not_found"
-		} else if candidate := uniqueCandidate(normalized, hosts); candidate != "" {
+		} else if candidate := uniqueCandidate(normalized, scopedHosts); candidate != "" {
 			instance.CandidateAgentID = candidate
 			instance.MatchStatus = MatchCandidate
 			instance.MatchReason = "hostname_or_private_ip"
@@ -179,7 +200,7 @@ func (service *Service) Reconcile(ctx context.Context, accountID string, discove
 	}
 	account.Status = AccountConnected
 	account.LastSyncAt = &now
-	if err := service.store.ReplaceCloudInstances(ctx, account, instances); err != nil {
+	if err := service.store.ReplaceCloudInstances(ctx, scope, account, instances); err != nil {
 		return nil, err
 	}
 	return instances, nil
@@ -265,51 +286,84 @@ func NewMemoryStore() *MemoryStore {
 	return &MemoryStore{accounts: make(map[string]Account), instances: make(map[string][]Instance)}
 }
 
-func (store *MemoryStore) CreateCloudAccount(_ context.Context, account Account) error {
+func (store *MemoryStore) CreateCloudAccount(_ context.Context, scope tenancy.Scope, account Account) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
+	if account.OrganizationID != scope.OrganizationID || account.SiteID != scope.SiteID {
+		return tenancy.ErrInvalidScope
+	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	store.accounts[account.ID] = account
 	return nil
 }
 
-func (store *MemoryStore) GetCloudAccount(_ context.Context, id string) (Account, error) {
+func (store *MemoryStore) GetCloudAccount(_ context.Context, scope tenancy.Scope, id string) (Account, error) {
+	if err := scope.Validate(); err != nil {
+		return Account{}, err
+	}
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 	account, exists := store.accounts[id]
-	if !exists {
+	if !exists || account.OrganizationID != scope.OrganizationID || account.SiteID != scope.SiteID {
 		return Account{}, ErrCloudAccountNotFound
 	}
 	return account, nil
 }
 
-func (store *MemoryStore) ListCloudAccounts(_ context.Context) ([]Account, error) {
+func (store *MemoryStore) ListCloudAccounts(_ context.Context, scope tenancy.Scope) ([]Account, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 	result := make([]Account, 0, len(store.accounts))
 	for _, account := range store.accounts {
+		if account.OrganizationID != scope.OrganizationID || account.SiteID != scope.SiteID {
+			continue
+		}
 		result = append(result, account)
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Name < result[j].Name })
 	return result, nil
 }
 
-func (store *MemoryStore) ReplaceCloudInstances(_ context.Context, account Account, instances []Instance) error {
+func (store *MemoryStore) ReplaceCloudInstances(_ context.Context, scope tenancy.Scope, account Account, instances []Instance) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
+	if account.OrganizationID != scope.OrganizationID || account.SiteID != scope.SiteID {
+		return tenancy.ErrInvalidScope
+	}
 	store.mu.Lock()
 	defer store.mu.Unlock()
-	if _, exists := store.accounts[account.ID]; !exists {
+	if existing, exists := store.accounts[account.ID]; !exists || existing.OrganizationID != scope.OrganizationID || existing.SiteID != scope.SiteID {
 		return ErrCloudAccountNotFound
+	}
+	for _, instance := range instances {
+		if instance.OrganizationID != scope.OrganizationID || instance.SiteID != scope.SiteID || instance.AccountID != account.ID {
+			return tenancy.ErrInvalidScope
+		}
 	}
 	store.accounts[account.ID] = account
 	store.instances[account.ID] = append([]Instance(nil), instances...)
 	return nil
 }
 
-func (store *MemoryStore) ListCloudInstances(_ context.Context) ([]Instance, error) {
+func (store *MemoryStore) ListCloudInstances(_ context.Context, scope tenancy.Scope) ([]Instance, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	store.mu.RLock()
 	defer store.mu.RUnlock()
 	result := make([]Instance, 0)
 	for _, instances := range store.instances {
-		result = append(result, instances...)
+		for _, instance := range instances {
+			if instance.OrganizationID == scope.OrganizationID && instance.SiteID == scope.SiteID {
+				result = append(result, instance)
+			}
+		}
 	}
 	sort.Slice(result, func(i, j int) bool {
 		if result[i].AccountName == result[j].AccountName {

@@ -750,7 +750,7 @@ func handleCreateCloudAccount(service *cloudinventory.Service, tokens accessToke
 		if err := decodeJSON(response, request, &value); err != nil {
 			return
 		}
-		account, err := service.CreateAccount(request.Context(), value)
+		account, err := service.CreateAccount(request.Context(), tenancy.DefaultScope(), value)
 		if errors.Is(err, cloudinventory.ErrInvalidCloudInventory) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -765,7 +765,7 @@ func handleCreateCloudAccount(service *cloudinventory.Service, tokens accessToke
 
 func handleListCloudAccounts(service *cloudinventory.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		accounts, err := service.ListAccounts(request.Context())
+		accounts, err := service.ListAccounts(request.Context(), tenancy.DefaultScope())
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 			return
@@ -787,7 +787,7 @@ func handleReconcileCloudInstances(service *cloudinventory.Service, tokens acces
 		if err := decodeJSON(response, request, &payload); err != nil {
 			return
 		}
-		instances, err := service.Reconcile(request.Context(), request.PathValue("accountID"), payload.Instances)
+		instances, err := service.Reconcile(request.Context(), tenancy.DefaultScope(), request.PathValue("accountID"), payload.Instances)
 		if errors.Is(err, cloudinventory.ErrInvalidCloudInventory) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -808,7 +808,7 @@ func handleReconcileCloudInstances(service *cloudinventory.Service, tokens acces
 
 func handleListCloudInstances(service *cloudinventory.Service) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		instances, err := service.ListInstances(request.Context())
+		instances, err := service.ListInstances(request.Context(), tenancy.DefaultScope())
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
 			return
