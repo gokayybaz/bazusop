@@ -99,8 +99,12 @@ func collectSystemSnapshot() (systemSnapshot, error) {
 		return systemSnapshot{}, fmt.Errorf("read network counters: %w", err)
 	}
 	times := cpuTimes[0]
+	// cpu.TimesStat.Total() is deprecated upstream ("please do not use this internal
+	// function"); sum the fields ourselves using its exact formula instead.
+	cpuTotal := times.User + times.System + times.Idle + times.Nice + times.Iowait +
+		times.Irq + times.Softirq + times.Steal + times.Guest + times.GuestNice
 	return systemSnapshot{
-		CPUTotal: times.Total(), CPUIdle: times.Idle + times.Iowait,
+		CPUTotal: cpuTotal, CPUIdle: times.Idle + times.Iowait,
 		MemoryTotal: memory.Total, MemoryAvailable: memory.Available,
 		DiskTotal: volume.Total, DiskFree: volume.Free,
 		NetworkRXBytes: receiveBytes, NetworkTXBytes: transmitBytes,

@@ -248,7 +248,7 @@ func (client *Client) requestStatuses(ctx context.Context, method, path string, 
 	if err != nil {
 		return 0, err
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	expected := false
 	for _, status := range expectedStatuses {
 		expected = expected || response.StatusCode == status

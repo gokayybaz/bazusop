@@ -103,7 +103,7 @@ func TestLogCollectorAdvancesCursorOnlyAfterSuccessfulCollection(t *testing.T) {
 	if len(retry.Entries) != 1 || len(calls) != 1 {
 		t.Fatalf("uncommitted batch was not retried: batch=%#v calls=%#v", retry, calls)
 	}
-	collector.Commit()
+	_ = collector.Commit()
 	_, _ = collector.Collect(context.Background())
 	if !reflect.DeepEqual(calls, []time.Time{start, start.Add(time.Minute)}) {
 		t.Fatalf("unexpected cursors: %#v", calls)

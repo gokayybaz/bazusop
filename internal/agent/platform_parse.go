@@ -19,7 +19,7 @@ func parseLinuxMemory(contents string) (uint64, error) {
 			break
 		}
 	}
-	return 0, errors.New("Linux MemTotal is unavailable")
+	return 0, errors.New("linux MemTotal is unavailable")
 }
 
 func parseOSRelease(contents string) (string, string) {
