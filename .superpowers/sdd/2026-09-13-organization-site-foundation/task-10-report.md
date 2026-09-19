@@ -18,7 +18,7 @@ TestOrganizationSiteMigrationBackfillsExistingData: PASS
 TestPostgresAgentMovePreservesScopedHistoryAndRefreshesIdentity: PASS
 ```
 
-The package-wide PostgreSQL run was also attempted against a newly created disposable database. Existing `TestPostgresCloudInventoryIsScopedBySite` fails before the new tests complete because the existing fixture passes nil IP slices into production `ReplaceCloudInstances`, which inserts NULL into the migration's `NOT NULL` `private_ips`/`public_ips` columns. No production change was made because this is outside Task 10's owned files and changing it would expand scope.
+The package-wide PostgreSQL run was also executed against a newly created disposable TimescaleDB database after the cloud integration fixture was corrected to use non-nil empty IP slices. The complete `internal/storage/postgres` package passed, including cloud isolation, migration replay, enrollment, and move/history acceptance tests.
 
 Other checks:
 
@@ -28,4 +28,4 @@ Other checks:
 - `npm --prefix web run build`: PASS
 - `git diff --check`: PASS
 
-The real PostgreSQL package-wide result remains pending the pre-existing cloud-inventory fixture/NULL-array issue.
+The real PostgreSQL package-wide result is verified against the disposable database; the database was dropped after the run.
