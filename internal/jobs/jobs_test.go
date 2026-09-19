@@ -106,6 +106,45 @@ func TestJobSignatureCoversScope(t *testing.T) {
 	}
 }
 
+func TestVerifyAcceptsLegacyDefaultScopeSignature(t *testing.T) {
+	service := newMemoryService(t, []tenancy.Agent{defaultJobAgent()})
+	job, err := service.Create(t.Context(), tenancy.DefaultScope(), "agent-01", CreateRequest{Action: ActionHostReboot, ApprovedBy: "ops", Reason: "migration"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPayload, err := signingPayloadV1(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(service.privateKey, legacyPayload))
+	if !Verify(job) {
+		t.Fatal("expected a v1 signature on a migrated default-scope job to verify")
+	}
+}
+
+func TestVerifyRejectsLegacyNonDefaultScopeSignature(t *testing.T) {
+	service := newMemoryService(t, []tenancy.Agent{defaultJobAgent()})
+	job, err := service.Create(t.Context(), tenancy.DefaultScope(), "agent-01", CreateRequest{Action: ActionHostReboot, ApprovedBy: "ops", Reason: "migration"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacyPayload, err := signingPayloadV1(job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	job.Signature = base64.StdEncoding.EncodeToString(ed25519.Sign(service.privateKey, legacyPayload))
+
+	job.SiteID = "site-moved"
+	if Verify(job) {
+		t.Fatal("legacy signature verified after its default scope was tampered")
+	}
+
+	job.SiteID = "site-new"
+	if Verify(job) {
+		t.Fatal("legacy signature verified for a non-default site")
+	}
+}
+
 func TestServiceUsesConfiguredSigningKey(t *testing.T) {
 	publicKey, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

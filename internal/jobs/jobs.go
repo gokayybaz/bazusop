@@ -241,7 +241,19 @@ func Verify(job Job) bool {
 		return false
 	}
 	payload, err := signingPayload(job)
-	return err == nil && ed25519.Verify(ed25519.PublicKey(publicKey), payload, signature)
+	if err == nil && ed25519.Verify(ed25519.PublicKey(publicKey), payload, signature) {
+		return true
+	}
+	// Migration 015 assigns pre-existing queued jobs to the default scope, but
+	// their signatures were created with the v1 payload (which did not include
+	// organization or site). Keep that narrow compatibility window while
+	// refusing to treat a legacy signature as authorization for a moved or new
+	// site.
+	if job.OrganizationID != tenancy.DefaultOrganizationID || job.SiteID != tenancy.DefaultSiteID {
+		return false
+	}
+	legacyPayload, err := signingPayloadV1(job)
+	return err == nil && ed25519.Verify(ed25519.PublicKey(publicKey), legacyPayload, signature)
 }
 
 func signingPayload(job Job) ([]byte, error) {
@@ -257,6 +269,19 @@ func signingPayload(job Job) ([]byte, error) {
 		Reason         string `json:"reason"`
 		RequestedAt    string `json:"requested_at"`
 	}{2, job.ID, job.OrganizationID, job.SiteID, job.AgentID, job.Action, job.Target, job.ApprovedBy, job.Reason, job.RequestedAt.UTC().Format(time.RFC3339Nano)})
+}
+
+func signingPayloadV1(job Job) ([]byte, error) {
+	return json.Marshal(struct {
+		Version     int    `json:"version"`
+		ID          string `json:"id"`
+		AgentID     string `json:"agent_id"`
+		Action      Action `json:"action"`
+		Target      string `json:"target"`
+		ApprovedBy  string `json:"approved_by"`
+		Reason      string `json:"reason"`
+		RequestedAt string `json:"requested_at"`
+	}{1, job.ID, job.AgentID, job.Action, job.Target, job.ApprovedBy, job.Reason, job.RequestedAt.UTC().Format(time.RFC3339Nano)})
 }
 
 func validActionTarget(action Action, target string) bool {
