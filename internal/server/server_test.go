@@ -51,4 +51,3 @@ func TestSinglePageApplicationFallback(t *testing.T) {
 		t.Fatalf("expected HTML response, got %q", contentType)
 	}
 }
-
