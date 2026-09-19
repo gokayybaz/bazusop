@@ -62,42 +62,37 @@ func newIsolatedPostgres(t *testing.T) *isolatedPostgres {
 		admin.Close()
 		t.Fatalf("create isolated schema %q: %v", schema, err)
 	}
-	scopedURL := withSearchPath(t, databaseURL, schema)
-	scopedConfiguration, err := pgxpool.ParseConfig(scopedURL)
-	if err != nil {
-		_ = dropIsolatedSchema(context.Background(), admin, schema)
-		admin.Close()
-		t.Fatalf("parse isolated PostgreSQL URL: %v", err)
-	}
-	if got := scopedConfiguration.ConnConfig.RuntimeParams["search_path"]; got != schema {
-		_ = dropIsolatedSchema(context.Background(), admin, schema)
-		admin.Close()
-		t.Fatalf("isolated PostgreSQL search_path=%q, want %q", got, schema)
-	}
-	scoped, err := pgxpool.NewWithConfig(ctx, scopedConfiguration)
-	if err != nil {
-		_ = dropIsolatedSchema(context.Background(), admin, schema)
-		admin.Close()
-		t.Fatalf("open isolated PostgreSQL pool: %v", err)
-	}
-	if err := scoped.Ping(ctx); err != nil {
-		scoped.Close()
-		_ = dropIsolatedSchema(context.Background(), admin, schema)
-		admin.Close()
-		t.Fatalf("ping isolated PostgreSQL pool: %v", err)
-	}
-
-	database := &isolatedPostgres{schema: schema, scopedURL: scopedURL, admin: admin, scoped: scoped}
+	database := &isolatedPostgres{schema: schema, admin: admin}
 	t.Cleanup(func() {
 		for index := len(database.stores) - 1; index >= 0; index-- {
 			database.stores[index].Close()
 		}
-		database.scoped.Close()
+		if database.scoped != nil {
+			database.scoped.Close()
+		}
 		if err := dropIsolatedSchema(context.Background(), database.admin, database.schema); err != nil {
 			t.Errorf("drop isolated schema %q: %v", database.schema, err)
 		}
 		database.admin.Close()
 	})
+	scopedURL := withSearchPath(t, databaseURL, schema)
+	scopedConfiguration, err := pgxpool.ParseConfig(scopedURL)
+	if err != nil {
+		t.Fatalf("parse isolated PostgreSQL URL: %v", err)
+	}
+	if got := scopedConfiguration.ConnConfig.RuntimeParams["search_path"]; got != schema {
+		t.Fatalf("isolated PostgreSQL search_path=%q, want %q", got, schema)
+	}
+	scoped, err := pgxpool.NewWithConfig(ctx, scopedConfiguration)
+	if err != nil {
+		t.Fatalf("open isolated PostgreSQL pool: %v", err)
+	}
+	if err := scoped.Ping(ctx); err != nil {
+		scoped.Close()
+		t.Fatalf("ping isolated PostgreSQL pool: %v", err)
+	}
+
+	database.scopedURL, database.scoped = scopedURL, scoped
 	return database
 }
 
