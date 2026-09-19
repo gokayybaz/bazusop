@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gokayybaz/bazusop/internal/logstream"
 )
@@ -16,11 +17,38 @@ func TestStorageMigrationsAreEmbeddedInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migrations: %v", err)
 	}
-	if len(entries) != 14 {
-		t.Fatalf("expected fourteen storage migrations, got %d", len(entries))
+	if len(entries) != 17 {
+		t.Fatalf("expected seventeen storage migrations, got %d", len(entries))
 	}
-	if entries[0].Name() != "001_hosts.sql" || entries[13].Name() != "014_enrollment_state.sql" {
-		t.Fatalf("unexpected migration range: %s through %s", entries[0].Name(), entries[13].Name())
+	if entries[0].Name() != "001_hosts.sql" || entries[16].Name() != "017_scoped_alerting_active_index.sql" {
+		t.Fatalf("unexpected migration range: %s through %s", entries[0].Name(), entries[len(entries)-1].Name())
+	}
+}
+
+func TestOrganizationSiteMigrationBackfillsEveryScopedTable(t *testing.T) {
+	t.Parallel()
+	migration, err := migrationFiles.ReadFile("migrations/015_organization_sites.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	contents := string(migration)
+	for _, required := range []string{
+		"org_default", "site_default", "CREATE TABLE IF NOT EXISTS organizations",
+		"CREATE TABLE IF NOT EXISTS sites", "CREATE TABLE IF NOT EXISTS agents",
+		"ALTER TABLE hosts", "ALTER TABLE enrollment_tokens",
+		"ALTER TABLE telemetry_samples", "ALTER TABLE services", "ALTER TABLE log_entries",
+		"ALTER TABLE jobs", "ALTER TABLE job_events", "ALTER TABLE alert_rules",
+		"ALTER TABLE maintenance_windows", "ALTER TABLE alert_incidents",
+		"ALTER TABLE alert_events", "ALTER TABLE cloud_accounts", "ALTER TABLE cloud_instances",
+		"SET NOT NULL", "FOREIGN KEY (organization_id, site_id)",
+		"ADD COLUMN IF NOT EXISTS", "consumed_by_agent_id", "REFERENCES agents(id)",
+		"PRIMARY KEY (organization_id, site_id, agent_id, recorded_at)",
+		"UNIQUE (organization_id, site_id, provider, external_id)",
+		"site scope backfill incomplete",
+	} {
+		if !strings.Contains(contents, required) {
+			t.Errorf("site migration must contain %q", required)
+		}
 	}
 }
 
@@ -42,7 +70,7 @@ func TestLogNotificationsStayBelowPostgresPayloadLimit(t *testing.T) {
 	t.Parallel()
 	entries := make([]logstream.Entry, 1000)
 	for index := range entries {
-		entries[index] = logstream.Entry{ID: strings.Repeat("a", 28) + string(rune('A'+index%26)), Message: strings.Repeat("x", 64*1024)}
+		entries[index] = logstream.Entry{OrganizationID: strings.Repeat("o", 128), SiteID: strings.Repeat("s", 128), ID: strings.Repeat("a", 32), OccurredAt: time.Date(2026, 9, 13, 10, 0, 0, index*1000, time.UTC), Message: strings.Repeat("x", 64*1024)}
 	}
 
 	payloads, err := encodeLogNotificationBatches(entries)
@@ -54,11 +82,21 @@ func TestLogNotificationsStayBelowPostgresPayloadLimit(t *testing.T) {
 		if len(payload) >= postgresNotifyPayloadLimit {
 			t.Fatalf("notification payload is %d bytes", len(payload))
 		}
-		var ids []string
+		var ids []struct {
+			OrganizationID string    `json:"organization_id"`
+			SiteID         string    `json:"site_id"`
+			ID             string    `json:"id"`
+			OccurredAt     time.Time `json:"occurred_at"`
+		}
 		if err := json.Unmarshal([]byte(payload), &ids); err != nil {
 			t.Fatalf("decode notification: %v", err)
 		}
-		decoded += len(ids)
+		for _, identity := range ids {
+			if identity.OrganizationID != entries[decoded].OrganizationID || identity.SiteID != entries[decoded].SiteID || identity.ID != entries[decoded].ID || !identity.OccurredAt.Equal(entries[decoded].OccurredAt) {
+				t.Fatalf("notification lost scoped identity: %#v", identity)
+			}
+			decoded++
+		}
 		if strings.Contains(payload, strings.Repeat("x", 32)) {
 			t.Fatal("notification must not contain log message content")
 		}

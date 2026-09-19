@@ -19,6 +19,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 var (
@@ -51,12 +53,14 @@ type AuthorityState struct {
 
 type StateStore interface {
 	LoadOrCreateEnrollmentAuthority(context.Context, AuthorityState) (AuthorityState, error)
-	RegisterEnrollmentToken(context.Context, [sha256.Size]byte) error
-	ConsumeEnrollmentToken(context.Context, [sha256.Size]byte) error
+	RegisterEnrollmentToken(context.Context, [sha256.Size]byte, tenancy.Scope) error
+	ConsumeEnrollmentToken(context.Context, [sha256.Size]byte, string) (tenancy.Agent, error)
+	ResolveAgent(context.Context, string) (tenancy.Agent, error)
 }
 
 type tokenConsumer interface {
-	ConsumeEnrollmentToken(context.Context, [sha256.Size]byte) error
+	ConsumeEnrollmentToken(context.Context, [sha256.Size]byte, string) (tenancy.Agent, error)
+	ResolveAgent(context.Context, string) (tenancy.Agent, error)
 }
 
 type Authority struct {
@@ -75,12 +79,15 @@ func NewAuthority(bootstrapToken string) (*Authority, error) {
 	if err != nil {
 		return nil, err
 	}
-	tokens := &memoryTokenStore{bootstrapHash: sha256.Sum256([]byte(bootstrapToken))}
+	tokens := &memoryTokenStore{bootstrapHash: sha256.Sum256([]byte(bootstrapToken)), agents: make(map[string]tenancy.Agent)}
 	return authorityFromState(state, tokens)
 }
 
-func NewPersistentAuthority(ctx context.Context, bootstrapToken string, store StateStore) (*Authority, error) {
+func NewPersistentAuthority(ctx context.Context, bootstrapToken string, scope tenancy.Scope, store StateStore) (*Authority, error) {
 	if err := validateBootstrapToken(bootstrapToken); err != nil {
+		return nil, err
+	}
+	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
 	if store == nil {
@@ -95,7 +102,7 @@ func NewPersistentAuthority(ctx context.Context, bootstrapToken string, store St
 		return nil, fmt.Errorf("load enrollment authority: %w", err)
 	}
 	tokenHash := sha256.Sum256([]byte(bootstrapToken))
-	if err := store.RegisterEnrollmentToken(ctx, tokenHash); err != nil {
+	if err := store.RegisterEnrollmentToken(ctx, tokenHash, scope); err != nil {
 		return nil, fmt.Errorf("register enrollment token: %w", err)
 	}
 	return authorityFromState(state, store)
@@ -139,18 +146,22 @@ func (authority *Authority) EnrollContext(ctx context.Context, request Request) 
 		return Identity{}, err
 	}
 	providedHash := sha256.Sum256([]byte(request.BootstrapToken))
-	if err := authority.tokens.ConsumeEnrollmentToken(ctx, providedHash); err != nil {
+	if _, err := authority.tokens.ConsumeEnrollmentToken(ctx, providedHash, agentID); err != nil {
 		return Identity{}, err
 	}
 	return identity, nil
 }
 
 func (authority *Authority) Renew(peer *x509.Certificate, csrPEM string) (Identity, error) {
+	return authority.RenewContext(context.Background(), peer, csrPEM)
+}
+
+func (authority *Authority) RenewContext(ctx context.Context, peer *x509.Certificate, csrPEM string) (Identity, error) {
 	csr, err := parseCSR(csrPEM)
 	if err != nil || peer == nil {
 		return Identity{}, ErrInvalidIdentity
 	}
-	agentID, err := authority.Authenticate(peer)
+	agent, err := authority.AuthenticateContext(ctx, peer)
 	if err != nil {
 		return Identity{}, err
 	}
@@ -159,26 +170,40 @@ func (authority *Authority) Renew(peer *x509.Certificate, csrPEM string) (Identi
 		operatingSystem = peer.Subject.OrganizationalUnit[0]
 	}
 
-	return authority.issue(agentID, operatingSystem, csr)
+	return authority.issue(agent.ID, operatingSystem, csr)
 }
 
 type memoryTokenStore struct {
 	mu            sync.Mutex
 	bootstrapHash [sha256.Size]byte
 	consumed      bool
+	agents        map[string]tenancy.Agent
 }
 
-func (store *memoryTokenStore) ConsumeEnrollmentToken(_ context.Context, providedHash [sha256.Size]byte) error {
+func (store *memoryTokenStore) ConsumeEnrollmentToken(_ context.Context, providedHash [sha256.Size]byte, agentID string) (tenancy.Agent, error) {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	if subtle.ConstantTimeCompare(providedHash[:], store.bootstrapHash[:]) != 1 {
-		return ErrInvalidToken
+		return tenancy.Agent{}, ErrInvalidToken
 	}
 	if store.consumed {
-		return ErrTokenConsumed
+		return tenancy.Agent{}, ErrTokenConsumed
 	}
+	scope := tenancy.DefaultScope()
+	agent := tenancy.Agent{ID: agentID, OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}
+	store.agents[agentID] = agent
 	store.consumed = true
-	return nil
+	return agent, nil
+}
+
+func (store *memoryTokenStore) ResolveAgent(_ context.Context, agentID string) (tenancy.Agent, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	agent, ok := store.agents[agentID]
+	if !ok {
+		return tenancy.Agent{}, tenancy.ErrNotFound
+	}
+	return agent, nil
 }
 
 func validateBootstrapToken(token string) error {
@@ -263,6 +288,18 @@ func (authority *Authority) Authenticate(peer *x509.Certificate) (string, error)
 		return "", ErrInvalidIdentity
 	}
 	return agentID, nil
+}
+
+func (authority *Authority) AuthenticateContext(ctx context.Context, peer *x509.Certificate) (tenancy.Agent, error) {
+	agentID, err := authority.Authenticate(peer)
+	if err != nil {
+		return tenancy.Agent{}, err
+	}
+	agent, err := authority.tokens.ResolveAgent(ctx, agentID)
+	if err != nil || agent.ID != agentID || agent.Validate() != nil {
+		return tenancy.Agent{}, ErrInvalidIdentity
+	}
+	return agent, nil
 }
 
 func (authority *Authority) issue(agentID, operatingSystem string, csr *x509.CertificateRequest) (Identity, error) {

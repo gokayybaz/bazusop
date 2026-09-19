@@ -21,6 +21,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
@@ -32,7 +33,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	telemetryService := telemetry.NewService(telemetry.NewMemoryStore())
 	serviceInventory := serviceinventory.NewService(serviceinventory.NewMemoryStore())
 	logs := logstream.NewService(logstream.NewMemoryStore())
-	jobService, err := jobs.NewService(jobs.NewMemoryStore(), jobs.WithSigningKey(authority.JobSigningKey()))
+	jobService, err := jobs.NewService(jobs.NewMemoryStore(), jobs.WithSigningKey(authority.JobSigningKey()), jobs.WithHostScopeChecker(inventoryService.HasHost))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +62,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 		t.Fatalf("report inventory: %v", err)
 	}
 
-	hosts, err := inventoryService.List(context.Background())
+	hosts, err := inventoryService.List(context.Background(), tenancy.DefaultScope())
 	if err != nil || len(hosts) != 1 {
 		t.Fatalf("expected reported host, hosts=%#v err=%v", hosts, err)
 	}
@@ -72,7 +73,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	if err := client.ReportTelemetry(context.Background(), identity, telemetry.Sample{RecordedAt: recordedAt, CPUPercent: 12.5, MemoryPercent: 40, DiskPercent: 50}); err != nil {
 		t.Fatalf("report telemetry: %v", err)
 	}
-	samples, err := telemetryService.History(context.Background(), identity.AgentID, recordedAt.Add(-time.Second), recordedAt.Add(time.Second), 10)
+	samples, err := telemetryService.History(context.Background(), tenancy.DefaultScope(), identity.AgentID, recordedAt.Add(-time.Second), recordedAt.Add(time.Second), 10)
 	if err != nil || len(samples) != 1 || samples[0].CPUPercent != 12.5 {
 		t.Fatalf("expected reported telemetry, samples=%#v err=%v", samples, err)
 	}
@@ -80,7 +81,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	if err := client.ReportServices(context.Background(), identity, serviceSnapshot); err != nil {
 		t.Fatalf("report services: %v", err)
 	}
-	services, err := serviceInventory.List(context.Background(), identity.AgentID, serviceinventory.Filter{})
+	services, err := serviceInventory.List(context.Background(), tenancy.DefaultScope(), identity.AgentID, serviceinventory.Filter{})
 	if err != nil || len(services) != 1 || services[0].Name != "nginx.service" {
 		t.Fatalf("expected reported services, services=%#v err=%v", services, err)
 	}
@@ -88,11 +89,11 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	if err := client.ReportLogs(context.Background(), identity, logstream.Batch{Entries: []logstream.Entry{{OccurredAt: logTime, Collector: "journald", Source: "nginx.service", Severity: "warn", Message: "retrying upstream"}}}); err != nil {
 		t.Fatalf("report logs: %v", err)
 	}
-	entries, err := logs.Search(context.Background(), logstream.Query{AgentID: identity.AgentID, From: recordedAt, To: logTime.Add(time.Second), Limit: 10})
+	entries, err := logs.Search(context.Background(), logstream.Query{Scope: tenancy.DefaultScope(), AgentID: identity.AgentID, From: recordedAt, To: logTime.Add(time.Second), Limit: 10})
 	if err != nil || len(entries) != 1 || entries[0].Message != "retrying upstream" {
 		t.Fatalf("expected reported logs, entries=%#v err=%v", entries, err)
 	}
-	created, err := jobService.Create(context.Background(), identity.AgentID, jobs.CreateRequest{Action: jobs.ActionServiceRestart, Target: "nginx.service", ApprovedBy: "ops", Reason: "deploy"})
+	created, err := jobService.Create(context.Background(), tenancy.DefaultScope(), identity.AgentID, jobs.CreateRequest{Action: jobs.ActionServiceRestart, Target: "nginx.service", ApprovedBy: "ops", Reason: "deploy"})
 	if err != nil {
 		t.Fatalf("create job: %v", err)
 	}
@@ -103,7 +104,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	if err := client.ReportJobEvent(context.Background(), identity, claimed.ID, jobs.EventRequest{Sequence: 2, Type: jobs.EventSucceeded, Message: "nginx restarted"}); err != nil {
 		t.Fatalf("report job event: %v", err)
 	}
-	events, err := jobService.Events(context.Background(), identity.AgentID, claimed.ID)
+	events, err := jobService.Events(context.Background(), tenancy.DefaultScope(), identity.AgentID, claimed.ID)
 	if err != nil || len(events) != 3 || events[2].Type != jobs.EventSucceeded {
 		t.Fatalf("expected completed job audit, events=%#v err=%v", events, err)
 	}

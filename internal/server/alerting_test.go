@@ -10,14 +10,25 @@ import (
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
+	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 )
 
+func newAlertService(t *testing.T) *alerting.Service {
+	t.Helper()
+	registry := inventory.NewService(inventory.NewMemoryStore())
+	service, err := alerting.NewService(alerting.NewMemoryStore(), alerting.WithHostScopeChecker(registry.HasHost))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return service
+}
+
 func TestMetricRuleCreatesAndAcknowledgesIncident(t *testing.T) {
 	t.Parallel()
 	authority, identity := enrolledIdentity(t)
-	alerts := alerting.NewService(alerting.NewMemoryStore())
+	alerts := newAlertService(t)
 	handler := server.NewHandler(server.WithEnrollment(authority), server.WithTelemetry(telemetry.NewService(telemetry.NewMemoryStore())), server.WithAlerts(alerts, "operator-secret"))
 
 	createRule := httptest.NewRequest(http.MethodPost, "/api/v1/alert-rules", encodeJSON(t, alerting.RuleRequest{Name: "Yüksek CPU", Kind: alerting.KindMetric, Metric: alerting.MetricCPU, Threshold: 90, Severity: alerting.SeverityCritical, Enabled: true}))
@@ -67,7 +78,7 @@ func TestMetricRuleCreatesAndAcknowledgesIncident(t *testing.T) {
 
 func TestAlertMutationsRequireOperatorToken(t *testing.T) {
 	t.Parallel()
-	handler := server.NewHandler(server.WithAlerts(alerting.NewService(alerting.NewMemoryStore()), "operator-secret"))
+	handler := server.NewHandler(server.WithAlerts(newAlertService(t), "operator-secret"))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/alert-rules", encodeJSON(t, alerting.RuleRequest{})))
 	if response.Code != http.StatusUnauthorized {

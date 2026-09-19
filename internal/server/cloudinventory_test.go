@@ -9,13 +9,14 @@ import (
 	"github.com/gokayybaz/bazusop/internal/cloudinventory"
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/server"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func TestCloudDiscoveryAPIReconcilesProviderInventory(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
 	hosts := inventory.NewService(inventory.NewMemoryStore())
-	if err := hosts.Report(ctx, "agent-01", inventory.Facts{Hostname: "edge-01.example.com", OSFamily: "linux", OSName: "Ubuntu", OSVersion: "24.04", Architecture: "amd64", CPUCores: 4, MemoryBytes: 8 << 30, IPAddresses: []string{"10.0.0.8"}, AgentVersion: "0.1.0"}); err != nil {
+	if err := hosts.Report(ctx, tenancy.Agent{ID: "agent-01", OrganizationID: "org_default", SiteID: "site_default"}, inventory.Facts{Hostname: "edge-01.example.com", OSFamily: "linux", OSName: "Ubuntu", OSVersion: "24.04", Architecture: "amd64", CPUCores: 4, MemoryBytes: 8 << 30, IPAddresses: []string{"10.0.0.8"}, AgentVersion: "0.1.0"}); err != nil {
 		t.Fatalf("seed host: %v", err)
 	}
 	cloud := cloudinventory.NewService(cloudinventory.NewMemoryStore(), hosts)

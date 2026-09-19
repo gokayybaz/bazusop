@@ -16,6 +16,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/server"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func TestEnrolledAgentReportsSearchableLogs(t *testing.T) {
@@ -33,7 +34,7 @@ func TestEnrolledAgentReportsSearchableLogs(t *testing.T) {
 	base := time.Date(2026, 9, 11, 5, 0, 0, 0, time.UTC)
 
 	report := httptest.NewRequest(http.MethodPost, "/api/v1/agents/logs", encodeJSON(t, logstream.Batch{Entries: []logstream.Entry{
-		{OccurredAt: base, Collector: "journald", Source: "nginx.service", Severity: "error", Message: "upstream timeout"},
+		{AgentID: "forged-agent", OrganizationID: "forged-org", SiteID: "forged-site", OccurredAt: base, Collector: "journald", Source: "nginx.service", Severity: "error", Message: "upstream timeout"},
 	}}))
 	report.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{serverCertificate(t, identity.CertificatePEM)}}
 	reportResponse := httptest.NewRecorder()
@@ -57,6 +58,9 @@ func TestEnrolledAgentReportsSearchableLogs(t *testing.T) {
 	if len(payload.Entries) != 1 || payload.Entries[0].Message != "upstream timeout" {
 		t.Fatalf("unexpected logs: %#v", payload.Entries)
 	}
+	if payload.Entries[0].AgentID != identity.AgentID || payload.Entries[0].OrganizationID != tenancy.DefaultOrganizationID || payload.Entries[0].SiteID != tenancy.DefaultSiteID {
+		t.Fatalf("untrusted log scope: %#v", payload.Entries)
+	}
 }
 
 func TestLogStreamPublishesServerSentEvents(t *testing.T) {
@@ -75,7 +79,7 @@ func TestLogStreamPublishesServerSentEvents(t *testing.T) {
 		t.Fatalf("unexpected content type %q", recorder.Header().Get("Content-Type"))
 	}
 
-	if err := logs.Ingest(context.Background(), "agent-01", logstream.Batch{Entries: []logstream.Entry{{OccurredAt: time.Now(), Collector: "file", Source: "app.log", Severity: "info", Message: "live entry"}}}); err != nil {
+	if err := logs.Ingest(context.Background(), tenancy.Agent{ID: "agent-01", OrganizationID: "org_default", SiteID: "site_default"}, logstream.Batch{Entries: []logstream.Entry{{OccurredAt: time.Now(), Collector: "file", Source: "app.log", Severity: "info", Message: "live entry"}}}); err != nil {
 		t.Fatalf("ingest live log: %v", err)
 	}
 	recorder.waitFor(t, "live entry")

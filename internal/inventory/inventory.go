@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 var ErrInvalidFacts = errors.New("invalid host facts")
@@ -35,25 +37,27 @@ type Facts struct {
 }
 
 type Host struct {
-	AgentID       string    `json:"agent_id"`
-	Hostname      string    `json:"hostname"`
-	OSFamily      string    `json:"os_family"`
-	OSName        string    `json:"os_name"`
-	OSVersion     string    `json:"os_version"`
-	Architecture  string    `json:"architecture"`
-	KernelVersion string    `json:"kernel_version"`
-	CPUCores      int       `json:"cpu_cores"`
-	MemoryBytes   uint64    `json:"memory_bytes"`
-	IPAddresses   []string  `json:"ip_addresses"`
-	AgentVersion  string    `json:"agent_version"`
-	FirstSeenAt   time.Time `json:"first_seen_at"`
-	LastSeenAt    time.Time `json:"last_seen_at"`
-	Status        Status    `json:"status"`
+	OrganizationID string    `json:"organization_id"`
+	SiteID         string    `json:"site_id"`
+	AgentID        string    `json:"agent_id"`
+	Hostname       string    `json:"hostname"`
+	OSFamily       string    `json:"os_family"`
+	OSName         string    `json:"os_name"`
+	OSVersion      string    `json:"os_version"`
+	Architecture   string    `json:"architecture"`
+	KernelVersion  string    `json:"kernel_version"`
+	CPUCores       int       `json:"cpu_cores"`
+	MemoryBytes    uint64    `json:"memory_bytes"`
+	IPAddresses    []string  `json:"ip_addresses"`
+	AgentVersion   string    `json:"agent_version"`
+	FirstSeenAt    time.Time `json:"first_seen_at"`
+	LastSeenAt     time.Time `json:"last_seen_at"`
+	Status         Status    `json:"status"`
 }
 
 type Store interface {
 	Upsert(context.Context, Host) error
-	List(context.Context) ([]Host, error)
+	List(context.Context, tenancy.Scope) ([]Host, error)
 }
 
 type Service struct {
@@ -77,16 +81,22 @@ func NewService(store Store, options ...Option) *Service {
 	return service
 }
 
-func (service *Service) Report(ctx context.Context, agentID string, facts Facts) error {
-	host, err := normalize(agentID, facts, service.now().UTC())
+func (service *Service) Report(ctx context.Context, agent tenancy.Agent, facts Facts) error {
+	if err := agent.Validate(); err != nil {
+		return err
+	}
+	host, err := normalize(agent, facts, service.now().UTC())
 	if err != nil {
 		return err
 	}
 	return service.store.Upsert(ctx, host)
 }
 
-func (service *Service) List(ctx context.Context) ([]Host, error) {
-	hosts, err := service.store.List(ctx)
+func (service *Service) List(ctx context.Context, scope tenancy.Scope) ([]Host, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	hosts, err := service.store.List(ctx, scope)
 	if err != nil {
 		return nil, err
 	}
@@ -103,12 +113,28 @@ func (service *Service) List(ctx context.Context) ([]Host, error) {
 	return hosts, nil
 }
 
-func normalize(agentID string, facts Facts, observedAt time.Time) (Host, error) {
-	agentID = strings.TrimSpace(agentID)
+func (service *Service) HasHost(ctx context.Context, scope tenancy.Scope, agentID string) (bool, error) {
+	agent := tenancy.Agent{ID: strings.TrimSpace(agentID), OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}
+	if err := agent.Validate(); err != nil {
+		return false, err
+	}
+	hosts, err := service.store.List(ctx, scope)
+	if err != nil {
+		return false, err
+	}
+	for _, host := range hosts {
+		if host.AgentID == agent.ID && host.OrganizationID == scope.OrganizationID && host.SiteID == scope.SiteID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+func normalize(agent tenancy.Agent, facts Facts, observedAt time.Time) (Host, error) {
 	hostname := strings.ToLower(strings.TrimSuffix(strings.TrimSpace(facts.Hostname), "."))
 	osFamily := strings.ToLower(strings.TrimSpace(facts.OSFamily))
 	architecture := normalizeArchitecture(facts.Architecture)
-	if agentID == "" || hostname == "" || len(hostname) > 253 || !supportedOS(osFamily) || architecture == "" {
+	if hostname == "" || len(hostname) > 253 || !supportedOS(osFamily) || architecture == "" {
 		return Host{}, ErrInvalidFacts
 	}
 	if facts.CPUCores < 1 || facts.CPUCores > 4096 || facts.MemoryBytes == 0 || facts.MemoryBytes > math.MaxInt64 {
@@ -116,19 +142,21 @@ func normalize(agentID string, facts Facts, observedAt time.Time) (Host, error) 
 	}
 
 	return Host{
-		AgentID:       agentID,
-		Hostname:      hostname,
-		OSFamily:      osFamily,
-		OSName:        bounded(strings.TrimSpace(facts.OSName), 128),
-		OSVersion:     bounded(strings.TrimSpace(facts.OSVersion), 128),
-		Architecture:  architecture,
-		KernelVersion: bounded(strings.TrimSpace(facts.KernelVersion), 256),
-		CPUCores:      facts.CPUCores,
-		MemoryBytes:   facts.MemoryBytes,
-		IPAddresses:   normalizeAddresses(facts.IPAddresses),
-		AgentVersion:  bounded(strings.TrimSpace(facts.AgentVersion), 64),
-		FirstSeenAt:   observedAt,
-		LastSeenAt:    observedAt,
+		AgentID:        agent.ID,
+		OrganizationID: agent.OrganizationID,
+		SiteID:         agent.SiteID,
+		Hostname:       hostname,
+		OSFamily:       osFamily,
+		OSName:         bounded(strings.TrimSpace(facts.OSName), 128),
+		OSVersion:      bounded(strings.TrimSpace(facts.OSVersion), 128),
+		Architecture:   architecture,
+		KernelVersion:  bounded(strings.TrimSpace(facts.KernelVersion), 256),
+		CPUCores:       facts.CPUCores,
+		MemoryBytes:    facts.MemoryBytes,
+		IPAddresses:    normalizeAddresses(facts.IPAddresses),
+		AgentVersion:   bounded(strings.TrimSpace(facts.AgentVersion), 64),
+		FirstSeenAt:    observedAt,
+		LastSeenAt:     observedAt,
 	}, nil
 }
 
@@ -175,8 +203,15 @@ func bounded(value string, limit int) string {
 }
 
 func (host Host) ValidateStored() error {
+	if err := (tenancy.Agent{ID: host.AgentID, OrganizationID: host.OrganizationID, SiteID: host.SiteID}).Validate(); err != nil {
+		return err
+	}
 	if host.AgentID == "" || host.Hostname == "" || !supportedOS(host.OSFamily) || normalizeArchitecture(host.Architecture) == "" {
 		return fmt.Errorf("%w: stored host is incomplete", ErrInvalidFacts)
 	}
 	return nil
+}
+
+func (host Host) Scope() tenancy.Scope {
+	return tenancy.Scope{OrganizationID: host.OrganizationID, SiteID: host.SiteID}
 }

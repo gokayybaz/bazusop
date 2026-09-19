@@ -24,6 +24,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	postgresstore "github.com/gokayybaz/bazusop/internal/storage/postgres"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 	"github.com/gokayybaz/bazusop/internal/version"
 )
 
@@ -41,6 +42,7 @@ func main() {
 		logger.Error("invalid configuration", "error", err)
 		os.Exit(1)
 	}
+	defaultScope := tenancy.DefaultScope()
 	bootstrapToken := configuration.EnrollmentToken
 	if bootstrapToken == "" {
 		var err error
@@ -73,7 +75,7 @@ func main() {
 			logger.Error("could not initialize PostgreSQL inventory store", "error", err)
 			os.Exit(1)
 		}
-		authority, err = enrollment.NewPersistentAuthority(startupContext, bootstrapToken, postgresStore)
+		authority, err = enrollment.NewPersistentAuthority(startupContext, bootstrapToken, defaultScope, postgresStore)
 		cancel()
 		if err != nil {
 			postgresStore.Close()
@@ -104,12 +106,16 @@ func main() {
 	telemetryService := telemetry.NewService(telemetryStore)
 	serviceInventoryService := serviceinventory.NewService(serviceInventoryStore)
 	logService := logstream.NewService(logStore)
-	jobService, err := jobs.NewService(jobStore, jobs.WithSigningKey(authority.JobSigningKey()))
+	jobService, err := jobs.NewService(jobStore, jobs.WithSigningKey(authority.JobSigningKey()), jobs.WithHostScopeChecker(inventoryService.HasHost))
 	if err != nil {
 		logger.Error("could not initialize job signing authority", "error", err)
 		os.Exit(1)
 	}
-	alertService := alerting.NewService(alertStore)
+	alertService, err := alerting.NewService(alertStore, alerting.WithHostScopeChecker(inventoryService.HasHost))
+	if err != nil {
+		logger.Error("could not initialize alert service", "error", err)
+		os.Exit(1)
+	}
 	cloudInventoryService := cloudinventory.NewService(cloudInventoryStore, inventoryService)
 	buildIdentity := version.Current()
 	if configuration.OperatorToken == "" && configuration.AdminToken == "" {
@@ -121,6 +127,7 @@ func main() {
 	httpServer := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: server.NewHandler(
+			server.WithDefaultScope(defaultScope),
 			server.WithEnrollment(authority),
 			server.WithInventory(inventoryService),
 			server.WithTelemetry(telemetryService),
@@ -153,7 +160,7 @@ func main() {
 
 	shutdownSignal, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
-	go evaluateReachability(shutdownSignal, logger, inventoryService, alertService)
+	go evaluateReachability(shutdownSignal, logger, inventoryService, alertService, defaultScope)
 
 	go func() {
 		logger.Info("bazUSOP hub listening", "address", httpServer.Addr)
@@ -179,7 +186,7 @@ func main() {
 	}
 }
 
-func evaluateReachability(ctx context.Context, logger *slog.Logger, inventoryService *inventory.Service, alertService *alerting.Service) {
+func evaluateReachability(ctx context.Context, logger *slog.Logger, inventoryService *inventory.Service, alertService *alerting.Service, scope tenancy.Scope) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -187,13 +194,13 @@ func evaluateReachability(ctx context.Context, logger *slog.Logger, inventorySer
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			hosts, err := inventoryService.List(ctx)
+			hosts, err := inventoryService.List(ctx, scope)
 			if err != nil {
 				logger.Error("could not evaluate reachability alerts", "error", err)
 				continue
 			}
 			for _, host := range hosts {
-				if err := alertService.EvaluateReachability(ctx, host.AgentID, host.LastSeenAt); err != nil {
+				if err := alertService.EvaluateReachability(ctx, host.Scope(), host.AgentID, host.LastSeenAt); err != nil {
 					logger.Error("could not evaluate host reachability", "agent_id", host.AgentID, "error", err)
 				}
 			}

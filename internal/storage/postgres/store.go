@@ -21,6 +21,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 //go:embed migrations/*.sql
@@ -33,7 +34,7 @@ type Store struct {
 	telemetryRetentionDays int
 	logRetentionDays       int
 	liveMu                 sync.RWMutex
-	liveSubscribers        map[string]map[chan logstream.Entry]struct{}
+	liveSubscribers        map[tenancy.Agent]map[chan logstream.Entry]struct{}
 	listenerCancel         context.CancelFunc
 	listenerDone           chan struct{}
 }
@@ -74,7 +75,7 @@ func Open(ctx context.Context, databaseURL string, options ...Option) (*Store, e
 	store := &Store{
 		pool: pool, listenerConfig: configuration.ConnConfig,
 		telemetryRetentionDays: defaultTelemetryRetentionDays, logRetentionDays: defaultLogRetentionDays,
-		liveSubscribers: make(map[string]map[chan logstream.Entry]struct{}),
+		liveSubscribers: make(map[tenancy.Agent]map[chan logstream.Entry]struct{}),
 	}
 	for _, option := range options {
 		option(store)
@@ -137,18 +138,27 @@ func (store *Store) LoadOrCreateEnrollmentAuthority(ctx context.Context, candida
 	return state, nil
 }
 
-func (store *Store) RegisterEnrollmentToken(ctx context.Context, tokenHash [32]byte) error {
-	transaction, err := store.pool.Begin(ctx)
+type enrollmentDatabase interface {
+	Begin(context.Context) (pgx.Tx, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+
+func (store *Store) RegisterEnrollmentToken(ctx context.Context, tokenHash [32]byte, scope tenancy.Scope) error {
+	return registerEnrollmentToken(ctx, store.pool, tokenHash, scope)
+}
+
+func registerEnrollmentToken(ctx context.Context, database enrollmentDatabase, tokenHash [32]byte, scope tenancy.Scope) error {
+	transaction, err := database.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin enrollment token registration: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 	var registeredHash []byte
 	err = transaction.QueryRow(ctx, `
-		INSERT INTO enrollment_tokens (token_hash)
-		VALUES ($1)
+		INSERT INTO enrollment_tokens (token_hash, organization_id, site_id)
+		VALUES ($1, $2, $3)
 		ON CONFLICT (token_hash) DO NOTHING
-		RETURNING token_hash`, tokenHash[:]).Scan(&registeredHash)
+		RETURNING token_hash`, tokenHash[:], scope.OrganizationID, scope.SiteID).Scan(&registeredHash)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil
 	}
@@ -158,7 +168,8 @@ func (store *Store) RegisterEnrollmentToken(ctx context.Context, tokenHash [32]b
 	if _, err := transaction.Exec(ctx, `
 		UPDATE enrollment_tokens
 		SET revoked_at = now()
-		WHERE token_hash <> $1 AND consumed_at IS NULL AND revoked_at IS NULL`, tokenHash[:]); err != nil {
+		WHERE token_hash <> $1 AND organization_id = $2 AND site_id = $3
+			AND consumed_at IS NULL AND revoked_at IS NULL`, tokenHash[:], scope.OrganizationID, scope.SiteID); err != nil {
 		return fmt.Errorf("revoke previous enrollment tokens: %w", err)
 	}
 	if err := transaction.Commit(ctx); err != nil {
@@ -167,45 +178,102 @@ func (store *Store) RegisterEnrollmentToken(ctx context.Context, tokenHash [32]b
 	return nil
 }
 
-func (store *Store) ConsumeEnrollmentToken(ctx context.Context, tokenHash [32]byte) error {
-	var consumedAt time.Time
-	err := store.pool.QueryRow(ctx, `
-		UPDATE enrollment_tokens
-		SET consumed_at = now()
-		WHERE token_hash = $1 AND consumed_at IS NULL AND revoked_at IS NULL
-		RETURNING consumed_at`, tokenHash[:]).Scan(&consumedAt)
-	if err == nil {
-		return nil
+func (store *Store) ConsumeEnrollmentToken(ctx context.Context, tokenHash [32]byte, agentID string) (tenancy.Agent, error) {
+	return consumeEnrollmentToken(ctx, store.pool, tokenHash, agentID)
+}
+
+func consumeEnrollmentToken(ctx context.Context, database enrollmentDatabase, tokenHash [32]byte, agentID string) (tenancy.Agent, error) {
+	transaction, err := database.Begin(ctx)
+	if err != nil {
+		return tenancy.Agent{}, fmt.Errorf("begin enrollment token consumption: %w", err)
 	}
-	if !errors.Is(err, pgx.ErrNoRows) {
-		return fmt.Errorf("consume enrollment token: %w", err)
-	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	agent := tenancy.Agent{ID: agentID}
 	var consumed, revoked bool
-	if err := store.pool.QueryRow(ctx, `
-		SELECT consumed_at IS NOT NULL, revoked_at IS NOT NULL
+	if err := transaction.QueryRow(ctx, `
+		SELECT organization_id, site_id, consumed_at IS NOT NULL, revoked_at IS NOT NULL
 		FROM enrollment_tokens
-		WHERE token_hash = $1`, tokenHash[:]).Scan(&consumed, &revoked); errors.Is(err, pgx.ErrNoRows) {
-		return enrollment.ErrInvalidToken
+		WHERE token_hash = $1
+		FOR UPDATE`, tokenHash[:]).Scan(&agent.OrganizationID, &agent.SiteID, &consumed, &revoked); errors.Is(err, pgx.ErrNoRows) {
+		return tenancy.Agent{}, enrollment.ErrInvalidToken
 	} else if err != nil {
-		return fmt.Errorf("check enrollment token: %w", err)
+		return tenancy.Agent{}, fmt.Errorf("check enrollment token: %w", err)
 	}
 	if revoked {
-		return enrollment.ErrInvalidToken
+		return tenancy.Agent{}, enrollment.ErrInvalidToken
 	}
 	if consumed {
-		return enrollment.ErrTokenConsumed
+		return tenancy.Agent{}, enrollment.ErrTokenConsumed
 	}
-	return enrollment.ErrInvalidToken
+	if _, err := transaction.Exec(ctx, `
+		INSERT INTO agents (id, organization_id, site_id)
+		VALUES ($1, $2, $3)`, agent.ID, agent.OrganizationID, agent.SiteID); err != nil {
+		return tenancy.Agent{}, fmt.Errorf("insert enrolled agent: %w", err)
+	}
+	if _, err := transaction.Exec(ctx, `
+		UPDATE enrollment_tokens
+		SET consumed_at = now(), consumed_by_agent_id = $2
+		WHERE token_hash = $1`, tokenHash[:], agent.ID); err != nil {
+		return tenancy.Agent{}, fmt.Errorf("consume enrollment token: %w", err)
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return tenancy.Agent{}, fmt.Errorf("commit enrollment token consumption: %w", err)
+	}
+	return agent, nil
+}
+
+func (store *Store) ResolveAgent(ctx context.Context, agentID string) (tenancy.Agent, error) {
+	return resolveAgent(ctx, store.pool, agentID)
+}
+
+func resolveAgent(ctx context.Context, database enrollmentDatabase, agentID string) (tenancy.Agent, error) {
+	var agent tenancy.Agent
+	if err := database.QueryRow(ctx, `
+		SELECT id, organization_id, site_id FROM agents WHERE id = $1`, agentID).Scan(&agent.ID, &agent.OrganizationID, &agent.SiteID); errors.Is(err, pgx.ErrNoRows) {
+		return tenancy.Agent{}, tenancy.ErrNotFound
+	} else if err != nil {
+		return tenancy.Agent{}, fmt.Errorf("resolve enrolled agent: %w", err)
+	}
+	return agent, nil
 }
 
 func (store *Store) Upsert(ctx context.Context, host inventory.Host) error {
-	_, err := store.pool.Exec(ctx, `
+	return upsertHost(ctx, store.pool, host)
+}
+
+type inventoryDatabase interface {
+	Begin(context.Context) (pgx.Tx, error)
+}
+
+func upsertHost(ctx context.Context, database inventoryDatabase, host inventory.Host) error {
+	if err := host.ValidateStored(); err != nil {
+		return err
+	}
+	transaction, err := database.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin host inventory transaction: %w", err)
+	}
+	defer func() { _ = transaction.Rollback(ctx) }()
+	// Serialize reports with a privileged move, which must update agents and
+	// current hosts together in one transaction, leaving historical rows intact.
+	var agentID string
+	if err := transaction.QueryRow(ctx, `
+		SELECT id FROM agents
+		WHERE id = $1 AND organization_id = $2 AND site_id = $3
+		FOR UPDATE`, host.AgentID, host.OrganizationID, host.SiteID).Scan(&agentID); errors.Is(err, pgx.ErrNoRows) {
+		return tenancy.ErrNotFound
+	} else if err != nil {
+		return fmt.Errorf("lock host agent assignment: %w", err)
+	}
+	result, err := transaction.Exec(ctx, `
 		INSERT INTO hosts (
-			agent_id, hostname, os_family, os_name, os_version, architecture,
+			agent_id, organization_id, site_id, hostname, os_family, os_name, os_version, architecture,
 			kernel_version, cpu_cores, memory_bytes, ip_addresses, agent_version,
 			first_seen_at, last_seen_at
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
 		ON CONFLICT (agent_id) DO UPDATE SET
+			organization_id = EXCLUDED.organization_id,
+			site_id = EXCLUDED.site_id,
 			hostname = EXCLUDED.hostname,
 			os_family = EXCLUDED.os_family,
 			os_name = EXCLUDED.os_name,
@@ -216,8 +284,11 @@ func (store *Store) Upsert(ctx context.Context, host inventory.Host) error {
 			memory_bytes = EXCLUDED.memory_bytes,
 			ip_addresses = EXCLUDED.ip_addresses,
 			agent_version = EXCLUDED.agent_version,
-			last_seen_at = EXCLUDED.last_seen_at`,
+			last_seen_at = EXCLUDED.last_seen_at
+		WHERE hosts.agent_id = $1 AND hosts.organization_id = $2 AND hosts.site_id = $3`,
 		host.AgentID,
+		host.OrganizationID,
+		host.SiteID,
 		host.Hostname,
 		host.OSFamily,
 		host.OSName,
@@ -234,16 +305,26 @@ func (store *Store) Upsert(ctx context.Context, host inventory.Host) error {
 	if err != nil {
 		return fmt.Errorf("upsert host inventory: %w", err)
 	}
+	if result.RowsAffected() != 1 {
+		return tenancy.ErrNotFound
+	}
+	if err := transaction.Commit(ctx); err != nil {
+		return fmt.Errorf("commit host inventory: %w", err)
+	}
 	return nil
 }
 
-func (store *Store) List(ctx context.Context) ([]inventory.Host, error) {
+func (store *Store) List(ctx context.Context, scope tenancy.Scope) ([]inventory.Host, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	rows, err := store.pool.Query(ctx, `
-		SELECT agent_id, hostname, os_family, os_name, os_version, architecture,
+		SELECT agent_id, organization_id, site_id, hostname, os_family, os_name, os_version, architecture,
 			kernel_version, cpu_cores, memory_bytes, ip_addresses, agent_version,
 			first_seen_at, last_seen_at
 		FROM hosts
-		ORDER BY hostname`)
+		WHERE organization_id = $1 AND site_id = $2
+		ORDER BY hostname`, scope.OrganizationID, scope.SiteID)
 	if err != nil {
 		return nil, fmt.Errorf("query host inventory: %w", err)
 	}
@@ -255,6 +336,8 @@ func (store *Store) List(ctx context.Context) ([]inventory.Host, error) {
 		var memoryBytes int64
 		if err := rows.Scan(
 			&host.AgentID,
+			&host.OrganizationID,
+			&host.SiteID,
 			&host.Hostname,
 			&host.OSFamily,
 			&host.OSName,
@@ -280,17 +363,23 @@ func (store *Store) List(ctx context.Context) ([]inventory.Host, error) {
 }
 
 func (store *Store) Append(ctx context.Context, sample telemetry.Sample) error {
+	if err := (tenancy.Agent{ID: sample.AgentID, OrganizationID: sample.OrganizationID, SiteID: sample.SiteID}).Validate(); err != nil {
+		return err
+	}
 	_, err := store.pool.Exec(ctx, `
 		INSERT INTO telemetry_samples (
-			agent_id, recorded_at, cpu_percent, memory_percent, disk_percent,
+			organization_id, site_id, agent_id, recorded_at, cpu_percent, memory_percent, disk_percent,
 			network_rx_bytes, network_tx_bytes
-		) VALUES ($1, $2, $3, $4, $5, $6, $7)
-		ON CONFLICT (agent_id, recorded_at) DO UPDATE SET
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+		ON CONFLICT (organization_id, site_id, agent_id, recorded_at) DO UPDATE SET
 			cpu_percent = EXCLUDED.cpu_percent,
 			memory_percent = EXCLUDED.memory_percent,
 			disk_percent = EXCLUDED.disk_percent,
 			network_rx_bytes = EXCLUDED.network_rx_bytes,
-			network_tx_bytes = EXCLUDED.network_tx_bytes`,
+			network_tx_bytes = EXCLUDED.network_tx_bytes
+		WHERE telemetry_samples.organization_id = $1 AND telemetry_samples.site_id = $2`,
+		sample.OrganizationID,
+		sample.SiteID,
 		sample.AgentID,
 		sample.RecordedAt,
 		sample.CPUPercent,
@@ -305,19 +394,22 @@ func (store *Store) Append(ctx context.Context, sample telemetry.Sample) error {
 	return nil
 }
 
-func (store *Store) History(ctx context.Context, agentID string, from, to time.Time, limit int) ([]telemetry.Sample, error) {
+func (store *Store) History(ctx context.Context, scope tenancy.Scope, agentID string, from, to time.Time, limit int) ([]telemetry.Sample, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	rows, err := store.pool.Query(ctx, `
-		SELECT agent_id, recorded_at, cpu_percent, memory_percent, disk_percent,
+		SELECT organization_id, site_id, agent_id, recorded_at, cpu_percent, memory_percent, disk_percent,
 			network_rx_bytes, network_tx_bytes
 		FROM (
-			SELECT agent_id, recorded_at, cpu_percent, memory_percent, disk_percent,
+			SELECT organization_id, site_id, agent_id, recorded_at, cpu_percent, memory_percent, disk_percent,
 				network_rx_bytes, network_tx_bytes
 			FROM telemetry_samples
-			WHERE agent_id = $1 AND recorded_at >= $2 AND recorded_at <= $3
+			WHERE organization_id = $1 AND site_id = $2 AND agent_id = $3 AND recorded_at >= $4 AND recorded_at <= $5
 			ORDER BY recorded_at DESC
-			LIMIT $4
+			LIMIT $6
 		) bounded
-		ORDER BY recorded_at`, agentID, from, to, limit)
+		ORDER BY recorded_at`, scope.OrganizationID, scope.SiteID, agentID, from, to, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query telemetry history: %w", err)
 	}
@@ -329,6 +421,8 @@ func (store *Store) History(ctx context.Context, agentID string, from, to time.T
 		var networkRXBytes int64
 		var networkTXBytes int64
 		if err := rows.Scan(
+			&sample.OrganizationID,
+			&sample.SiteID,
 			&sample.AgentID,
 			&sample.RecordedAt,
 			&sample.CPUPercent,
@@ -349,24 +443,32 @@ func (store *Store) History(ctx context.Context, agentID string, from, to time.T
 	return samples, nil
 }
 
-func (store *Store) ReplaceServices(ctx context.Context, agentID string, services []serviceinventory.Service) error {
+func (store *Store) ReplaceServices(ctx context.Context, scope tenancy.Scope, agentID string, services []serviceinventory.Service) error {
+	if err := (tenancy.Agent{ID: agentID, OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}).Validate(); err != nil {
+		return err
+	}
+	for _, service := range services {
+		if service.AgentID != agentID || service.OrganizationID != scope.OrganizationID || service.SiteID != scope.SiteID {
+			return tenancy.ErrInvalidScope
+		}
+	}
 	transaction, err := store.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin service snapshot replacement: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
 	var hostExists int
-	if err := transaction.QueryRow(ctx, "SELECT 1 FROM hosts WHERE agent_id = $1 FOR UPDATE", agentID).Scan(&hostExists); err != nil {
+	if err := transaction.QueryRow(ctx, "SELECT 1 FROM hosts WHERE organization_id = $1 AND site_id = $2 AND agent_id = $3 FOR UPDATE", scope.OrganizationID, scope.SiteID, agentID).Scan(&hostExists); err != nil {
 		return fmt.Errorf("lock service snapshot host: %w", err)
 	}
-	if _, err := transaction.Exec(ctx, "DELETE FROM services WHERE agent_id = $1", agentID); err != nil {
+	if _, err := transaction.Exec(ctx, "DELETE FROM services WHERE organization_id = $1 AND site_id = $2 AND agent_id = $3", scope.OrganizationID, scope.SiteID, agentID); err != nil {
 		return fmt.Errorf("clear previous service snapshot: %w", err)
 	}
 	for _, service := range services {
 		if _, err := transaction.Exec(ctx, `
-			INSERT INTO services (agent_id, name, display_name, state, startup_type, observed_at)
-			VALUES ($1, $2, $3, $4, $5, $6)`,
-			service.AgentID, service.Name, service.DisplayName, service.State, service.StartupType, service.ObservedAt,
+			INSERT INTO services (organization_id, site_id, agent_id, name, display_name, state, startup_type, observed_at)
+			VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+			service.OrganizationID, service.SiteID, service.AgentID, service.Name, service.DisplayName, service.State, service.StartupType, service.ObservedAt,
 		); err != nil {
 			return fmt.Errorf("insert service snapshot: %w", err)
 		}
@@ -377,14 +479,17 @@ func (store *Store) ReplaceServices(ctx context.Context, agentID string, service
 	return nil
 }
 
-func (store *Store) ListServices(ctx context.Context, agentID string, filter serviceinventory.Filter) ([]serviceinventory.Service, error) {
+func (store *Store) ListServices(ctx context.Context, scope tenancy.Scope, agentID string, filter serviceinventory.Filter) ([]serviceinventory.Service, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	rows, err := store.pool.Query(ctx, `
-		SELECT agent_id, name, display_name, state, startup_type, observed_at
+		SELECT organization_id, site_id, agent_id, name, display_name, state, startup_type, observed_at
 		FROM services
-		WHERE agent_id = $1
-			AND ($2 = '' OR state = $2)
-			AND ($3 = '' OR name ILIKE '%' || $3 || '%' OR display_name ILIKE '%' || $3 || '%')
-		ORDER BY name`, agentID, filter.State, filter.Query)
+		WHERE organization_id = $1 AND site_id = $2 AND agent_id = $3
+			AND ($4 = '' OR state = $4)
+			AND ($5 = '' OR name ILIKE '%' || $5 || '%' OR display_name ILIKE '%' || $5 || '%')
+		ORDER BY name`, scope.OrganizationID, scope.SiteID, agentID, filter.State, filter.Query)
 	if err != nil {
 		return nil, fmt.Errorf("query service inventory: %w", err)
 	}
@@ -392,7 +497,7 @@ func (store *Store) ListServices(ctx context.Context, agentID string, filter ser
 	services := make([]serviceinventory.Service, 0)
 	for rows.Next() {
 		var service serviceinventory.Service
-		if err := rows.Scan(&service.AgentID, &service.Name, &service.DisplayName, &service.State, &service.StartupType, &service.ObservedAt); err != nil {
+		if err := rows.Scan(&service.OrganizationID, &service.SiteID, &service.AgentID, &service.Name, &service.DisplayName, &service.State, &service.StartupType, &service.ObservedAt); err != nil {
 			return nil, fmt.Errorf("scan service inventory: %w", err)
 		}
 		services = append(services, service)
@@ -404,6 +509,11 @@ func (store *Store) ListServices(ctx context.Context, agentID string, filter ser
 }
 
 func (store *Store) AppendLogs(ctx context.Context, entries []logstream.Entry) ([]logstream.Entry, error) {
+	for _, entry := range entries {
+		if err := (tenancy.Agent{ID: entry.AgentID, OrganizationID: entry.OrganizationID, SiteID: entry.SiteID}).Validate(); err != nil {
+			return nil, err
+		}
+	}
 	transaction, err := store.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin log batch: %w", err)
@@ -412,9 +522,9 @@ func (store *Store) AppendLogs(ctx context.Context, entries []logstream.Entry) (
 	stored := make([]logstream.Entry, 0, len(entries))
 	for _, entry := range entries {
 		tag, err := transaction.Exec(ctx, `
-			INSERT INTO log_entries (id,agent_id,occurred_at,collector,source,severity,message)
-			VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (id,occurred_at) DO NOTHING`,
-			entry.ID, entry.AgentID, entry.OccurredAt, entry.Collector, entry.Source, entry.Severity, entry.Message)
+			INSERT INTO log_entries (organization_id,site_id,id,agent_id,occurred_at,collector,source,severity,message)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (organization_id,site_id,id,occurred_at) DO NOTHING`,
+			entry.OrganizationID, entry.SiteID, entry.ID, entry.AgentID, entry.OccurredAt, entry.Collector, entry.Source, entry.Severity, entry.Message)
 		if err != nil {
 			return nil, fmt.Errorf("append log entry: %w", err)
 		}
@@ -437,11 +547,19 @@ func (store *Store) AppendLogs(ctx context.Context, entries []logstream.Entry) (
 	return stored, nil
 }
 
+type logNotificationIdentity struct {
+	OrganizationID string    `json:"organization_id"`
+	SiteID         string    `json:"site_id"`
+	ID             string    `json:"id"`
+	OccurredAt     time.Time `json:"occurred_at"`
+}
+
 func encodeLogNotificationBatches(entries []logstream.Entry) ([]string, error) {
 	payloads := make([]string, 0, 1)
-	current := make([]string, 0, len(entries))
+	current := make([]logNotificationIdentity, 0, len(entries))
 	for _, entry := range entries {
-		candidate := append(append([]string(nil), current...), entry.ID)
+		identity := logNotificationIdentity{entry.OrganizationID, entry.SiteID, entry.ID, entry.OccurredAt.UTC().Truncate(time.Microsecond)}
+		candidate := append(append([]logNotificationIdentity(nil), current...), identity)
 		encoded, err := json.Marshal(candidate)
 		if err != nil {
 			return nil, fmt.Errorf("encode live log notification: %w", err)
@@ -455,7 +573,7 @@ func encodeLogNotificationBatches(entries []logstream.Entry) ([]string, error) {
 				return nil, fmt.Errorf("encode live log notification: %w", err)
 			}
 			payloads = append(payloads, string(completed))
-			current = []string{entry.ID}
+			current = []logNotificationIdentity{identity}
 			continue
 		}
 		current = candidate
@@ -470,20 +588,24 @@ func encodeLogNotificationBatches(entries []logstream.Entry) ([]string, error) {
 	return payloads, nil
 }
 
-func (store *Store) SubscribeLogs(ctx context.Context, agentID string) (<-chan logstream.Entry, error) {
+func (store *Store) SubscribeLogs(ctx context.Context, scope tenancy.Scope, agentID string) (<-chan logstream.Entry, error) {
+	key := tenancy.Agent{ID: agentID, OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}
+	if err := key.Validate(); err != nil {
+		return nil, err
+	}
 	stream := make(chan logstream.Entry, logstream.LiveSubscriberBuffer)
 	store.liveMu.Lock()
-	if store.liveSubscribers[agentID] == nil {
-		store.liveSubscribers[agentID] = make(map[chan logstream.Entry]struct{})
+	if store.liveSubscribers[key] == nil {
+		store.liveSubscribers[key] = make(map[chan logstream.Entry]struct{})
 	}
-	store.liveSubscribers[agentID][stream] = struct{}{}
+	store.liveSubscribers[key][stream] = struct{}{}
 	store.liveMu.Unlock()
 	go func() {
 		<-ctx.Done()
 		store.liveMu.Lock()
-		delete(store.liveSubscribers[agentID], stream)
-		if len(store.liveSubscribers[agentID]) == 0 {
-			delete(store.liveSubscribers, agentID)
+		delete(store.liveSubscribers[key], stream)
+		if len(store.liveSubscribers[key]) == 0 {
+			delete(store.liveSubscribers, key)
 		}
 		store.liveMu.Unlock()
 	}()
@@ -555,21 +677,32 @@ func (store *Store) deliverLogNotification(ctx context.Context, payload string) 
 	if !hasSubscribers {
 		return
 	}
-	var ids []string
-	if err := json.Unmarshal([]byte(payload), &ids); err != nil || len(ids) == 0 {
+	var identities []logNotificationIdentity
+	if err := json.Unmarshal([]byte(payload), &identities); err != nil || len(identities) == 0 {
 		return
 	}
+	for _, identity := range identities {
+		if err := (tenancy.Scope{OrganizationID: identity.OrganizationID, SiteID: identity.SiteID}).Validate(); err != nil || identity.ID == "" || identity.OccurredAt.IsZero() {
+			return
+		}
+	}
 	rows, err := store.pool.Query(ctx, `
-		SELECT id, agent_id, occurred_at, collector, source, severity, message
-		FROM log_entries WHERE id = ANY($1)
-		ORDER BY occurred_at, id`, ids)
+		SELECT entry.organization_id, entry.site_id, entry.id, entry.agent_id, entry.occurred_at, entry.collector, entry.source, entry.severity, entry.message
+		FROM log_entries entry
+		WHERE EXISTS (
+			SELECT 1 FROM jsonb_to_recordset($1::jsonb)
+			AS identity(organization_id text, site_id text, id text, occurred_at timestamptz)
+			WHERE entry.organization_id = identity.organization_id AND entry.site_id = identity.site_id
+				AND entry.id = identity.id AND entry.occurred_at = identity.occurred_at
+		)
+		ORDER BY entry.occurred_at, entry.id`, payload)
 	if err != nil {
 		return
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var entry logstream.Entry
-		if err := rows.Scan(&entry.ID, &entry.AgentID, &entry.OccurredAt, &entry.Collector, &entry.Source, &entry.Severity, &entry.Message); err != nil {
+		if err := rows.Scan(&entry.OrganizationID, &entry.SiteID, &entry.ID, &entry.AgentID, &entry.OccurredAt, &entry.Collector, &entry.Source, &entry.Severity, &entry.Message); err != nil {
 			return
 		}
 		store.publishLiveLog(entry)
@@ -579,7 +712,7 @@ func (store *Store) deliverLogNotification(ctx context.Context, payload string) 
 func (store *Store) publishLiveLog(entry logstream.Entry) {
 	store.liveMu.RLock()
 	defer store.liveMu.RUnlock()
-	for stream := range store.liveSubscribers[entry.AgentID] {
+	for stream := range store.liveSubscribers[tenancy.Agent{ID: entry.AgentID, OrganizationID: entry.OrganizationID, SiteID: entry.SiteID}] {
 		select {
 		case stream <- entry:
 		default:
@@ -588,21 +721,24 @@ func (store *Store) publishLiveLog(entry logstream.Entry) {
 }
 
 func (store *Store) SearchLogs(ctx context.Context, query logstream.Query) ([]logstream.Entry, error) {
+	if err := query.Scope.Validate(); err != nil {
+		return nil, err
+	}
 	rows, err := store.pool.Query(ctx, `
-		SELECT id, agent_id, occurred_at, collector, source, severity, message
+		SELECT organization_id, site_id, id, agent_id, occurred_at, collector, source, severity, message
 		FROM (
-			SELECT id, agent_id, occurred_at, collector, source, severity, message
+			SELECT organization_id, site_id, id, agent_id, occurred_at, collector, source, severity, message
 			FROM log_entries
-			WHERE agent_id = $1 AND occurred_at >= $2 AND occurred_at <= $3
-				AND ($4 = '' OR collector = $4)
-				AND ($5 = '' OR severity = $5)
-				AND ($6 = '' OR source ILIKE '%' || $6 || '%')
-				AND ($7 = '' OR message ILIKE '%' || $7 || '%')
+			WHERE organization_id = $1 AND site_id = $2 AND agent_id = $3 AND occurred_at >= $4 AND occurred_at <= $5
+				AND ($6 = '' OR collector = $6)
+				AND ($7 = '' OR severity = $7)
+				AND ($8 = '' OR source ILIKE '%' || $8 || '%')
+				AND ($9 = '' OR message ILIKE '%' || $9 || '%')
 			ORDER BY occurred_at DESC, id DESC
-			LIMIT $8
+			LIMIT $10
 		) bounded
 		ORDER BY occurred_at, id`,
-		query.AgentID, query.From, query.To, query.Collector, query.Severity, query.Source, query.Text, query.Limit,
+		query.Scope.OrganizationID, query.Scope.SiteID, query.AgentID, query.From, query.To, query.Collector, query.Severity, query.Source, query.Text, query.Limit,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query logs: %w", err)
@@ -611,7 +747,7 @@ func (store *Store) SearchLogs(ctx context.Context, query logstream.Query) ([]lo
 	entries := make([]logstream.Entry, 0)
 	for rows.Next() {
 		var entry logstream.Entry
-		if err := rows.Scan(&entry.ID, &entry.AgentID, &entry.OccurredAt, &entry.Collector, &entry.Source, &entry.Severity, &entry.Message); err != nil {
+		if err := rows.Scan(&entry.OrganizationID, &entry.SiteID, &entry.ID, &entry.AgentID, &entry.OccurredAt, &entry.Collector, &entry.Source, &entry.Severity, &entry.Message); err != nil {
 			return nil, fmt.Errorf("scan logs: %w", err)
 		}
 		entries = append(entries, entry)
@@ -623,16 +759,22 @@ func (store *Store) SearchLogs(ctx context.Context, query logstream.Query) ([]lo
 }
 
 func (store *Store) CreateJob(ctx context.Context, job jobs.Job, event jobs.Event) error {
+	scope := tenancy.Scope{OrganizationID: job.OrganizationID, SiteID: job.SiteID}
+	if err := scope.Validate(); err != nil || event.OrganizationID != scope.OrganizationID || event.SiteID != scope.SiteID {
+		return tenancy.ErrInvalidScope
+	}
 	transaction, err := store.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin job creation: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
-	if _, err := transaction.Exec(ctx, `
-		INSERT INTO jobs (id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
-		job.ID, job.AgentID, job.Action, job.Target, job.ApprovedBy, job.Reason, job.RequestedAt, job.Status, job.LastSequence, job.Signature, job.SigningPublicKey,
-	); err != nil {
+	var hostExists int
+	if err := transaction.QueryRow(ctx, "SELECT 1 FROM hosts WHERE organization_id=$1 AND site_id=$2 AND agent_id=$3 FOR UPDATE", scope.OrganizationID, scope.SiteID, job.AgentID).Scan(&hostExists); errors.Is(err, pgx.ErrNoRows) {
+		return jobs.ErrJobNotFound
+	} else if err != nil {
+		return fmt.Errorf("lock job target host: %w", err)
+	}
+	if _, err := transaction.Exec(ctx, `INSERT INTO jobs (id, organization_id, site_id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`, job.ID, job.OrganizationID, job.SiteID, job.AgentID, job.Action, job.Target, job.ApprovedBy, job.Reason, job.RequestedAt, job.Status, job.LastSequence, job.Signature, job.SigningPublicKey); err != nil {
 		return fmt.Errorf("insert job: %w", err)
 	}
 	if err := insertJobEvent(ctx, transaction, event); err != nil {
@@ -644,22 +786,22 @@ func (store *Store) CreateJob(ctx context.Context, job jobs.Job, event jobs.Even
 	return nil
 }
 
-func (store *Store) ClaimNextJob(ctx context.Context, agentID string, occurredAt, resumeBefore time.Time) (*jobs.Job, error) {
+func (store *Store) ClaimNextJob(ctx context.Context, agent tenancy.Agent, occurredAt, resumeBefore time.Time) (*jobs.Job, error) {
+	if err := agent.Validate(); err != nil {
+		return nil, err
+	}
 	transaction, err := store.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin job claim: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
-	if _, err := transaction.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))", agentID); err != nil {
+	if _, err := transaction.Exec(ctx, "SELECT pg_advisory_xact_lock(hashtextextended(json_build_array($1::text, $2::text, $3::text)::text, 0))", agent.OrganizationID, agent.SiteID, agent.ID); err != nil {
 		return nil, fmt.Errorf("lock agent job queue: %w", err)
 	}
-	running, err := scanJob(transaction.QueryRow(ctx, `
-		SELECT id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key
-		FROM jobs WHERE agent_id=$1 AND status='running'
-		ORDER BY requested_at, id FOR UPDATE LIMIT 1`, agentID))
+	running, err := scanJob(transaction.QueryRow(ctx, `SELECT id, organization_id, site_id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key FROM jobs WHERE organization_id=$1 AND site_id=$2 AND agent_id=$3 AND status='running' ORDER BY requested_at, id FOR UPDATE LIMIT 1`, agent.OrganizationID, agent.SiteID, agent.ID))
 	if err == nil {
 		var claimedAt time.Time
-		if err := transaction.QueryRow(ctx, "SELECT occurred_at FROM job_events WHERE job_id=$1 AND type='claimed' ORDER BY sequence DESC LIMIT 1", running.ID).Scan(&claimedAt); err != nil {
+		if err := transaction.QueryRow(ctx, "SELECT occurred_at FROM job_events WHERE organization_id=$1 AND site_id=$2 AND job_id=$3 AND type='claimed' ORDER BY sequence DESC LIMIT 1", agent.OrganizationID, agent.SiteID, running.ID).Scan(&claimedAt); err != nil {
 			return nil, fmt.Errorf("read running job lease: %w", err)
 		}
 		if claimedAt.After(resumeBefore) {
@@ -677,10 +819,7 @@ func (store *Store) ClaimNextJob(ctx context.Context, agentID string, occurredAt
 	if !errors.Is(err, pgx.ErrNoRows) {
 		return nil, fmt.Errorf("select running job: %w", err)
 	}
-	job, err := scanJob(transaction.QueryRow(ctx, `
-		SELECT id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key
-		FROM jobs WHERE agent_id=$1 AND status='queued'
-		ORDER BY requested_at, id FOR UPDATE SKIP LOCKED LIMIT 1`, agentID))
+	job, err := scanJob(transaction.QueryRow(ctx, `SELECT id, organization_id, site_id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key FROM jobs WHERE organization_id=$1 AND site_id=$2 AND agent_id=$3 AND status='queued' ORDER BY requested_at, id FOR UPDATE SKIP LOCKED LIMIT 1`, agent.OrganizationID, agent.SiteID, agent.ID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -688,10 +827,10 @@ func (store *Store) ClaimNextJob(ctx context.Context, agentID string, occurredAt
 		return nil, fmt.Errorf("select queued job: %w", err)
 	}
 	job.Status, job.LastSequence = jobs.StatusRunning, 1
-	if _, err := transaction.Exec(ctx, "UPDATE jobs SET status=$2, last_sequence=$3 WHERE id=$1", job.ID, job.Status, job.LastSequence); err != nil {
+	if _, err := transaction.Exec(ctx, "UPDATE jobs SET status=$4, last_sequence=$5 WHERE id=$3 AND organization_id=$1 AND site_id=$2", agent.OrganizationID, agent.SiteID, job.ID, job.Status, job.LastSequence); err != nil {
 		return nil, fmt.Errorf("claim queued job: %w", err)
 	}
-	event := jobs.Event{JobID: job.ID, Sequence: 1, Type: jobs.EventClaimed, Message: "agent claimed job", Actor: "agent:" + agentID, OccurredAt: occurredAt}
+	event := jobs.Event{JobID: job.ID, OrganizationID: agent.OrganizationID, SiteID: agent.SiteID, Sequence: 1, Type: jobs.EventClaimed, Message: "agent claimed job", Actor: "agent:" + agent.ID, OccurredAt: occurredAt}
 	if err := insertJobEvent(ctx, transaction, event); err != nil {
 		return nil, err
 	}
@@ -701,15 +840,16 @@ func (store *Store) ClaimNextJob(ctx context.Context, agentID string, occurredAt
 	return &job, nil
 }
 
-func (store *Store) RecordJobEvent(ctx context.Context, agentID, jobID string, request jobs.EventRequest, occurredAt time.Time) (jobs.Job, jobs.Event, error) {
+func (store *Store) RecordJobEvent(ctx context.Context, agent tenancy.Agent, jobID string, request jobs.EventRequest, occurredAt time.Time) (jobs.Job, jobs.Event, error) {
+	if err := agent.Validate(); err != nil {
+		return jobs.Job{}, jobs.Event{}, err
+	}
 	transaction, err := store.pool.Begin(ctx)
 	if err != nil {
 		return jobs.Job{}, jobs.Event{}, fmt.Errorf("begin job event: %w", err)
 	}
 	defer func() { _ = transaction.Rollback(ctx) }()
-	job, err := scanJob(transaction.QueryRow(ctx, `
-		SELECT id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key
-		FROM jobs WHERE id=$1 AND agent_id=$2 FOR UPDATE`, jobID, agentID))
+	job, err := scanJob(transaction.QueryRow(ctx, `SELECT id, organization_id, site_id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key FROM jobs WHERE id=$1 AND organization_id=$2 AND site_id=$3 AND agent_id=$4 FOR UPDATE`, jobID, agent.OrganizationID, agent.SiteID, agent.ID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return jobs.Job{}, jobs.Event{}, jobs.ErrJobNotFound
 	}
@@ -718,9 +858,7 @@ func (store *Store) RecordJobEvent(ctx context.Context, agentID, jobID string, r
 	}
 	if request.Sequence <= job.LastSequence {
 		var event jobs.Event
-		err := transaction.QueryRow(ctx, `SELECT job_id,sequence,type,message,actor,occurred_at FROM job_events WHERE job_id=$1 AND sequence=$2`, jobID, request.Sequence).Scan(
-			&event.JobID, &event.Sequence, &event.Type, &event.Message, &event.Actor, &event.OccurredAt,
-		)
+		err := transaction.QueryRow(ctx, `SELECT job_id,organization_id,site_id,sequence,type,message,actor,occurred_at FROM job_events WHERE job_id=$1 AND organization_id=$2 AND site_id=$3 AND sequence=$4`, jobID, agent.OrganizationID, agent.SiteID, request.Sequence).Scan(&event.JobID, &event.OrganizationID, &event.SiteID, &event.Sequence, &event.Type, &event.Message, &event.Actor, &event.OccurredAt)
 		if err == nil && event.Type == request.Type && event.Message == request.Message {
 			if err := transaction.Commit(ctx); err != nil {
 				return jobs.Job{}, jobs.Event{}, fmt.Errorf("commit duplicate job event: %w", err)
@@ -742,10 +880,10 @@ func (store *Store) RecordJobEvent(ctx context.Context, agentID, jobID string, r
 		job.Status = jobs.StatusFailed
 	}
 	job.LastSequence = request.Sequence
-	if _, err := transaction.Exec(ctx, "UPDATE jobs SET status=$2, last_sequence=$3 WHERE id=$1", job.ID, job.Status, job.LastSequence); err != nil {
+	if _, err := transaction.Exec(ctx, "UPDATE jobs SET status=$4, last_sequence=$5 WHERE id=$3 AND organization_id=$1 AND site_id=$2", agent.OrganizationID, agent.SiteID, job.ID, job.Status, job.LastSequence); err != nil {
 		return jobs.Job{}, jobs.Event{}, fmt.Errorf("update job event state: %w", err)
 	}
-	event := jobs.Event{JobID: job.ID, Sequence: request.Sequence, Type: request.Type, Message: request.Message, Actor: "agent:" + agentID, OccurredAt: occurredAt}
+	event := jobs.Event{JobID: job.ID, OrganizationID: agent.OrganizationID, SiteID: agent.SiteID, Sequence: request.Sequence, Type: request.Type, Message: request.Message, Actor: "agent:" + agent.ID, OccurredAt: occurredAt}
 	if err := insertJobEvent(ctx, transaction, event); err != nil {
 		return jobs.Job{}, jobs.Event{}, err
 	}
@@ -755,10 +893,11 @@ func (store *Store) RecordJobEvent(ctx context.Context, agentID, jobID string, r
 	return job, event, nil
 }
 
-func (store *Store) ListJobs(ctx context.Context, agentID string, limit int) ([]jobs.Job, error) {
-	rows, err := store.pool.Query(ctx, `
-		SELECT id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key
-		FROM jobs WHERE agent_id=$1 ORDER BY requested_at DESC, id DESC LIMIT $2`, agentID, limit)
+func (store *Store) ListJobs(ctx context.Context, scope tenancy.Scope, agentID string, limit int) ([]jobs.Job, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := store.pool.Query(ctx, `SELECT id, organization_id, site_id, agent_id, action, target, approved_by, reason, requested_at, status, last_sequence, signature, signing_public_key FROM jobs WHERE organization_id=$1 AND site_id=$2 AND agent_id=$3 ORDER BY requested_at DESC, id DESC LIMIT $4`, scope.OrganizationID, scope.SiteID, agentID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query jobs: %w", err)
 	}
@@ -777,11 +916,11 @@ func (store *Store) ListJobs(ctx context.Context, agentID string, limit int) ([]
 	return values, nil
 }
 
-func (store *Store) ListJobEvents(ctx context.Context, agentID, jobID string) ([]jobs.Event, error) {
-	rows, err := store.pool.Query(ctx, `
-		SELECT event.job_id, event.sequence, event.type, event.message, event.actor, event.occurred_at
-		FROM job_events event JOIN jobs job ON job.id=event.job_id
-		WHERE event.job_id=$1 AND job.agent_id=$2 ORDER BY event.sequence`, jobID, agentID)
+func (store *Store) ListJobEvents(ctx context.Context, scope tenancy.Scope, agentID, jobID string) ([]jobs.Event, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := store.pool.Query(ctx, `SELECT event.job_id, event.organization_id, event.site_id, event.sequence, event.type, event.message, event.actor, event.occurred_at FROM job_events event JOIN jobs job ON job.id=event.job_id WHERE event.job_id=$1 AND event.organization_id=$2 AND event.site_id=$3 AND job.organization_id=$2 AND job.site_id=$3 AND job.agent_id=$4 ORDER BY event.sequence`, jobID, scope.OrganizationID, scope.SiteID, agentID)
 	if err != nil {
 		return nil, fmt.Errorf("query job events: %w", err)
 	}
@@ -789,7 +928,7 @@ func (store *Store) ListJobEvents(ctx context.Context, agentID, jobID string) ([
 	values := make([]jobs.Event, 0)
 	for rows.Next() {
 		var event jobs.Event
-		if err := rows.Scan(&event.JobID, &event.Sequence, &event.Type, &event.Message, &event.Actor, &event.OccurredAt); err != nil {
+		if err := rows.Scan(&event.JobID, &event.OrganizationID, &event.SiteID, &event.Sequence, &event.Type, &event.Message, &event.Actor, &event.OccurredAt); err != nil {
 			return nil, fmt.Errorf("scan job events: %w", err)
 		}
 		values = append(values, event)
@@ -807,27 +946,36 @@ type rowScanner interface{ Scan(...any) error }
 
 func scanJob(row rowScanner) (jobs.Job, error) {
 	var job jobs.Job
-	err := row.Scan(&job.ID, &job.AgentID, &job.Action, &job.Target, &job.ApprovedBy, &job.Reason, &job.RequestedAt, &job.Status, &job.LastSequence, &job.Signature, &job.SigningPublicKey)
+	err := row.Scan(&job.ID, &job.OrganizationID, &job.SiteID, &job.AgentID, &job.Action, &job.Target, &job.ApprovedBy, &job.Reason, &job.RequestedAt, &job.Status, &job.LastSequence, &job.Signature, &job.SigningPublicKey)
 	return job, err
 }
 
 func insertJobEvent(ctx context.Context, transaction pgx.Tx, event jobs.Event) error {
-	if _, err := transaction.Exec(ctx, `INSERT INTO job_events (job_id, sequence, type, message, actor, occurred_at) VALUES ($1,$2,$3,$4,$5,$6)`, event.JobID, event.Sequence, event.Type, event.Message, event.Actor, event.OccurredAt); err != nil {
+	if _, err := transaction.Exec(ctx, `INSERT INTO job_events (job_id, organization_id, site_id, sequence, type, message, actor, occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, event.JobID, event.OrganizationID, event.SiteID, event.Sequence, event.Type, event.Message, event.Actor, event.OccurredAt); err != nil {
 		return fmt.Errorf("insert job event: %w", err)
 	}
 	return nil
 }
 
-func (store *Store) CreateAlertRule(ctx context.Context, rule alerting.Rule) error {
-	_, err := store.pool.Exec(ctx, `INSERT INTO alert_rules (id,name,kind,metric,threshold,stale_after_seconds,severity,enabled,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, rule.ID, rule.Name, rule.Kind, rule.Metric, rule.Threshold, rule.StaleAfterSeconds, rule.Severity, rule.Enabled, rule.CreatedAt)
+func (store *Store) CreateAlertRule(ctx context.Context, scope tenancy.Scope, rule alerting.Rule) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
+	if rule.OrganizationID != scope.OrganizationID || rule.SiteID != scope.SiteID {
+		return tenancy.ErrInvalidScope
+	}
+	_, err := store.pool.Exec(ctx, `INSERT INTO alert_rules (organization_id,site_id,id,name,kind,metric,threshold,stale_after_seconds,severity,enabled,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`, scope.OrganizationID, scope.SiteID, rule.ID, rule.Name, rule.Kind, rule.Metric, rule.Threshold, rule.StaleAfterSeconds, rule.Severity, rule.Enabled, rule.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert alert rule: %w", err)
 	}
 	return nil
 }
 
-func (store *Store) ListAlertRules(ctx context.Context) ([]alerting.Rule, error) {
-	rows, err := store.pool.Query(ctx, `SELECT id,name,kind,metric,threshold,stale_after_seconds,severity,enabled,created_at FROM alert_rules ORDER BY created_at,id`)
+func (store *Store) ListAlertRules(ctx context.Context, scope tenancy.Scope) ([]alerting.Rule, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := store.pool.Query(ctx, `SELECT organization_id,site_id,id,name,kind,metric,threshold,stale_after_seconds,severity,enabled,created_at FROM alert_rules WHERE organization_id=$1 AND site_id=$2 ORDER BY created_at,id`, scope.OrganizationID, scope.SiteID)
 	if err != nil {
 		return nil, fmt.Errorf("query alert rules: %w", err)
 	}
@@ -835,7 +983,7 @@ func (store *Store) ListAlertRules(ctx context.Context) ([]alerting.Rule, error)
 	values := make([]alerting.Rule, 0)
 	for rows.Next() {
 		var value alerting.Rule
-		if err := rows.Scan(&value.ID, &value.Name, &value.Kind, &value.Metric, &value.Threshold, &value.StaleAfterSeconds, &value.Severity, &value.Enabled, &value.CreatedAt); err != nil {
+		if err := rows.Scan(&value.OrganizationID, &value.SiteID, &value.ID, &value.Name, &value.Kind, &value.Metric, &value.Threshold, &value.StaleAfterSeconds, &value.Severity, &value.Enabled, &value.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan alert rule: %w", err)
 		}
 		values = append(values, value)
@@ -846,16 +994,48 @@ func (store *Store) ListAlertRules(ctx context.Context) ([]alerting.Rule, error)
 	return values, nil
 }
 
-func (store *Store) CreateMaintenanceWindow(ctx context.Context, window alerting.MaintenanceWindow) error {
-	_, err := store.pool.Exec(ctx, `INSERT INTO maintenance_windows (id,name,agent_id,starts_at,ends_at,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7)`, window.ID, window.Name, window.AgentID, window.StartsAt, window.EndsAt, window.CreatedBy, window.CreatedAt)
+func (store *Store) CreateMaintenanceWindow(ctx context.Context, scope tenancy.Scope, window alerting.MaintenanceWindow) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
+	if window.OrganizationID != scope.OrganizationID || window.SiteID != scope.SiteID {
+		return tenancy.ErrInvalidScope
+	}
+	if window.AgentID != "" {
+		var exists int
+		if err := store.pool.QueryRow(ctx, `SELECT 1 FROM hosts WHERE organization_id=$1 AND site_id=$2 AND agent_id=$3`, scope.OrganizationID, scope.SiteID, window.AgentID).Scan(&exists); errors.Is(err, pgx.ErrNoRows) {
+			return alerting.ErrNotFound
+		} else if err != nil {
+			return fmt.Errorf("verify maintenance host: %w", err)
+		}
+	}
+	_, err := store.pool.Exec(ctx, `INSERT INTO maintenance_windows (organization_id,site_id,id,name,agent_id,starts_at,ends_at,created_by,created_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, scope.OrganizationID, scope.SiteID, window.ID, window.Name, window.AgentID, window.StartsAt, window.EndsAt, window.CreatedBy, window.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("insert maintenance window: %w", err)
 	}
 	return nil
 }
 
-func (store *Store) ListMaintenanceWindows(ctx context.Context) ([]alerting.MaintenanceWindow, error) {
-	rows, err := store.pool.Query(ctx, `SELECT id,name,agent_id,starts_at,ends_at,created_by,created_at FROM maintenance_windows ORDER BY starts_at,id`)
+func (store *Store) HasHost(ctx context.Context, scope tenancy.Scope, agentID string) (bool, error) {
+	if err := scope.Validate(); err != nil {
+		return false, err
+	}
+	var exists int
+	err := store.pool.QueryRow(ctx, `SELECT 1 FROM hosts WHERE organization_id=$1 AND site_id=$2 AND agent_id=$3`, scope.OrganizationID, scope.SiteID, agentID).Scan(&exists)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("query alert host: %w", err)
+	}
+	return true, nil
+}
+
+func (store *Store) ListMaintenanceWindows(ctx context.Context, scope tenancy.Scope) ([]alerting.MaintenanceWindow, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := store.pool.Query(ctx, `SELECT organization_id,site_id,id,name,agent_id,starts_at,ends_at,created_by,created_at FROM maintenance_windows WHERE organization_id=$1 AND site_id=$2 ORDER BY starts_at,id`, scope.OrganizationID, scope.SiteID)
 	if err != nil {
 		return nil, fmt.Errorf("query maintenance windows: %w", err)
 	}
@@ -863,7 +1043,7 @@ func (store *Store) ListMaintenanceWindows(ctx context.Context) ([]alerting.Main
 	values := make([]alerting.MaintenanceWindow, 0)
 	for rows.Next() {
 		var value alerting.MaintenanceWindow
-		if err := rows.Scan(&value.ID, &value.Name, &value.AgentID, &value.StartsAt, &value.EndsAt, &value.CreatedBy, &value.CreatedAt); err != nil {
+		if err := rows.Scan(&value.OrganizationID, &value.SiteID, &value.ID, &value.Name, &value.AgentID, &value.StartsAt, &value.EndsAt, &value.CreatedBy, &value.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan maintenance window: %w", err)
 		}
 		values = append(values, value)
@@ -874,17 +1054,23 @@ func (store *Store) ListMaintenanceWindows(ctx context.Context) ([]alerting.Main
 	return values, nil
 }
 
-func (store *Store) EnsureIncident(ctx context.Context, incident alerting.Incident, event alerting.Event) (alerting.Incident, bool, error) {
+func (store *Store) EnsureIncident(ctx context.Context, scope tenancy.Scope, incident alerting.Incident, event alerting.Event) (alerting.Incident, bool, error) {
+	if err := scope.Validate(); err != nil {
+		return alerting.Incident{}, false, err
+	}
+	if incident.OrganizationID != scope.OrganizationID || incident.SiteID != scope.SiteID || event.OrganizationID != scope.OrganizationID || event.SiteID != scope.SiteID {
+		return alerting.Incident{}, false, tenancy.ErrInvalidScope
+	}
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
 		return alerting.Incident{}, false, fmt.Errorf("begin incident: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	created := true
-	err = tx.QueryRow(ctx, `INSERT INTO alert_incidents (id,rule_id,rule_name,agent_id,severity,status,message,latest_value,opened_at,acknowledged_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'') ON CONFLICT (rule_id,agent_id) WHERE status IN ('open','acknowledged') DO NOTHING RETURNING id`, incident.ID, incident.RuleID, incident.RuleName, incident.AgentID, incident.Severity, incident.Status, incident.Message, incident.LatestValue, incident.OpenedAt).Scan(&incident.ID)
+	err = tx.QueryRow(ctx, `INSERT INTO alert_incidents (organization_id,site_id,id,rule_id,rule_name,agent_id,severity,status,message,latest_value,opened_at,acknowledged_by) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'') ON CONFLICT (organization_id,site_id,rule_id,agent_id) WHERE status IN ('open','acknowledged') DO NOTHING RETURNING id`, scope.OrganizationID, scope.SiteID, incident.ID, incident.RuleID, incident.RuleName, incident.AgentID, incident.Severity, incident.Status, incident.Message, incident.LatestValue, incident.OpenedAt).Scan(&incident.ID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		created = false
-		incident, err = scanAlertIncident(tx.QueryRow(ctx, `SELECT id,rule_id,rule_name,agent_id,severity,status,message,latest_value,opened_at,acknowledged_at,acknowledged_by,resolved_at FROM alert_incidents WHERE rule_id=$1 AND agent_id=$2 AND status IN ('open','acknowledged')`, incident.RuleID, incident.AgentID))
+		incident, err = scanAlertIncident(tx.QueryRow(ctx, `SELECT organization_id,site_id,id,rule_id,rule_name,agent_id,severity,status,message,latest_value,opened_at,acknowledged_at,acknowledged_by,resolved_at FROM alert_incidents WHERE organization_id=$1 AND site_id=$2 AND rule_id=$3 AND agent_id=$4 AND status IN ('open','acknowledged')`, scope.OrganizationID, scope.SiteID, incident.RuleID, incident.AgentID))
 	}
 	if err != nil {
 		return alerting.Incident{}, false, fmt.Errorf("ensure incident: %w", err)
@@ -901,13 +1087,19 @@ func (store *Store) EnsureIncident(ctx context.Context, incident alerting.Incide
 	return incident, created, nil
 }
 
-func (store *Store) ResolveIncident(ctx context.Context, ruleID, agentID string, value float64, message string, event alerting.Event) (*alerting.Incident, error) {
+func (store *Store) ResolveIncident(ctx context.Context, scope tenancy.Scope, ruleID, agentID string, value float64, message string, event alerting.Event) (*alerting.Incident, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	if event.OrganizationID != scope.OrganizationID || event.SiteID != scope.SiteID {
+		return nil, tenancy.ErrInvalidScope
+	}
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin incident resolution: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	incident, err := scanAlertIncident(tx.QueryRow(ctx, `SELECT id,rule_id,rule_name,agent_id,severity,status,message,latest_value,opened_at,acknowledged_at,acknowledged_by,resolved_at FROM alert_incidents WHERE rule_id=$1 AND agent_id=$2 AND status IN ('open','acknowledged') FOR UPDATE`, ruleID, agentID))
+	incident, err := scanAlertIncident(tx.QueryRow(ctx, `SELECT organization_id,site_id,id,rule_id,rule_name,agent_id,severity,status,message,latest_value,opened_at,acknowledged_at,acknowledged_by,resolved_at FROM alert_incidents WHERE organization_id=$1 AND site_id=$2 AND rule_id=$3 AND agent_id=$4 AND status IN ('open','acknowledged') FOR UPDATE`, scope.OrganizationID, scope.SiteID, ruleID, agentID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -919,7 +1111,7 @@ func (store *Store) ResolveIncident(ctx context.Context, ruleID, agentID string,
 	incident.ResolvedAt = &resolvedAt
 	incident.LatestValue = value
 	incident.Message = message
-	if _, err := tx.Exec(ctx, `UPDATE alert_incidents SET status=$2,resolved_at=$3,latest_value=$4,message=$5 WHERE id=$1`, incident.ID, incident.Status, resolvedAt, value, message); err != nil {
+	if _, err := tx.Exec(ctx, `UPDATE alert_incidents SET status=$2,resolved_at=$3,latest_value=$4,message=$5 WHERE id=$1 AND organization_id=$6 AND site_id=$7`, incident.ID, incident.Status, resolvedAt, value, message, scope.OrganizationID, scope.SiteID); err != nil {
 		return nil, fmt.Errorf("resolve incident: %w", err)
 	}
 	event.IncidentID = incident.ID
@@ -932,13 +1124,19 @@ func (store *Store) ResolveIncident(ctx context.Context, ruleID, agentID string,
 	return &incident, nil
 }
 
-func (store *Store) AcknowledgeIncident(ctx context.Context, id, actor string, at time.Time, event alerting.Event) (alerting.Incident, error) {
+func (store *Store) AcknowledgeIncident(ctx context.Context, scope tenancy.Scope, id, actor string, at time.Time, event alerting.Event) (alerting.Incident, error) {
+	if err := scope.Validate(); err != nil {
+		return alerting.Incident{}, err
+	}
+	if event.OrganizationID != scope.OrganizationID || event.SiteID != scope.SiteID {
+		return alerting.Incident{}, tenancy.ErrInvalidScope
+	}
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
 		return alerting.Incident{}, fmt.Errorf("begin incident acknowledgement: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	incident, err := scanAlertIncident(tx.QueryRow(ctx, `SELECT id,rule_id,rule_name,agent_id,severity,status,message,latest_value,opened_at,acknowledged_at,acknowledged_by,resolved_at FROM alert_incidents WHERE id=$1 FOR UPDATE`, id))
+	incident, err := scanAlertIncident(tx.QueryRow(ctx, `SELECT organization_id,site_id,id,rule_id,rule_name,agent_id,severity,status,message,latest_value,opened_at,acknowledged_at,acknowledged_by,resolved_at FROM alert_incidents WHERE id=$1 AND organization_id=$2 AND site_id=$3 FOR UPDATE`, id, scope.OrganizationID, scope.SiteID))
 	if errors.Is(err, pgx.ErrNoRows) {
 		return alerting.Incident{}, alerting.ErrNotFound
 	}
@@ -951,7 +1149,8 @@ func (store *Store) AcknowledgeIncident(ctx context.Context, id, actor string, a
 	incident.Status = alerting.StatusAcknowledged
 	incident.AcknowledgedAt = &at
 	incident.AcknowledgedBy = actor
-	if _, err := tx.Exec(ctx, `UPDATE alert_incidents SET status=$2,acknowledged_at=$3,acknowledged_by=$4 WHERE id=$1`, id, incident.Status, at, actor); err != nil {
+	event.IncidentID = incident.ID
+	if _, err := tx.Exec(ctx, `UPDATE alert_incidents SET status=$2,acknowledged_at=$3,acknowledged_by=$4 WHERE id=$1 AND organization_id=$5 AND site_id=$6`, id, incident.Status, at, actor, scope.OrganizationID, scope.SiteID); err != nil {
 		return alerting.Incident{}, fmt.Errorf("acknowledge incident: %w", err)
 	}
 	if err := insertAlertEvent(ctx, tx, event); err != nil {
@@ -963,8 +1162,11 @@ func (store *Store) AcknowledgeIncident(ctx context.Context, id, actor string, a
 	return incident, nil
 }
 
-func (store *Store) ListAlertIncidents(ctx context.Context, limit int) ([]alerting.Incident, error) {
-	rows, err := store.pool.Query(ctx, `SELECT id,rule_id,rule_name,agent_id,severity,status,message,latest_value,opened_at,acknowledged_at,acknowledged_by,resolved_at FROM alert_incidents ORDER BY opened_at DESC,id DESC LIMIT $1`, limit)
+func (store *Store) ListAlertIncidents(ctx context.Context, scope tenancy.Scope, limit int) ([]alerting.Incident, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := store.pool.Query(ctx, `SELECT organization_id,site_id,id,rule_id,rule_name,agent_id,severity,status,message,latest_value,opened_at,acknowledged_at,acknowledged_by,resolved_at FROM alert_incidents WHERE organization_id=$1 AND site_id=$2 ORDER BY opened_at DESC,id DESC LIMIT $3`, scope.OrganizationID, scope.SiteID, limit)
 	if err != nil {
 		return nil, fmt.Errorf("query alert incidents: %w", err)
 	}
@@ -983,8 +1185,11 @@ func (store *Store) ListAlertIncidents(ctx context.Context, limit int) ([]alerti
 	return values, nil
 }
 
-func (store *Store) ListAlertEvents(ctx context.Context, incidentID string) ([]alerting.Event, error) {
-	rows, err := store.pool.Query(ctx, `SELECT id,incident_id,type,actor,message,occurred_at FROM alert_events WHERE incident_id=$1 ORDER BY occurred_at,id`, incidentID)
+func (store *Store) ListAlertEvents(ctx context.Context, scope tenancy.Scope, incidentID string) ([]alerting.Event, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := store.pool.Query(ctx, `SELECT event.organization_id,event.site_id,event.id,event.incident_id,event.type,event.actor,event.message,event.occurred_at FROM alert_events event JOIN alert_incidents incident ON incident.id=event.incident_id WHERE event.incident_id=$1 AND event.organization_id=$2 AND event.site_id=$3 AND incident.organization_id=$2 AND incident.site_id=$3 ORDER BY event.occurred_at,event.id`, incidentID, scope.OrganizationID, scope.SiteID)
 	if err != nil {
 		return nil, fmt.Errorf("query alert events: %w", err)
 	}
@@ -992,7 +1197,7 @@ func (store *Store) ListAlertEvents(ctx context.Context, incidentID string) ([]a
 	values := make([]alerting.Event, 0)
 	for rows.Next() {
 		var value alerting.Event
-		if err := rows.Scan(&value.ID, &value.IncidentID, &value.Type, &value.Actor, &value.Message, &value.OccurredAt); err != nil {
+		if err := rows.Scan(&value.OrganizationID, &value.SiteID, &value.ID, &value.IncidentID, &value.Type, &value.Actor, &value.Message, &value.OccurredAt); err != nil {
 			return nil, fmt.Errorf("scan alert event: %w", err)
 		}
 		values = append(values, value)
@@ -1008,31 +1213,40 @@ func (store *Store) ListAlertEvents(ctx context.Context, incidentID string) ([]a
 
 func scanAlertIncident(row rowScanner) (alerting.Incident, error) {
 	var value alerting.Incident
-	err := row.Scan(&value.ID, &value.RuleID, &value.RuleName, &value.AgentID, &value.Severity, &value.Status, &value.Message, &value.LatestValue, &value.OpenedAt, &value.AcknowledgedAt, &value.AcknowledgedBy, &value.ResolvedAt)
+	err := row.Scan(&value.OrganizationID, &value.SiteID, &value.ID, &value.RuleID, &value.RuleName, &value.AgentID, &value.Severity, &value.Status, &value.Message, &value.LatestValue, &value.OpenedAt, &value.AcknowledgedAt, &value.AcknowledgedBy, &value.ResolvedAt)
 	return value, err
 }
 func insertAlertEvent(ctx context.Context, tx pgx.Tx, event alerting.Event) error {
-	_, err := tx.Exec(ctx, `INSERT INTO alert_events (id,incident_id,type,actor,message,occurred_at) VALUES ($1,$2,$3,$4,$5,$6)`, event.ID, event.IncidentID, event.Type, event.Actor, event.Message, event.OccurredAt)
+	_, err := tx.Exec(ctx, `INSERT INTO alert_events (organization_id,site_id,id,incident_id,type,actor,message,occurred_at) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, event.OrganizationID, event.SiteID, event.ID, event.IncidentID, event.Type, event.Actor, event.Message, event.OccurredAt)
 	if err != nil {
 		return fmt.Errorf("insert alert event: %w", err)
 	}
 	return nil
 }
 
-func (store *Store) CreateCloudAccount(ctx context.Context, account cloudinventory.Account) error {
+func (store *Store) CreateCloudAccount(ctx context.Context, scope tenancy.Scope, account cloudinventory.Account) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
+	if account.OrganizationID != scope.OrganizationID || account.SiteID != scope.SiteID {
+		return tenancy.ErrInvalidScope
+	}
 	_, err := store.pool.Exec(ctx, `
-		INSERT INTO cloud_accounts (id,name,provider,external_id,status,last_sync_at,created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7)`, account.ID, account.Name, account.Provider, account.ExternalID, account.Status, account.LastSyncAt, account.CreatedAt)
+		INSERT INTO cloud_accounts (organization_id,site_id,id,name,provider,external_id,status,last_sync_at,created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`, scope.OrganizationID, scope.SiteID, account.ID, account.Name, account.Provider, account.ExternalID, account.Status, account.LastSyncAt, account.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("create cloud account: %w", err)
 	}
 	return nil
 }
 
-func (store *Store) GetCloudAccount(ctx context.Context, id string) (cloudinventory.Account, error) {
+func (store *Store) GetCloudAccount(ctx context.Context, scope tenancy.Scope, id string) (cloudinventory.Account, error) {
+	if err := scope.Validate(); err != nil {
+		return cloudinventory.Account{}, err
+	}
 	var account cloudinventory.Account
-	err := store.pool.QueryRow(ctx, `SELECT id,name,provider,external_id,status,last_sync_at,created_at FROM cloud_accounts WHERE id=$1`, id).Scan(
-		&account.ID, &account.Name, &account.Provider, &account.ExternalID, &account.Status, &account.LastSyncAt, &account.CreatedAt,
+	err := store.pool.QueryRow(ctx, `SELECT organization_id,site_id,id,name,provider,external_id,status,last_sync_at,created_at FROM cloud_accounts WHERE organization_id=$1 AND site_id=$2 AND id=$3`, scope.OrganizationID, scope.SiteID, id).Scan(
+		&account.OrganizationID, &account.SiteID, &account.ID, &account.Name, &account.Provider, &account.ExternalID, &account.Status, &account.LastSyncAt, &account.CreatedAt,
 	)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return cloudinventory.Account{}, cloudinventory.ErrCloudAccountNotFound
@@ -1043,8 +1257,11 @@ func (store *Store) GetCloudAccount(ctx context.Context, id string) (cloudinvent
 	return account, nil
 }
 
-func (store *Store) ListCloudAccounts(ctx context.Context) ([]cloudinventory.Account, error) {
-	rows, err := store.pool.Query(ctx, `SELECT id,name,provider,external_id,status,last_sync_at,created_at FROM cloud_accounts ORDER BY name,id`)
+func (store *Store) ListCloudAccounts(ctx context.Context, scope tenancy.Scope) ([]cloudinventory.Account, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	rows, err := store.pool.Query(ctx, `SELECT organization_id,site_id,id,name,provider,external_id,status,last_sync_at,created_at FROM cloud_accounts WHERE organization_id=$1 AND site_id=$2 ORDER BY name,id`, scope.OrganizationID, scope.SiteID)
 	if err != nil {
 		return nil, fmt.Errorf("query cloud accounts: %w", err)
 	}
@@ -1052,7 +1269,7 @@ func (store *Store) ListCloudAccounts(ctx context.Context) ([]cloudinventory.Acc
 	accounts := make([]cloudinventory.Account, 0)
 	for rows.Next() {
 		var account cloudinventory.Account
-		if err := rows.Scan(&account.ID, &account.Name, &account.Provider, &account.ExternalID, &account.Status, &account.LastSyncAt, &account.CreatedAt); err != nil {
+		if err := rows.Scan(&account.OrganizationID, &account.SiteID, &account.ID, &account.Name, &account.Provider, &account.ExternalID, &account.Status, &account.LastSyncAt, &account.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan cloud account: %w", err)
 		}
 		accounts = append(accounts, account)
@@ -1063,20 +1280,31 @@ func (store *Store) ListCloudAccounts(ctx context.Context) ([]cloudinventory.Acc
 	return accounts, nil
 }
 
-func (store *Store) ReplaceCloudInstances(ctx context.Context, account cloudinventory.Account, instances []cloudinventory.Instance) error {
+func (store *Store) ReplaceCloudInstances(ctx context.Context, scope tenancy.Scope, account cloudinventory.Account, instances []cloudinventory.Instance) error {
+	if err := scope.Validate(); err != nil {
+		return err
+	}
+	if account.OrganizationID != scope.OrganizationID || account.SiteID != scope.SiteID {
+		return tenancy.ErrInvalidScope
+	}
+	for _, instance := range instances {
+		if instance.OrganizationID != scope.OrganizationID || instance.SiteID != scope.SiteID || instance.AccountID != account.ID {
+			return tenancy.ErrInvalidScope
+		}
+	}
 	tx, err := store.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("begin cloud reconciliation: %w", err)
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
-	result, err := tx.Exec(ctx, `UPDATE cloud_accounts SET status=$2,last_sync_at=$3 WHERE id=$1`, account.ID, account.Status, account.LastSyncAt)
+	result, err := tx.Exec(ctx, `UPDATE cloud_accounts SET status=$3,last_sync_at=$4 WHERE organization_id=$1 AND site_id=$2 AND id=$5`, scope.OrganizationID, scope.SiteID, account.Status, account.LastSyncAt, account.ID)
 	if err != nil {
 		return fmt.Errorf("update cloud account sync: %w", err)
 	}
 	if result.RowsAffected() == 0 {
 		return cloudinventory.ErrCloudAccountNotFound
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM cloud_instances WHERE account_id=$1`, account.ID); err != nil {
+	if _, err := tx.Exec(ctx, `DELETE FROM cloud_instances WHERE organization_id=$1 AND site_id=$2 AND account_id=$3`, scope.OrganizationID, scope.SiteID, account.ID); err != nil {
 		return fmt.Errorf("replace cloud instances: %w", err)
 	}
 	for _, instance := range instances {
@@ -1086,10 +1314,10 @@ func (store *Store) ReplaceCloudInstances(ctx context.Context, account cloudinve
 		}
 		_, err = tx.Exec(ctx, `
 			INSERT INTO cloud_instances (
-				account_id,provider_instance_id,name,region,zone,state,os_family,private_ips,public_ips,
+				organization_id,site_id,account_id,provider_instance_id,name,region,zone,state,os_family,private_ips,public_ips,
 				agent_id_hint,metadata,agent_id,candidate_agent_id,match_status,match_reason,discovered_at
-			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,NULLIF($12,''),NULLIF($13,''),$14,$15,$16)`,
-			instance.AccountID, instance.ProviderInstanceID, instance.Name, instance.Region, instance.Zone, instance.State,
+			) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,NULLIF($14,''),NULLIF($15,''),$16,$17,$18)`,
+			scope.OrganizationID, scope.SiteID, instance.AccountID, instance.ProviderInstanceID, instance.Name, instance.Region, instance.Zone, instance.State,
 			instance.OSFamily, instance.PrivateIPs, instance.PublicIPs, instance.AgentIDHint, metadata, instance.AgentID,
 			instance.CandidateAgentID, instance.MatchStatus, instance.MatchReason, instance.DiscoveredAt,
 		)
@@ -1103,13 +1331,17 @@ func (store *Store) ReplaceCloudInstances(ctx context.Context, account cloudinve
 	return nil
 }
 
-func (store *Store) ListCloudInstances(ctx context.Context) ([]cloudinventory.Instance, error) {
+func (store *Store) ListCloudInstances(ctx context.Context, scope tenancy.Scope) ([]cloudinventory.Instance, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
 	rows, err := store.pool.Query(ctx, `
-		SELECT i.account_id,a.name,a.provider,i.provider_instance_id,i.name,i.region,i.zone,i.state,i.os_family,
+		SELECT i.organization_id,i.site_id,i.account_id,a.name,a.provider,i.provider_instance_id,i.name,i.region,i.zone,i.state,i.os_family,
 			i.private_ips,i.public_ips,i.agent_id_hint,i.metadata,COALESCE(i.agent_id,''),COALESCE(i.candidate_agent_id,''),
 			i.match_status,i.match_reason,i.discovered_at
-		FROM cloud_instances i JOIN cloud_accounts a ON a.id=i.account_id
-		ORDER BY a.name,i.name,i.provider_instance_id`)
+		FROM cloud_instances i JOIN cloud_accounts a ON a.id=i.account_id AND a.organization_id=i.organization_id AND a.site_id=i.site_id
+		WHERE i.organization_id=$1 AND i.site_id=$2
+		ORDER BY a.name,i.name,i.provider_instance_id`, scope.OrganizationID, scope.SiteID)
 	if err != nil {
 		return nil, fmt.Errorf("query cloud instances: %w", err)
 	}
@@ -1119,7 +1351,7 @@ func (store *Store) ListCloudInstances(ctx context.Context) ([]cloudinventory.In
 		var instance cloudinventory.Instance
 		var metadata []byte
 		if err := rows.Scan(
-			&instance.AccountID, &instance.AccountName, &instance.Provider, &instance.ProviderInstanceID, &instance.Name,
+			&instance.OrganizationID, &instance.SiteID, &instance.AccountID, &instance.AccountName, &instance.Provider, &instance.ProviderInstanceID, &instance.Name,
 			&instance.Region, &instance.Zone, &instance.State, &instance.OSFamily, &instance.PrivateIPs, &instance.PublicIPs,
 			&instance.AgentIDHint, &metadata, &instance.AgentID, &instance.CandidateAgentID, &instance.MatchStatus,
 			&instance.MatchReason, &instance.DiscoveredAt,
