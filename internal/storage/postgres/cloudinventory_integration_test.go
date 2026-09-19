@@ -58,7 +58,7 @@ func TestPostgresCloudInventoryIsScopedBySite(t *testing.T) {
 	if err := store.CreateCloudAccount(ctx, scopeB, accountB); err != nil {
 		t.Fatalf("same external account should be valid across sites: %v", err)
 	}
-	instanceA := cloudinventory.Instance{OrganizationID: scopeA.OrganizationID, SiteID: scopeA.SiteID, AccountID: accountA.ID, AccountName: accountA.Name, Provider: accountA.Provider, DiscoveredInstance: cloudinventory.DiscoveredInstance{ProviderInstanceID: "i-a", Name: "shared", Region: "eu-central-1", State: "running", OSFamily: "linux"}, MatchStatus: cloudinventory.MatchUnmatched, MatchReason: "no_agent_signal", DiscoveredAt: now}
+	instanceA := cloudinventory.Instance{OrganizationID: scopeA.OrganizationID, SiteID: scopeA.SiteID, AccountID: accountA.ID, AccountName: accountA.Name, Provider: accountA.Provider, DiscoveredInstance: cloudinventory.DiscoveredInstance{ProviderInstanceID: "i-a", Name: "shared", Region: "eu-central-1", State: "running", OSFamily: "linux", PrivateIPs: []string{}, PublicIPs: []string{}}, MatchStatus: cloudinventory.MatchUnmatched, MatchReason: "no_agent_signal", DiscoveredAt: now}
 	instanceB := instanceA
 	instanceB.OrganizationID, instanceB.SiteID, instanceB.AccountID = scopeB.OrganizationID, scopeB.SiteID, accountB.ID
 	if err := store.ReplaceCloudInstances(ctx, scopeA, accountA, []cloudinventory.Instance{instanceA}); err != nil {
