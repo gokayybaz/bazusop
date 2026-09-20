@@ -35,12 +35,12 @@ func restartWindowsService(ctx context.Context, name string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("connect to Service Manager: %w", err)
 	}
-	defer manager.Disconnect()
+	defer func() { _ = manager.Disconnect() }()
 	service, err := manager.OpenService(name)
 	if err != nil {
 		return "", fmt.Errorf("open service %s: %w", name, err)
 	}
-	defer service.Close()
+	defer func() { _ = service.Close() }()
 	status, err := service.Query()
 	if err != nil {
 		return "", fmt.Errorf("query service %s: %w", name, err)

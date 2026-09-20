@@ -17,7 +17,7 @@ func collectPlatformServices(context.Context) ([]serviceinventory.Fact, error) {
 	if err != nil {
 		return nil, fmt.Errorf("connect to Windows Service Manager: %w", err)
 	}
-	defer manager.Disconnect()
+	defer func() { _ = manager.Disconnect() }()
 	names, err := manager.ListServices()
 	if err != nil {
 		return nil, fmt.Errorf("list Windows services: %w", err)
@@ -42,7 +42,7 @@ func collectPlatformServices(context.Context) ([]serviceinventory.Fact, error) {
 			fact.DisplayName = configuration.DisplayName
 			fact.StartupType = windowsStartupType(configuration.StartType)
 		}
-		service.Close()
+		_ = service.Close()
 		services = append(services, fact)
 	}
 	return services, nil

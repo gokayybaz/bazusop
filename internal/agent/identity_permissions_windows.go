@@ -5,12 +5,10 @@ package agent
 import "golang.org/x/sys/windows"
 
 func protectStateDirectory(path string) error {
-	token, err := windows.OpenCurrentProcessToken()
-	if err != nil {
-		return err
-	}
-	defer token.Close()
-	user, err := token.GetTokenUser()
+	// GetCurrentProcessToken returns a pseudo-handle scoped to TOKEN_QUERY access, which is
+	// exactly what GetTokenUser needs; unlike OpenCurrentProcessToken (deprecated upstream)
+	// it requires no Close.
+	user, err := windows.GetCurrentProcessToken().GetTokenUser()
 	if err != nil {
 		return err
 	}
