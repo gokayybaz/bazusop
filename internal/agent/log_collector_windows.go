@@ -20,13 +20,16 @@ func collectPlatformLogs(parent context.Context, since, until time.Time, limit i
 	// Get-WinEvent throws (FullyQualifiedErrorId "NoMatchingEventsFound") when the filter
 	// matches zero events, which is the common case for a short report window on a quiet
 	// host; treat that specific, locale-independent error id as an empty result instead of
-	// a collection failure, and let any other error still propagate.
+	// a collection failure, and let any other error still propagate. The trailing `exit 0`
+	// is required too: powershell.exe -Command sets its own process exit code to 1 whenever
+	// an error record was raised during the command, even one fully caught here, so without
+	// it every quiet cycle still looked like a failure to the caller.
 	script := "$start=[DateTimeOffset]::FromUnixTimeMilliseconds(" + strconv.FormatInt(since.UnixMilli(), 10) + ").UtcDateTime; " +
 		"$end=[DateTimeOffset]::FromUnixTimeMilliseconds(" + strconv.FormatInt(until.UnixMilli(), 10) + ").UtcDateTime; " +
 		"try { Get-WinEvent -FilterHashtable @{LogName='System','Application';StartTime=$start;EndTime=$end} -ErrorAction Stop | " +
 		"Sort-Object TimeCreated | Select-Object -First " + strconv.Itoa(limit) + " | ForEach-Object { " +
 		"[pscustomobject]@{TimeCreated=$_.TimeCreated.ToUniversalTime().ToString('o');ProviderName=$_.ProviderName;Level=$_.Level;LevelDisplayName=$_.LevelDisplayName;Message=$_.Message;RecordId=$_.RecordId} | ConvertTo-Json -Compress } } " +
-		"catch { if ($_.FullyQualifiedErrorId -notmatch 'NoMatchingEventsFound') { throw } }"
+		"catch { if ($_.FullyQualifiedErrorId -notmatch 'NoMatchingEventsFound') { throw } }; exit 0"
 	output, err := exec.CommandContext(ctx, "powershell.exe", "-NoLogo", "-NoProfile", "-NonInteractive", "-Command", script).Output()
 	if err != nil {
 		// Output()'s underlying ExitError carries captured stderr; surface it so an
