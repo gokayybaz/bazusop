@@ -6,6 +6,8 @@ import (
 	"strconv"
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
+	"github.com/gokayybaz/bazusop/internal/authorization"
+	"github.com/gokayybaz/bazusop/internal/sessions"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
@@ -16,9 +18,9 @@ func WithAlerts(service *alerting.Service, operatorToken string) Option {
 	}
 }
 
-func handleCreateAlertRule(service *alerting.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleCreateAlertRule(service *alerting.Service, sessionService *sessions.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeRole(response, request, tokens, roleAdmin) {
+		if _, ok := requirePermission(response, request, sessionService, authzService, authorization.PermissionManageAlerts, scope.SiteID, tokens, roleAdmin); !ok {
 			return
 		}
 		var value alerting.RuleRequest
@@ -51,9 +53,9 @@ func handleListAlertRules(service *alerting.Service, scope tenancy.Scope) http.H
 	}
 }
 
-func handleCreateMaintenance(service *alerting.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleCreateMaintenance(service *alerting.Service, sessionService *sessions.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeRole(response, request, tokens, roleAdmin) {
+		if _, ok := requirePermission(response, request, sessionService, authzService, authorization.PermissionManageAlerts, scope.SiteID, tokens, roleAdmin); !ok {
 			return
 		}
 		var value alerting.MaintenanceRequest
@@ -137,9 +139,9 @@ func handleAlertEvents(service *alerting.Service, scope tenancy.Scope) http.Hand
 	}
 }
 
-func handleAcknowledgeIncident(service *alerting.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleAcknowledgeIncident(service *alerting.Service, sessionService *sessions.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeRole(response, request, tokens, roleOperator) {
+		if _, ok := requirePermission(response, request, sessionService, authzService, authorization.PermissionAcknowledgeIncidents, scope.SiteID, tokens, roleOperator); !ok {
 			return
 		}
 		var body struct {

@@ -4,7 +4,9 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/cloudinventory"
+	"github.com/gokayybaz/bazusop/internal/sessions"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
@@ -15,9 +17,9 @@ func WithCloudInventory(service *cloudinventory.Service, operatorToken string) O
 	}
 }
 
-func handleCreateCloudAccount(service *cloudinventory.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleCreateCloudAccount(service *cloudinventory.Service, sessionService *sessions.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeRole(response, request, tokens, roleAdmin) {
+		if _, ok := requirePermission(response, request, sessionService, authzService, authorization.PermissionManageCloudAccounts, scope.SiteID, tokens, roleAdmin); !ok {
 			return
 		}
 		var value cloudinventory.AccountRequest
@@ -50,9 +52,9 @@ func handleListCloudAccounts(service *cloudinventory.Service, scope tenancy.Scop
 	}
 }
 
-func handleReconcileCloudInstances(service *cloudinventory.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleReconcileCloudInstances(service *cloudinventory.Service, sessionService *sessions.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeRole(response, request, tokens, roleAdmin) {
+		if _, ok := requirePermission(response, request, sessionService, authzService, authorization.PermissionManageCloudAccounts, scope.SiteID, tokens, roleAdmin); !ok {
 			return
 		}
 		var payload struct {
