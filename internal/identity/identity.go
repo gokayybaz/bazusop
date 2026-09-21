@@ -277,6 +277,24 @@ func (service *Service) VerifyCredentialsWithRecoveryCode(ctx context.Context, o
 	return user, nil
 }
 
+func (service *Service) UserByID(ctx context.Context, id string) (User, error) {
+	return service.store.UserByID(ctx, id)
+}
+
+// IsUserActive reports whether id exists and is not disabled. An unknown
+// user is reported inactive (not an error) — this lets sessions.Service
+// treat "user vanished" and "user disabled" identically: no valid session.
+func (service *Service) IsUserActive(ctx context.Context, id string) (bool, error) {
+	user, err := service.store.UserByID(ctx, id)
+	if errors.Is(err, ErrInvalidCredentials) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return user.DisabledAt == nil, nil
+}
+
 func newID() (string, error) {
 	value := make([]byte, 16)
 	if _, err := rand.Read(value); err != nil {

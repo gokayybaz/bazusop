@@ -104,3 +104,52 @@ func TestVerifyCredentialsWithRecoveryCodeConsumesItOnce(t *testing.T) {
 		t.Fatalf("expected the same recovery code to be rejected the second time, got %v", err)
 	}
 }
+
+func TestUserByIDReturnsTheStoredUser(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	created, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fetched, err := service.UserByID(t.Context(), created.ID)
+	if err != nil || fetched.Email != "admin@example.com" {
+		t.Fatalf("expected to read back the bootstrapped user, got %#v %v", fetched, err)
+	}
+}
+
+func TestIsUserActiveReflectsTheStoredDisabledAtField(t *testing.T) {
+	t.Parallel()
+	store := identity.NewMemoryStore()
+	service := identity.NewService(store, "test-totp-encryption-key")
+	user, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	active, err := service.IsUserActive(t.Context(), user.ID)
+	if err != nil || !active {
+		t.Fatalf("expected a freshly bootstrapped user to be active, got %v %v", active, err)
+	}
+
+	disabledAt := time.Now().UTC()
+	user.DisabledAt = &disabledAt
+	if err := store.UpdateUser(t.Context(), user); err != nil {
+		t.Fatal(err)
+	}
+	active, err = service.IsUserActive(t.Context(), user.ID)
+	if err != nil || active {
+		t.Fatalf("expected a disabled user to be inactive, got %v %v", active, err)
+	}
+}
+
+func TestIsUserActiveReturnsFalseForAnUnknownUserWithoutError(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	active, err := service.IsUserActive(t.Context(), "does-not-exist")
+	if err != nil {
+		t.Fatalf("expected no error for an unknown user, got %v", err)
+	}
+	if active {
+		t.Fatal("expected an unknown user to be reported inactive")
+	}
+}
