@@ -1,6 +1,7 @@
 package identity_test
 
 import (
+	"context"
 	"errors"
 	"testing"
 	"time"
@@ -39,7 +40,7 @@ func TestInviteLifecycleCreateConsumeConfirmTOTP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	invite, token, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-admin@example.com")
+	invite, token, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-admin@example.com", identity.RolePlatformAdmin, nil)
 	if err != nil {
 		t.Fatalf("create invite: %v", err)
 	}
@@ -151,5 +152,75 @@ func TestIsUserActiveReturnsFalseForAnUnknownUserWithoutError(t *testing.T) {
 	}
 	if active {
 		t.Fatal("expected an unknown user to be reported inactive")
+	}
+}
+
+func TestIsPlatformAdminReflectsTheUsersRole(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	admin, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	isAdmin, err := service.IsPlatformAdmin(t.Context(), admin.ID)
+	if err != nil || !isAdmin {
+		t.Fatalf("expected the bootstrapped user to be a platform admin, got %v %v", isAdmin, err)
+	}
+	isAdmin, err = service.IsPlatformAdmin(t.Context(), "does-not-exist")
+	if err != nil || isAdmin {
+		t.Fatalf("expected an unknown user to not be a platform admin, got %v %v", isAdmin, err)
+	}
+}
+
+func TestCreateInviteRejectsSiteRoleGrantsForAPlatformAdminInvite(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	if _, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-admin@example.com", identity.RolePlatformAdmin, []identity.SiteRoleGrant{{SiteID: "site_default", Role: "site-admin"}})
+	if !errors.Is(err, identity.ErrInvalidInviteRole) {
+		t.Fatalf("expected ErrInvalidInviteRole, got %v", err)
+	}
+}
+
+func TestCreateInviteRejectsASiteRoleInviteWithNoGrants(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	if _, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	_, _, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-operator@example.com", "", nil)
+	if !errors.Is(err, identity.ErrInvalidInviteRole) {
+		t.Fatalf("expected ErrInvalidInviteRole, got %v", err)
+	}
+}
+
+func TestConsumeInviteWithSiteRoleGrantsInvokesTheGrantor(t *testing.T) {
+	t.Parallel()
+	var grantedUserID string
+	var grantedGrants []identity.SiteRoleGrant
+	grantor := func(_ context.Context, userID string, grants []identity.SiteRoleGrant) error {
+		grantedUserID, grantedGrants = userID, grants
+		return nil
+	}
+	service := identity.NewService(identity.NewMemoryStore(), "test-totp-encryption-key", identity.WithSiteRoleGrantor(grantor))
+	if _, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	grants := []identity.SiteRoleGrant{{SiteID: "site_default", Role: "operator"}}
+	_, token, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-operator@example.com", "", grants)
+	if err != nil {
+		t.Fatalf("create invite: %v", err)
+	}
+	user, err := service.ConsumeInvite(t.Context(), token, "a brand new password")
+	if err != nil {
+		t.Fatalf("consume invite: %v", err)
+	}
+	if user.Role != "" {
+		t.Fatalf("expected an empty identity role for a site-role invite, got %q", user.Role)
+	}
+	if grantedUserID != user.ID || len(grantedGrants) != 1 || grantedGrants[0] != grants[0] {
+		t.Fatalf("expected the grantor to be invoked with the new user and grants, got %q %#v", grantedUserID, grantedGrants)
 	}
 }

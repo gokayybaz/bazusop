@@ -30,12 +30,24 @@ type Invite struct {
 	OrganizationID string
 	Email          string
 	Role           Role
+	SiteRoleGrants []SiteRoleGrant
 	CreatedBy      string
 	ExpiresAt      time.Time
 	ConsumedAt     *time.Time
 	RevokedAt      *time.Time
 	CreatedAt      time.Time
 }
+
+type SiteRoleGrant struct {
+	SiteID string
+	Role   string
+}
+
+// SiteRoleGrantor completes site-role assignment after ConsumeInvite
+// creates a new non-platform-admin user. internal/authorization provides
+// the production implementation; identity stays decoupled from its
+// concrete SiteRole type by passing the role as a plain string.
+type SiteRoleGrantor func(ctx context.Context, userID string, grants []SiteRoleGrant) error
 
 // TOTPEnrollment is returned once, at bootstrap or invite-consumption time
 // (provisioning URI) and once more at TOTP confirmation time (recovery
@@ -55,6 +67,7 @@ var (
 	ErrInvalidCredentials     = errors.New("invalid credentials")
 	ErrTOTPAlreadyConfirmed   = errors.New("TOTP already confirmed")
 	ErrInvalidTOTPCode        = errors.New("invalid TOTP code")
+	ErrInvalidInviteRole      = errors.New("invalid invite role/site-grant combination")
 )
 
 type Store interface {
@@ -75,10 +88,21 @@ type Service struct {
 	store             Store
 	totpEncryptionKey string
 	now               func() time.Time
+	siteRoleGrantor   SiteRoleGrantor
 }
 
-func NewService(store Store, totpEncryptionKey string) *Service {
-	return &Service{store: store, totpEncryptionKey: totpEncryptionKey, now: func() time.Time { return time.Now().UTC() }}
+type Option func(*Service)
+
+func WithSiteRoleGrantor(grantor SiteRoleGrantor) Option {
+	return func(service *Service) { service.siteRoleGrantor = grantor }
+}
+
+func NewService(store Store, totpEncryptionKey string, options ...Option) *Service {
+	service := &Service{store: store, totpEncryptionKey: totpEncryptionKey, now: func() time.Time { return time.Now().UTC() }}
+	for _, option := range options {
+		option(service)
+	}
+	return service
 }
 
 // Bootstrap creates the hub's first platform-admin user. The bootstrap
@@ -137,7 +161,13 @@ func (service *Service) Bootstrap(ctx context.Context, organizationID, email, pa
 	return user, TOTPEnrollment{ProvisioningURI: TOTPProvisioningURI("bazUSOP", email, totpSecret), RecoveryCodes: codes}, nil
 }
 
-func (service *Service) CreateInvite(ctx context.Context, createdBy, organizationID, email string) (Invite, string, error) {
+func (service *Service) CreateInvite(ctx context.Context, createdBy, organizationID, email string, role Role, siteRoleGrants []SiteRoleGrant) (Invite, string, error) {
+	if role == RolePlatformAdmin && len(siteRoleGrants) > 0 {
+		return Invite{}, "", ErrInvalidInviteRole
+	}
+	if role != RolePlatformAdmin && len(siteRoleGrants) == 0 {
+		return Invite{}, "", ErrInvalidInviteRole
+	}
 	token, err := newID()
 	if err != nil {
 		return Invite{}, "", err
@@ -147,7 +177,7 @@ func (service *Service) CreateInvite(ctx context.Context, createdBy, organizatio
 		return Invite{}, "", err
 	}
 	invite := Invite{
-		ID: id, OrganizationID: organizationID, Email: email, Role: RolePlatformAdmin,
+		ID: id, OrganizationID: organizationID, Email: email, Role: role, SiteRoleGrants: siteRoleGrants,
 		CreatedBy: createdBy, ExpiresAt: service.now().Add(24 * time.Hour), CreatedAt: service.now(),
 	}
 	if err := service.store.SaveInvite(ctx, invite, hashToken(token)); err != nil {
@@ -179,6 +209,11 @@ func (service *Service) ConsumeInvite(ctx context.Context, token, password strin
 	}
 	if err := service.store.CreateUser(ctx, user); err != nil {
 		return User{}, err
+	}
+	if len(invite.SiteRoleGrants) > 0 && service.siteRoleGrantor != nil {
+		if err := service.siteRoleGrantor(ctx, user.ID, invite.SiteRoleGrants); err != nil {
+			return User{}, err
+		}
 	}
 	if err := service.store.ConsumeInvite(ctx, tokenHash, user.ID, service.now()); err != nil {
 		return User{}, err
@@ -293,6 +328,21 @@ func (service *Service) IsUserActive(ctx context.Context, id string) (bool, erro
 		return false, err
 	}
 	return user.DisabledAt == nil, nil
+}
+
+// IsPlatformAdmin reports whether id holds the org-scoped platform-admin
+// role. An unknown user is reported false (not an error), matching
+// IsUserActive's convention — this is what authorization.PlatformAdminChecker
+// is wired to in production.
+func (service *Service) IsPlatformAdmin(ctx context.Context, id string) (bool, error) {
+	user, err := service.store.UserByID(ctx, id)
+	if errors.Is(err, ErrInvalidCredentials) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return user.Role == RolePlatformAdmin, nil
 }
 
 func newID() (string, error) {
