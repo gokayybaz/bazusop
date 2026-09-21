@@ -105,12 +105,25 @@ func (store *Store) UpdateUser(ctx context.Context, user identity.User) error {
 }
 
 func (store *Store) SaveInvite(ctx context.Context, invite identity.Invite, tokenHash string) error {
-	_, err := store.pool.Exec(ctx, `
+	tx, err := store.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin save invite: %w", err)
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	_, err = tx.Exec(ctx, `
 		INSERT INTO invites (id, token_hash, organization_id, email, role, created_by, expires_at, created_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
 		invite.ID, tokenHash, invite.OrganizationID, invite.Email, string(invite.Role), invite.CreatedBy, invite.ExpiresAt, invite.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("save invite: %w", err)
+	}
+	for _, grant := range invite.SiteRoleGrants {
+		if _, err := tx.Exec(ctx, `INSERT INTO invite_site_roles (invite_id, site_id, role) VALUES ($1,$2,$3)`, invite.ID, grant.SiteID, grant.Role); err != nil {
+			return fmt.Errorf("save invite site role: %w", err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit save invite: %w", err)
 	}
 	return nil
 }
@@ -130,6 +143,22 @@ func (store *Store) InviteByTokenHash(ctx context.Context, tokenHash string) (id
 		return identity.Invite{}, fmt.Errorf("query invite: %w", err)
 	}
 	invite.Role = identity.Role(role)
+
+	rows, err := store.pool.Query(ctx, `SELECT site_id, role FROM invite_site_roles WHERE invite_id=$1`, invite.ID)
+	if err != nil {
+		return identity.Invite{}, fmt.Errorf("query invite site roles: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var grant identity.SiteRoleGrant
+		if err := rows.Scan(&grant.SiteID, &grant.Role); err != nil {
+			return identity.Invite{}, fmt.Errorf("scan invite site role: %w", err)
+		}
+		invite.SiteRoleGrants = append(invite.SiteRoleGrants, grant)
+	}
+	if err := rows.Err(); err != nil {
+		return identity.Invite{}, fmt.Errorf("iterate invite site roles: %w", err)
+	}
 	return invite, nil
 }
 

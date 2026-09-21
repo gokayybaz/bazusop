@@ -99,3 +99,46 @@ func TestPostgresIdentityBootstrapInviteAndRecoveryCodeLifecycle(t *testing.T) {
 		t.Fatalf("expected the second consumption of the same code to fail, got %v %v", consumedAgain, err)
 	}
 }
+
+func TestPostgresInviteWithSiteRoleGrantsPersistsAndReadsBack(t *testing.T) {
+	databaseURL := os.Getenv("BAZUSOP_TEST_DATABASE_URL")
+	if databaseURL == "" {
+		t.Skip("set BAZUSOP_TEST_DATABASE_URL to run PostgreSQL integration tests")
+	}
+	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
+	defer cancel()
+	store, err := Open(ctx, databaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+
+	suffix := time.Now().UTC().Format("20060102150405.000000000")
+	orgID := "invite-site-org-" + suffix
+	if _, err := store.pool.Exec(ctx, `INSERT INTO organizations (id, name) VALUES ($1, 'Invite site test')`, orgID); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		store.pool.Exec(cleanupCtx, "DELETE FROM invites WHERE organization_id=$1", orgID)
+		store.pool.Exec(cleanupCtx, "DELETE FROM organizations WHERE id=$1", orgID)
+	}()
+
+	invite := identity.Invite{
+		ID: "invite-site-" + suffix, OrganizationID: orgID, Email: "operator@example.com", Role: "",
+		SiteRoleGrants: []identity.SiteRoleGrant{{SiteID: "site_default", Role: "operator"}},
+		CreatedBy:      "admin", ExpiresAt: time.Now().UTC().Add(24 * time.Hour), CreatedAt: time.Now().UTC(),
+	}
+	tokenHash := "site-token-hash-" + suffix
+	if err := store.SaveInvite(ctx, invite, tokenHash); err != nil {
+		t.Fatalf("save invite: %v", err)
+	}
+	fetched, err := store.InviteByTokenHash(ctx, tokenHash)
+	if err != nil {
+		t.Fatalf("fetch invite: %v", err)
+	}
+	if fetched.Role != "" || len(fetched.SiteRoleGrants) != 1 || fetched.SiteRoleGrants[0] != invite.SiteRoleGrants[0] {
+		t.Fatalf("expected the site-role grant to round-trip, got %#v", fetched)
+	}
+}
