@@ -15,6 +15,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
+	"github.com/gokayybaz/bazusop/internal/sessions"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 	"github.com/gokayybaz/bazusop/internal/webui"
@@ -23,23 +24,25 @@ import (
 type Option func(*handlerOptions)
 
 type handlerOptions struct {
-	scope                tenancy.Scope
-	enrollmentAuthority  *enrollment.Authority
-	inventoryService     *inventory.Service
-	telemetryService     *telemetry.Service
-	serviceInventory     *serviceinventory.Manager
-	logService           *logstream.Service
-	jobService           *jobs.Service
-	operatorToken        string
-	adminToken           string
-	alertService         *alerting.Service
-	cloudInventory       *cloudinventory.Service
-	auditService         *audit.Service
-	auditTrail           *audittrail.Service
-	runtimeConfiguration *RuntimeConfiguration
-	identityService      *identity.Service
-	bootstrapSecret      string
-	trustedOrigins       []string
+	scope                  tenancy.Scope
+	enrollmentAuthority    *enrollment.Authority
+	inventoryService       *inventory.Service
+	telemetryService       *telemetry.Service
+	serviceInventory       *serviceinventory.Manager
+	logService             *logstream.Service
+	jobService             *jobs.Service
+	operatorToken          string
+	adminToken             string
+	alertService           *alerting.Service
+	cloudInventory         *cloudinventory.Service
+	auditService           *audit.Service
+	auditTrail             *audittrail.Service
+	runtimeConfiguration   *RuntimeConfiguration
+	identityService        *identity.Service
+	bootstrapSecret        string
+	trustedOrigins         []string
+	sessionService         *sessions.Service
+	sessionIdentityService *identity.Service
 }
 
 func WithDefaultScope(scope tenancy.Scope) Option {
@@ -137,6 +140,14 @@ func NewHandler(options ...Option) http.Handler {
 		registerAudited(mux, "/api/v1/users/invites", http.MethodPost, "invites", nil, configuration.auditTrail, configuration.scope, handleCreateInvite(configuration.identityService, tokens))
 		registerAudited(mux, "/api/v1/invites/{token}/consume", http.MethodPost, "invites", []string{"token"}, configuration.auditTrail, configuration.scope, handleConsumeInvite(configuration.identityService))
 		registerAudited(mux, "/api/v1/users/{userID}/confirm-totp", http.MethodPost, "users", []string{"userID"}, configuration.auditTrail, configuration.scope, handleConfirmTOTP(configuration.identityService))
+	}
+	if configuration.sessionService != nil {
+		registerAudited(mux, "/api/v1/sessions", http.MethodPost, "sessions", nil, configuration.auditTrail, configuration.scope, handleLogin(configuration.sessionIdentityService, configuration.sessionService))
+		registerAudited(mux, "/api/v1/session", http.MethodGet, "sessions", nil, configuration.auditTrail, configuration.scope, handleWhoAmI(configuration.sessionService, configuration.sessionIdentityService))
+		registerAudited(mux, "/api/v1/sessions", http.MethodDelete, "sessions", nil, configuration.auditTrail, configuration.scope, handleLogout(configuration.sessionService))
+		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
+		registerAudited(mux, "/api/v1/users/{userID}/sessions", http.MethodDelete, "sessions", []string{"userID"}, configuration.auditTrail, configuration.scope, handleRevokeUserSessions(configuration.sessionService, tokens))
+		registerAudited(mux, "/api/v1/sessions/all", http.MethodDelete, "sessions", nil, configuration.auditTrail, configuration.scope, handleRevokeAllSessions(configuration.sessionService, tokens))
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
 		http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)

@@ -21,6 +21,7 @@ type ActorType string
 
 const (
 	ActorAgent       ActorType = "agent"
+	ActorHuman       ActorType = "human"
 	ActorLegacyToken ActorType = "legacy_token"
 	ActorAnonymous   ActorType = "anonymous"
 )

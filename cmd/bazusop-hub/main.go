@@ -25,6 +25,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
+	"github.com/gokayybaz/bazusop/internal/sessions"
 	postgresstore "github.com/gokayybaz/bazusop/internal/storage/postgres"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
@@ -69,6 +70,7 @@ func main() {
 	var auditStore audit.Store = audit.NewMemoryStore(jobMemoryStore, alertMemoryStore)
 	var auditTrailStore audittrail.Store = audittrail.NewMemoryStore()
 	var identityStore identity.Store = identity.NewMemoryStore()
+	var sessionStore sessions.Store = sessions.NewMemoryStore()
 	storageMode := "memory"
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -101,6 +103,7 @@ func main() {
 		auditStore = postgresStore
 		auditTrailStore = postgresStore
 		identityStore = postgresStore
+		sessionStore = postgresStore
 		storageMode = "postgresql"
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
@@ -136,6 +139,14 @@ func main() {
 	} else {
 		logger.Warn("BAZUSOP_BOOTSTRAP_SECRET and/or BAZUSOP_TOTP_ENCRYPTION_KEY are not set; local identity (bootstrap/invites) is disabled")
 	}
+	var sessionService *sessions.Service
+	if identityService != nil {
+		sessionService, err = sessions.NewService(sessionStore, identityService.IsUserActive)
+		if err != nil {
+			logger.Error("could not initialize session service", "error", err)
+			os.Exit(1)
+		}
+	}
 	buildIdentity := version.Current()
 	if configuration.OperatorToken == "" && configuration.AdminToken == "" {
 		logger.Warn("BAZUSOP_OPERATOR_TOKEN and BAZUSOP_ADMIN_TOKEN are not set; authorized mutations are disabled")
@@ -159,6 +170,8 @@ func main() {
 			server.WithAuditTrail(auditTrailService),
 			server.WithAdminToken(configuration.AdminToken),
 			server.WithIdentity(identityService, configuration.BootstrapSecret),
+			server.WithSessions(sessionService, identityService),
+			server.WithTrustedOrigins(configuration.TrustedOrigins),
 			server.WithRuntimeConfiguration(server.RuntimeConfiguration{
 				Storage: storageMode, TimescaleEnabled: configuration.TimescaleEnabled && storageMode == "postgresql",
 				TelemetryRetentionDays: configuration.TelemetryRetentionDays,

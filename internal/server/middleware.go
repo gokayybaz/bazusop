@@ -2,6 +2,7 @@ package server
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"net"
 	"net/http"
@@ -33,6 +34,10 @@ func deriveActor(request *http.Request) (audittrail.ActorType, string) {
 			return audittrail.ActorAgent, cert.URIs[0].String()
 		}
 		return audittrail.ActorAgent, cert.Subject.CommonName
+	}
+	if cookie, err := request.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
+		sum := sha256.Sum256([]byte(cookie.Value))
+		return audittrail.ActorHuman, hex.EncodeToString(sum[:])
 	}
 	if request.Header.Get("Authorization") != "" {
 		return audittrail.ActorLegacyToken, "bearer"
