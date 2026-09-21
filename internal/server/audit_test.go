@@ -8,6 +8,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
 	"github.com/gokayybaz/bazusop/internal/audit"
+	"github.com/gokayybaz/bazusop/internal/audittrail"
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/server"
@@ -50,7 +51,7 @@ func TestAuditEventsMergeJobAndAlertHistoryOrderedByRecency(t *testing.T) {
 	}
 
 	auditService := audit.NewService(audit.NewMemoryStore(jobStore, alertStore))
-	handler := server.NewHandler(server.WithAudit(auditService))
+	handler := server.NewHandler(server.WithAudit(auditService), server.WithAuditTrail(audittrail.NewService(audittrail.NewMemoryStore())))
 
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/audit/events", nil))

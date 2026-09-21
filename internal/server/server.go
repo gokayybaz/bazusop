@@ -7,6 +7,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
 	"github.com/gokayybaz/bazusop/internal/audit"
+	"github.com/gokayybaz/bazusop/internal/audittrail"
 	"github.com/gokayybaz/bazusop/internal/cloudinventory"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/inventory"
@@ -33,12 +34,19 @@ type handlerOptions struct {
 	alertService         *alerting.Service
 	cloudInventory       *cloudinventory.Service
 	auditService         *audit.Service
+	auditTrail           *audittrail.Service
 	runtimeConfiguration *RuntimeConfiguration
 }
 
 func WithDefaultScope(scope tenancy.Scope) Option {
 	return func(options *handlerOptions) {
 		options.scope = scope
+	}
+}
+
+func WithAuditTrail(service *audittrail.Service) Option {
+	return func(options *handlerOptions) {
+		options.auditTrail = service
 	}
 }
 
@@ -52,68 +60,68 @@ func NewHandler(options ...Option) http.Handler {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /api/v1/health", handleHealth)
+	registerAudited(mux, "/api/v1/health", http.MethodGet, "health", nil, configuration.auditTrail, configuration.scope, handleHealth)
 	if configuration.runtimeConfiguration != nil {
-		mux.HandleFunc("GET /api/v1/system/configuration", handleRuntimeConfiguration(*configuration.runtimeConfiguration))
+		registerAudited(mux, "/api/v1/system/configuration", http.MethodGet, "system_configuration", nil, configuration.auditTrail, configuration.scope, handleRuntimeConfiguration(*configuration.runtimeConfiguration))
 	}
 	if configuration.enrollmentAuthority != nil {
-		mux.HandleFunc("POST /api/v1/agents/enroll", handleEnroll(configuration.enrollmentAuthority))
-		mux.HandleFunc("POST /api/v1/agents/renew", handleRenew(configuration.enrollmentAuthority))
+		registerAudited(mux, "/api/v1/agents/enroll", http.MethodPost, "enrollment", nil, configuration.auditTrail, configuration.scope, handleEnroll(configuration.enrollmentAuthority))
+		registerAudited(mux, "/api/v1/agents/renew", http.MethodPost, "enrollment_renewal", nil, configuration.auditTrail, configuration.scope, handleRenew(configuration.enrollmentAuthority))
 	}
 	if configuration.inventoryService != nil {
-		mux.HandleFunc("GET /api/v1/instances", handleListInstances(configuration.inventoryService, configuration.scope))
+		registerAudited(mux, "/api/v1/instances", http.MethodGet, "inventory", nil, configuration.auditTrail, configuration.scope, handleListInstances(configuration.inventoryService, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
-			mux.HandleFunc("PUT /api/v1/agents/inventory", handleInventoryReport(configuration.enrollmentAuthority, configuration.inventoryService))
+			registerAudited(mux, "/api/v1/agents/inventory", http.MethodPut, "inventory", nil, configuration.auditTrail, configuration.scope, handleInventoryReport(configuration.enrollmentAuthority, configuration.inventoryService))
 		}
 	}
 	if configuration.telemetryService != nil {
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/telemetry", handleTelemetryHistory(configuration.telemetryService, configuration.scope))
+		registerAudited(mux, "/api/v1/instances/{agentID}/telemetry", http.MethodGet, "telemetry", []string{"agentID"}, configuration.auditTrail, configuration.scope, handleTelemetryHistory(configuration.telemetryService, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
-			mux.HandleFunc("POST /api/v1/agents/telemetry", handleTelemetryReport(configuration.enrollmentAuthority, configuration.telemetryService, configuration.alertService))
+			registerAudited(mux, "/api/v1/agents/telemetry", http.MethodPost, "telemetry", nil, configuration.auditTrail, configuration.scope, handleTelemetryReport(configuration.enrollmentAuthority, configuration.telemetryService, configuration.alertService))
 		}
 	}
 	if configuration.serviceInventory != nil {
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/services", handleListServices(configuration.serviceInventory, configuration.scope))
+		registerAudited(mux, "/api/v1/instances/{agentID}/services", http.MethodGet, "services", []string{"agentID"}, configuration.auditTrail, configuration.scope, handleListServices(configuration.serviceInventory, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
-			mux.HandleFunc("PUT /api/v1/agents/services", handleServiceReport(configuration.enrollmentAuthority, configuration.serviceInventory))
+			registerAudited(mux, "/api/v1/agents/services", http.MethodPut, "services", nil, configuration.auditTrail, configuration.scope, handleServiceReport(configuration.enrollmentAuthority, configuration.serviceInventory))
 		}
 	}
 	if configuration.logService != nil {
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/logs", handleSearchLogs(configuration.logService, configuration.scope))
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/logs/stream", handleStreamLogs(configuration.logService, configuration.scope))
+		registerAudited(mux, "/api/v1/instances/{agentID}/logs", http.MethodGet, "logs", []string{"agentID"}, configuration.auditTrail, configuration.scope, handleSearchLogs(configuration.logService, configuration.scope))
+		registerAudited(mux, "/api/v1/instances/{agentID}/logs/stream", http.MethodGet, "log_stream", []string{"agentID"}, configuration.auditTrail, configuration.scope, handleStreamLogs(configuration.logService, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
-			mux.HandleFunc("POST /api/v1/agents/logs", handleLogIngest(configuration.enrollmentAuthority, configuration.logService))
+			registerAudited(mux, "/api/v1/agents/logs", http.MethodPost, "logs", nil, configuration.auditTrail, configuration.scope, handleLogIngest(configuration.enrollmentAuthority, configuration.logService))
 		}
 	}
 	if configuration.jobService != nil {
 		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		mux.HandleFunc("POST /api/v1/instances/{agentID}/jobs", handleCreateJob(configuration.jobService, tokens, configuration.scope))
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/jobs", handleListJobs(configuration.jobService, configuration.scope))
-		mux.HandleFunc("GET /api/v1/instances/{agentID}/jobs/{jobID}/events", handleJobEvents(configuration.jobService, configuration.scope))
+		registerAudited(mux, "/api/v1/instances/{agentID}/jobs", http.MethodPost, "jobs", []string{"agentID"}, configuration.auditTrail, configuration.scope, handleCreateJob(configuration.jobService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/instances/{agentID}/jobs", http.MethodGet, "jobs", []string{"agentID"}, configuration.auditTrail, configuration.scope, handleListJobs(configuration.jobService, configuration.scope))
+		registerAudited(mux, "/api/v1/instances/{agentID}/jobs/{jobID}/events", http.MethodGet, "job_events", []string{"agentID", "jobID"}, configuration.auditTrail, configuration.scope, handleJobEvents(configuration.jobService, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
-			mux.HandleFunc("GET /api/v1/agents/jobs/next", handleClaimJob(configuration.enrollmentAuthority, configuration.jobService))
-			mux.HandleFunc("POST /api/v1/agents/jobs/{jobID}/events", handleReportJobEvent(configuration.enrollmentAuthority, configuration.jobService))
+			registerAudited(mux, "/api/v1/agents/jobs/next", http.MethodGet, "jobs", nil, configuration.auditTrail, configuration.scope, handleClaimJob(configuration.enrollmentAuthority, configuration.jobService))
+			registerAudited(mux, "/api/v1/agents/jobs/{jobID}/events", http.MethodPost, "job_events", []string{"jobID"}, configuration.auditTrail, configuration.scope, handleReportJobEvent(configuration.enrollmentAuthority, configuration.jobService))
 		}
 	}
 	if configuration.alertService != nil {
 		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		mux.HandleFunc("GET /api/v1/alert-rules", handleListAlertRules(configuration.alertService, configuration.scope))
-		mux.HandleFunc("POST /api/v1/alert-rules", handleCreateAlertRule(configuration.alertService, tokens, configuration.scope))
-		mux.HandleFunc("GET /api/v1/maintenance-windows", handleListMaintenance(configuration.alertService, configuration.scope))
-		mux.HandleFunc("POST /api/v1/maintenance-windows", handleCreateMaintenance(configuration.alertService, tokens, configuration.scope))
-		mux.HandleFunc("GET /api/v1/incidents", handleListIncidents(configuration.alertService, configuration.scope))
-		mux.HandleFunc("GET /api/v1/incidents/{incidentID}/events", handleAlertEvents(configuration.alertService, configuration.scope))
-		mux.HandleFunc("POST /api/v1/incidents/{incidentID}/acknowledge", handleAcknowledgeIncident(configuration.alertService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/alert-rules", http.MethodGet, "alert_rules", nil, configuration.auditTrail, configuration.scope, handleListAlertRules(configuration.alertService, configuration.scope))
+		registerAudited(mux, "/api/v1/alert-rules", http.MethodPost, "alert_rules", nil, configuration.auditTrail, configuration.scope, handleCreateAlertRule(configuration.alertService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/maintenance-windows", http.MethodGet, "maintenance_windows", nil, configuration.auditTrail, configuration.scope, handleListMaintenance(configuration.alertService, configuration.scope))
+		registerAudited(mux, "/api/v1/maintenance-windows", http.MethodPost, "maintenance_windows", nil, configuration.auditTrail, configuration.scope, handleCreateMaintenance(configuration.alertService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/incidents", http.MethodGet, "incidents", nil, configuration.auditTrail, configuration.scope, handleListIncidents(configuration.alertService, configuration.scope))
+		registerAudited(mux, "/api/v1/incidents/{incidentID}/events", http.MethodGet, "incident_events", []string{"incidentID"}, configuration.auditTrail, configuration.scope, handleAlertEvents(configuration.alertService, configuration.scope))
+		registerAudited(mux, "/api/v1/incidents/{incidentID}/acknowledge", http.MethodPost, "incidents", []string{"incidentID"}, configuration.auditTrail, configuration.scope, handleAcknowledgeIncident(configuration.alertService, tokens, configuration.scope))
 	}
 	if configuration.cloudInventory != nil {
 		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		mux.HandleFunc("GET /api/v1/cloud/accounts", handleListCloudAccounts(configuration.cloudInventory, configuration.scope))
-		mux.HandleFunc("POST /api/v1/cloud/accounts", handleCreateCloudAccount(configuration.cloudInventory, tokens, configuration.scope))
-		mux.HandleFunc("GET /api/v1/cloud/instances", handleListCloudInstances(configuration.cloudInventory, configuration.scope))
-		mux.HandleFunc("PUT /api/v1/cloud/accounts/{accountID}/instances", handleReconcileCloudInstances(configuration.cloudInventory, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/cloud/accounts", http.MethodGet, "cloud_accounts", nil, configuration.auditTrail, configuration.scope, handleListCloudAccounts(configuration.cloudInventory, configuration.scope))
+		registerAudited(mux, "/api/v1/cloud/accounts", http.MethodPost, "cloud_accounts", nil, configuration.auditTrail, configuration.scope, handleCreateCloudAccount(configuration.cloudInventory, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/cloud/instances", http.MethodGet, "cloud_instances", nil, configuration.auditTrail, configuration.scope, handleListCloudInstances(configuration.cloudInventory, configuration.scope))
+		registerAudited(mux, "/api/v1/cloud/accounts/{accountID}/instances", http.MethodPut, "cloud_instances", []string{"accountID"}, configuration.auditTrail, configuration.scope, handleReconcileCloudInstances(configuration.cloudInventory, tokens, configuration.scope))
 	}
 	if configuration.auditService != nil {
-		mux.HandleFunc("GET /api/v1/audit/events", handleListAuditEvents(configuration.auditService, configuration.scope))
+		registerAudited(mux, "/api/v1/audit/events", http.MethodGet, "audit_timeline", nil, configuration.auditTrail, configuration.scope, handleListAuditEvents(configuration.auditService, configuration.scope))
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
 		http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
