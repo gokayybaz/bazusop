@@ -46,6 +46,22 @@ func TestAdminToken(t *testing.T) {
 	}
 }
 
+func TestBootstrapSecret(t *testing.T) {
+	t.Setenv("BAZUSOP_BOOTSTRAP_SECRET", "bootstrap-secret")
+
+	if secret := config.Load().BootstrapSecret; secret != "bootstrap-secret" {
+		t.Fatalf("expected configured bootstrap secret, got %q", secret)
+	}
+}
+
+func TestTOTPEncryptionKey(t *testing.T) {
+	t.Setenv("BAZUSOP_TOTP_ENCRYPTION_KEY", "totp-key")
+
+	if key := config.Load().TOTPEncryptionKey; key != "totp-key" {
+		t.Fatalf("expected configured TOTP encryption key, got %q", key)
+	}
+}
+
 func TestTLSFiles(t *testing.T) {
 	t.Setenv("BAZUSOP_TLS_CERT_FILE", "/run/secrets/hub.crt")
 	t.Setenv("BAZUSOP_TLS_KEY_FILE", "/run/secrets/hub.key")

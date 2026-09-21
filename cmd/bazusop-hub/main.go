@@ -19,6 +19,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/cloudinventory"
 	"github.com/gokayybaz/bazusop/internal/config"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
+	"github.com/gokayybaz/bazusop/internal/identity"
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/logstream"
@@ -67,6 +68,7 @@ func main() {
 	var cloudInventoryStore cloudinventory.Store = cloudinventory.NewMemoryStore()
 	var auditStore audit.Store = audit.NewMemoryStore(jobMemoryStore, alertMemoryStore)
 	var auditTrailStore audittrail.Store = audittrail.NewMemoryStore()
+	var identityStore identity.Store = identity.NewMemoryStore()
 	storageMode := "memory"
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -98,6 +100,7 @@ func main() {
 		cloudInventoryStore = postgresStore
 		auditStore = postgresStore
 		auditTrailStore = postgresStore
+		identityStore = postgresStore
 		storageMode = "postgresql"
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
@@ -127,6 +130,12 @@ func main() {
 	cloudInventoryService := cloudinventory.NewService(cloudInventoryStore, inventoryService)
 	auditService := audit.NewService(auditStore)
 	auditTrailService := audittrail.NewService(auditTrailStore)
+	var identityService *identity.Service
+	if configuration.BootstrapSecret != "" && configuration.TOTPEncryptionKey != "" {
+		identityService = identity.NewService(identityStore, configuration.TOTPEncryptionKey)
+	} else {
+		logger.Warn("BAZUSOP_BOOTSTRAP_SECRET and/or BAZUSOP_TOTP_ENCRYPTION_KEY are not set; local identity (bootstrap/invites) is disabled")
+	}
 	buildIdentity := version.Current()
 	if configuration.OperatorToken == "" && configuration.AdminToken == "" {
 		logger.Warn("BAZUSOP_OPERATOR_TOKEN and BAZUSOP_ADMIN_TOKEN are not set; authorized mutations are disabled")
@@ -149,6 +158,7 @@ func main() {
 			server.WithAudit(auditService),
 			server.WithAuditTrail(auditTrailService),
 			server.WithAdminToken(configuration.AdminToken),
+			server.WithIdentity(identityService, configuration.BootstrapSecret),
 			server.WithRuntimeConfiguration(server.RuntimeConfiguration{
 				Storage: storageMode, TimescaleEnabled: configuration.TimescaleEnabled && storageMode == "postgresql",
 				TelemetryRetentionDays: configuration.TelemetryRetentionDays,

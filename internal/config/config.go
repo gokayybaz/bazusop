@@ -18,6 +18,8 @@ type Config struct {
 	TimescaleEnabled       bool
 	TelemetryRetentionDays int
 	LogRetentionDays       int
+	BootstrapSecret        string
+	TOTPEncryptionKey      string
 }
 
 func Load() Config {
@@ -37,6 +39,8 @@ func Load() Config {
 		TimescaleEnabled:       enabled(os.Getenv("BAZUSOP_TIMESCALE_ENABLED")),
 		TelemetryRetentionDays: retentionDays("BAZUSOP_TELEMETRY_RETENTION_DAYS", 30),
 		LogRetentionDays:       retentionDays("BAZUSOP_LOG_RETENTION_DAYS", 14),
+		BootstrapSecret:        os.Getenv("BAZUSOP_BOOTSTRAP_SECRET"),
+		TOTPEncryptionKey:      os.Getenv("BAZUSOP_TOTP_ENCRYPTION_KEY"),
 	}
 }
 
