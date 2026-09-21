@@ -1,5 +1,6 @@
 .DS_Store
 .worktrees/
+.claude/worktrees/
 node_modules/
 coverage/
 bin/
