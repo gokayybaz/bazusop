@@ -62,6 +62,23 @@ func TestTOTPEncryptionKey(t *testing.T) {
 	}
 }
 
+func TestTrustedOrigins(t *testing.T) {
+	t.Setenv("BAZUSOP_TRUSTED_ORIGINS", "https://ui.example, https://admin.example")
+
+	origins := config.Load().TrustedOrigins
+	if len(origins) != 2 || origins[0] != "https://ui.example" || origins[1] != "https://admin.example" {
+		t.Fatalf("expected two trimmed trusted origins, got %#v", origins)
+	}
+}
+
+func TestTrustedOriginsDefaultsToEmpty(t *testing.T) {
+	t.Setenv("BAZUSOP_TRUSTED_ORIGINS", "")
+
+	if origins := config.Load().TrustedOrigins; len(origins) != 0 {
+		t.Fatalf("expected no trusted origins by default, got %#v", origins)
+	}
+}
+
 func TestTLSFiles(t *testing.T) {
 	t.Setenv("BAZUSOP_TLS_CERT_FILE", "/run/secrets/hub.crt")
 	t.Setenv("BAZUSOP_TLS_KEY_FILE", "/run/secrets/hub.key")

@@ -20,6 +20,7 @@ type Config struct {
 	LogRetentionDays       int
 	BootstrapSecret        string
 	TOTPEncryptionKey      string
+	TrustedOrigins         []string
 }
 
 func Load() Config {
@@ -41,6 +42,7 @@ func Load() Config {
 		LogRetentionDays:       retentionDays("BAZUSOP_LOG_RETENTION_DAYS", 14),
 		BootstrapSecret:        os.Getenv("BAZUSOP_BOOTSTRAP_SECRET"),
 		TOTPEncryptionKey:      os.Getenv("BAZUSOP_TOTP_ENCRYPTION_KEY"),
+		TrustedOrigins:         trustedOrigins(os.Getenv("BAZUSOP_TRUSTED_ORIGINS")),
 	}
 }
 
@@ -64,6 +66,21 @@ func retentionDays(name string, fallback int) int {
 		return 0
 	}
 	return days
+}
+
+func trustedOrigins(raw string) []string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	parts := strings.Split(raw, ",")
+	origins := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if trimmed := strings.TrimSpace(part); trimmed != "" {
+			origins = append(origins, trimmed)
+		}
+	}
+	return origins
 }
 
 func enabled(value string) bool {

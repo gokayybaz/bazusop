@@ -39,6 +39,7 @@ type handlerOptions struct {
 	runtimeConfiguration *RuntimeConfiguration
 	identityService      *identity.Service
 	bootstrapSecret      string
+	trustedOrigins       []string
 }
 
 func WithDefaultScope(scope tenancy.Scope) Option {
@@ -51,6 +52,10 @@ func WithAuditTrail(service *audittrail.Service) Option {
 	return func(options *handlerOptions) {
 		options.auditTrail = service
 	}
+}
+
+func WithTrustedOrigins(origins []string) Option {
+	return func(options *handlerOptions) { options.trustedOrigins = origins }
 }
 
 func NewHandler(options ...Option) http.Handler {
@@ -137,7 +142,7 @@ func NewHandler(options ...Option) http.Handler {
 		http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 	})
 	mux.Handle("/", webui.Handler())
-	return mux
+	return corsMiddleware(newTrustedOrigins(configuration.trustedOrigins), mux)
 }
 
 func handleHealth(response http.ResponseWriter, _ *http.Request) {
