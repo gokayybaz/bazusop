@@ -102,3 +102,41 @@ func TestBootstrapInviteConsumeAndConfirmTOTPEndToEnd(t *testing.T) {
 		t.Fatalf("expected 400 for a wrong TOTP code, got %d: %s", badTOTP.Code, badTOTP.Body.String())
 	}
 }
+
+func TestCreateInviteWithASiteRoleGrantsMembershipOnConsumption(t *testing.T) {
+	t.Parallel()
+	handler := newIdentityHandler(t, "correct-secret", "admin-token")
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
+		"secret": "correct-secret", "email": "admin@example.com", "password": "correct horse battery staple",
+	})))
+
+	inviteRequest := httptest.NewRequest(http.MethodPost, "/api/v1/users/invites", encodeJSON(t, map[string]any{
+		"email": "operator@example.com", "role": "operator", "site_ids": []string{"site_default"},
+	}))
+	inviteRequest.Header.Set("Authorization", "Bearer admin-token")
+	inviteResponse := httptest.NewRecorder()
+	handler.ServeHTTP(inviteResponse, inviteRequest)
+	if inviteResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from a site-role invite, got %d: %s", inviteResponse.Code, inviteResponse.Body.String())
+	}
+}
+
+func TestCreateInviteRejectsAnInvalidRole(t *testing.T) {
+	t.Parallel()
+	handler := newIdentityHandler(t, "correct-secret", "admin-token")
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
+		"secret": "correct-secret", "email": "admin@example.com", "password": "correct horse battery staple",
+	})))
+
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/users/invites", encodeJSON(t, map[string]any{
+		"email": "broken@example.com", "role": "operator",
+	}))
+	request.Header.Set("Authorization", "Bearer admin-token")
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("expected 400 for a site role with no site_ids, got %d: %s", response.Code, response.Body.String())
+	}
+}

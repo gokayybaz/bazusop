@@ -139,7 +139,7 @@ func NewHandler(options ...Option) http.Handler {
 	if configuration.identityService != nil {
 		registerAudited(mux, "/api/v1/bootstrap", http.MethodPost, "bootstrap", nil, configuration.auditTrail, configuration.scope, handleBootstrap(configuration.identityService, configuration.bootstrapSecret))
 		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		registerAudited(mux, "/api/v1/users/invites", http.MethodPost, "invites", nil, configuration.auditTrail, configuration.scope, handleCreateInvite(configuration.identityService, tokens))
+		registerAudited(mux, "/api/v1/users/invites", http.MethodPost, "invites", nil, configuration.auditTrail, configuration.scope, handleCreateInvite(configuration.identityService, configuration.sessionService, configuration.authorizationService, tokens, configuration.scope))
 		registerAudited(mux, "/api/v1/invites/{token}/consume", http.MethodPost, "invites", []string{"token"}, configuration.auditTrail, configuration.scope, handleConsumeInvite(configuration.identityService))
 		registerAudited(mux, "/api/v1/users/{userID}/confirm-totp", http.MethodPost, "users", []string{"userID"}, configuration.auditTrail, configuration.scope, handleConfirmTOTP(configuration.identityService))
 	}

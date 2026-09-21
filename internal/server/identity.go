@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/identity"
+	"github.com/gokayybaz/bazusop/internal/sessions"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
@@ -47,18 +49,37 @@ func handleBootstrap(service *identity.Service, bootstrapSecret string) http.Han
 	}
 }
 
-func handleCreateInvite(service *identity.Service, tokens accessTokens) http.HandlerFunc {
+func handleCreateInvite(service *identity.Service, sessionService *sessions.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeRole(response, request, tokens, roleAdmin) {
+		actorUserID, ok := requirePermission(response, request, sessionService, authzService, authorization.PermissionManageUsers, scope.SiteID, tokens, roleAdmin)
+		if !ok {
 			return
 		}
 		var body struct {
-			Email string `json:"email"`
+			Email   string   `json:"email"`
+			Role    string   `json:"role"`
+			SiteIDs []string `json:"site_ids"`
 		}
 		if err := decodeJSON(response, request, &body); err != nil {
 			return
 		}
-		invite, token, err := service.CreateInvite(request.Context(), "admin", tenancy.DefaultOrganizationID, body.Email, identity.RolePlatformAdmin, nil)
+		createdBy := "admin"
+		if actorUserID != "" {
+			createdBy = actorUserID
+		}
+		role := identity.RolePlatformAdmin
+		var grants []identity.SiteRoleGrant
+		if body.Role != "" {
+			role = ""
+			for _, siteID := range body.SiteIDs {
+				grants = append(grants, identity.SiteRoleGrant{SiteID: siteID, Role: body.Role})
+			}
+		}
+		invite, token, err := service.CreateInvite(request.Context(), createdBy, tenancy.DefaultOrganizationID, body.Email, role, grants)
+		if errors.Is(err, identity.ErrInvalidInviteRole) {
+			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
+			return
+		}
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
