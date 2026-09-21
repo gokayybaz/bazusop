@@ -16,6 +16,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/alerting"
 	"github.com/gokayybaz/bazusop/internal/audit"
 	"github.com/gokayybaz/bazusop/internal/audittrail"
+	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/cloudinventory"
 	"github.com/gokayybaz/bazusop/internal/config"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
@@ -71,6 +72,7 @@ func main() {
 	var auditTrailStore audittrail.Store = audittrail.NewMemoryStore()
 	var identityStore identity.Store = identity.NewMemoryStore()
 	var sessionStore sessions.Store = sessions.NewMemoryStore()
+	var authorizationStore authorization.Store = authorization.NewMemoryStore()
 	storageMode := "memory"
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -104,6 +106,7 @@ func main() {
 		auditTrailStore = postgresStore
 		identityStore = postgresStore
 		sessionStore = postgresStore
+		authorizationStore = postgresStore
 		storageMode = "postgresql"
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
@@ -133,9 +136,29 @@ func main() {
 	cloudInventoryService := cloudinventory.NewService(cloudInventoryStore, inventoryService)
 	auditService := audit.NewService(auditStore)
 	auditTrailService := audittrail.NewService(auditTrailStore)
+	// authorizationService is declared before identityService because
+	// identityService's site-role-grantor closure needs to call
+	// authorizationService.AssignRole, while authorizationService itself
+	// needs identityService.IsPlatformAdmin to exist first. The closure
+	// captures authorizationService by reference (Go closure semantics) —
+	// it is only ever invoked during a live HTTP request, by which point
+	// authorizationService has already been assigned below.
+	var authorizationService *authorization.Service
 	var identityService *identity.Service
 	if configuration.BootstrapSecret != "" && configuration.TOTPEncryptionKey != "" {
-		identityService = identity.NewService(identityStore, configuration.TOTPEncryptionKey)
+		identityService = identity.NewService(identityStore, configuration.TOTPEncryptionKey, identity.WithSiteRoleGrantor(func(ctx context.Context, userID string, grants []identity.SiteRoleGrant) error {
+			for _, grant := range grants {
+				if err := authorizationService.AssignRole(ctx, userID, tenancy.DefaultOrganizationID, grant.SiteID, authorization.SiteRole(grant.Role)); err != nil {
+					return err
+				}
+			}
+			return nil
+		}))
+		authorizationService, err = authorization.NewService(authorizationStore, identityService.IsPlatformAdmin)
+		if err != nil {
+			logger.Error("could not initialize authorization service", "error", err)
+			os.Exit(1)
+		}
 	} else {
 		logger.Warn("BAZUSOP_BOOTSTRAP_SECRET and/or BAZUSOP_TOTP_ENCRYPTION_KEY are not set; local identity (bootstrap/invites) is disabled")
 	}
@@ -171,6 +194,7 @@ func main() {
 			server.WithAdminToken(configuration.AdminToken),
 			server.WithIdentity(identityService, configuration.BootstrapSecret),
 			server.WithSessions(sessionService, identityService),
+			server.WithAuthorization(authorizationService),
 			server.WithTrustedOrigins(configuration.TrustedOrigins),
 			server.WithRuntimeConfiguration(server.RuntimeConfiguration{
 				Storage: storageMode, TimescaleEnabled: configuration.TimescaleEnabled && storageMode == "postgresql",

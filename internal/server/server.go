@@ -8,6 +8,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/alerting"
 	"github.com/gokayybaz/bazusop/internal/audit"
 	"github.com/gokayybaz/bazusop/internal/audittrail"
+	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/cloudinventory"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
 	"github.com/gokayybaz/bazusop/internal/identity"
@@ -43,6 +44,7 @@ type handlerOptions struct {
 	trustedOrigins         []string
 	sessionService         *sessions.Service
 	sessionIdentityService *identity.Service
+	authorizationService   *authorization.Service
 }
 
 func WithDefaultScope(scope tenancy.Scope) Option {
@@ -148,6 +150,11 @@ func NewHandler(options ...Option) http.Handler {
 		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
 		registerAudited(mux, "/api/v1/users/{userID}/sessions", http.MethodDelete, "sessions", []string{"userID"}, configuration.auditTrail, configuration.scope, handleRevokeUserSessions(configuration.sessionService, tokens))
 		registerAudited(mux, "/api/v1/sessions/all", http.MethodDelete, "sessions", nil, configuration.auditTrail, configuration.scope, handleRevokeAllSessions(configuration.sessionService, tokens))
+	}
+	if configuration.authorizationService != nil {
+		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
+		registerAudited(mux, "/api/v1/sites/{siteID}/memberships", http.MethodPost, "site_memberships", []string{"siteID"}, configuration.auditTrail, configuration.scope, handleAssignSiteRole(configuration.sessionService, configuration.authorizationService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/sites/{siteID}/memberships/{userID}", http.MethodDelete, "site_memberships", []string{"siteID", "userID"}, configuration.auditTrail, configuration.scope, handleRevokeSiteRole(configuration.sessionService, configuration.authorizationService, tokens, configuration.scope))
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
 		http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)

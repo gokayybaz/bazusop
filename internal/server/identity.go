@@ -58,7 +58,7 @@ func handleCreateInvite(service *identity.Service, tokens accessTokens) http.Han
 		if err := decodeJSON(response, request, &body); err != nil {
 			return
 		}
-		invite, token, err := service.CreateInvite(request.Context(), "admin", tenancy.DefaultOrganizationID, body.Email)
+		invite, token, err := service.CreateInvite(request.Context(), "admin", tenancy.DefaultOrganizationID, body.Email, identity.RolePlatformAdmin, nil)
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
