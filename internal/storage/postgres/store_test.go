@@ -17,10 +17,10 @@ func TestStorageMigrationsAreEmbeddedInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read migrations: %v", err)
 	}
-	if len(entries) != 19 {
-		t.Fatalf("expected nineteen storage migrations, got %d", len(entries))
+	if len(entries) != 20 {
+		t.Fatalf("expected twenty storage migrations, got %d", len(entries))
 	}
-	if entries[0].Name() != "001_hosts.sql" || entries[18].Name() != "019_identity.sql" {
+	if entries[0].Name() != "001_hosts.sql" || entries[19].Name() != "020_sessions.sql" {
 		t.Fatalf("unexpected migration range: %s through %s", entries[0].Name(), entries[len(entries)-1].Name())
 	}
 }
