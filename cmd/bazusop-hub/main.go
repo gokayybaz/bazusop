@@ -15,6 +15,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
 	"github.com/gokayybaz/bazusop/internal/audit"
+	"github.com/gokayybaz/bazusop/internal/audittrail"
 	"github.com/gokayybaz/bazusop/internal/cloudinventory"
 	"github.com/gokayybaz/bazusop/internal/config"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
@@ -65,6 +66,7 @@ func main() {
 	var alertStore alerting.Store = alertMemoryStore
 	var cloudInventoryStore cloudinventory.Store = cloudinventory.NewMemoryStore()
 	var auditStore audit.Store = audit.NewMemoryStore(jobMemoryStore, alertMemoryStore)
+	var auditTrailStore audittrail.Store = audittrail.NewMemoryStore()
 	storageMode := "memory"
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -95,6 +97,7 @@ func main() {
 		alertStore = postgresStore
 		cloudInventoryStore = postgresStore
 		auditStore = postgresStore
+		auditTrailStore = postgresStore
 		storageMode = "postgresql"
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
@@ -123,6 +126,7 @@ func main() {
 	}
 	cloudInventoryService := cloudinventory.NewService(cloudInventoryStore, inventoryService)
 	auditService := audit.NewService(auditStore)
+	auditTrailService := audittrail.NewService(auditTrailStore)
 	buildIdentity := version.Current()
 	if configuration.OperatorToken == "" && configuration.AdminToken == "" {
 		logger.Warn("BAZUSOP_OPERATOR_TOKEN and BAZUSOP_ADMIN_TOKEN are not set; authorized mutations are disabled")
@@ -143,6 +147,7 @@ func main() {
 			server.WithAlerts(alertService, configuration.OperatorToken),
 			server.WithCloudInventory(cloudInventoryService, configuration.OperatorToken),
 			server.WithAudit(auditService),
+			server.WithAuditTrail(auditTrailService),
 			server.WithAdminToken(configuration.AdminToken),
 			server.WithRuntimeConfiguration(server.RuntimeConfiguration{
 				Storage: storageMode, TimescaleEnabled: configuration.TimescaleEnabled && storageMode == "postgresql",

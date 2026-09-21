@@ -3,9 +3,12 @@ package server
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"net"
 	"net/http"
+	"strconv"
 
 	"github.com/gokayybaz/bazusop/internal/audittrail"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func newCorrelationID() (string, error) {
@@ -45,4 +48,55 @@ type statusRecorder struct {
 func (recorder *statusRecorder) WriteHeader(status int) {
 	recorder.status = status
 	recorder.ResponseWriter.WriteHeader(status)
+}
+
+func registerAudited(mux *http.ServeMux, pattern, method, resourceType string, pathParams []string, service *audittrail.Service, scope tenancy.Scope, handler http.HandlerFunc) {
+	mux.HandleFunc(method+" "+pattern, func(response http.ResponseWriter, request *http.Request) {
+		if service == nil {
+			handler(response, request)
+			return
+		}
+		correlationID, err := newCorrelationID()
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		recorder := &statusRecorder{ResponseWriter: response, status: http.StatusOK}
+		actorType, actorID := deriveActor(request)
+
+		handler(recorder, request)
+
+		resourceID := ""
+		for index, name := range pathParams {
+			if index > 0 {
+				resourceID += "/"
+			}
+			resourceID += request.PathValue(name)
+		}
+		outcome, errorCode := audittrail.OutcomeSuccess, ""
+		if recorder.status >= 400 {
+			outcome, errorCode = audittrail.OutcomeFailure, strconv.Itoa(recorder.status)
+		}
+		event := audittrail.Event{
+			CorrelationID: correlationID, ActorType: actorType, ActorID: actorID,
+			OrganizationID: scope.OrganizationID, SiteID: scope.SiteID,
+			Action: method, ResourceType: resourceType, ResourceID: resourceID,
+			Outcome: outcome, ErrorCode: errorCode,
+			SourceIP: sourceIP(request), UserAgent: request.UserAgent(),
+		}
+		if err := service.Record(request.Context(), event); err != nil {
+			// Audit is best-effort at this layer (see the package doc comment
+			// in internal/audittrail on the same-transaction boundary); a
+			// write failure here must never take the API down.
+			_ = err
+		}
+	})
+}
+
+func sourceIP(request *http.Request) string {
+	host, _, err := net.SplitHostPort(request.RemoteAddr)
+	if err != nil {
+		return request.RemoteAddr
+	}
+	return host
 }
