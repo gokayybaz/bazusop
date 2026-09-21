@@ -6,10 +6,31 @@ bazUSOP, Linux ve Windows sunucularını tek kontrol düzleminden izlemek ve
 yönetmek için geliştirilen agent–hub platformudur. Ürünün ana dili Türkçedir;
 API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngilizce tutulur.
 
+## Genel bakış
+
+bazUSOP iki bileşenden oluşur:
+
+- **Hub** — Go ile yazılmış tek bir binary. REST API'yi ve gömülü React
+  operasyon konsolunu aynı süreçten sunar; tüm veriyi (envanter, telemetri,
+  loglar, işler, alarmlar) PostgreSQL/TimescaleDB'de tutar.
+- **Agent** (`bazusop-agent`) — yönetilecek her Linux veya Windows sunucusuna
+  kurulan ayrı bir binary. Hub'a **her zaman dışarıya doğru** bağlanır; agent
+  tarafında hiçbir inbound port açık olmasına gerek yoktur, bu yüzden
+  NAT/firewall arkasındaki sunucular için de uygundur.
+
+Bir agent ilk çalıştığında tek kullanımlık bir bootstrap token ile hub'a
+kaydolur, karşılığında kararlı bir mTLS kimliği (SPIFFE ID) alır ve bundan
+sonra tüm iletişimini bu kimlikle yapar. Kayıttan sonra periyodik olarak host
+envanterini, CPU/bellek/disk/ağ telemetrisini, systemd/Windows Service
+durumlarını ve platform loglarını raporlar; kendisine atanmış imzalı
+restart/reboot işlerini de aynı döngüde yoklayıp güvenli biçimde çalıştırır.
+Operatörler bu veriyi ve aksiyonları gömülü web arayüzünden ya da doğrudan
+REST API'den yönetir.
+
 ## Mevcut yetenekler
 
-- React arayüzü Go hub binary'sine gömülür; dağıtım için tek çalıştırılabilir
-  dosya yeterlidir.
+### Envanter ve telemetri
+
 - Ayrı `bazusop-agent` binary'si Linux ve Windows'ta outbound bağlantı kurar;
   tek kullanımlık token'ı kalıcı Ed25519/mTLS kimliğine dönüştürür, sertifikayı
   süresi dolmadan yeniler; host envanteri, CPU/bellek/disk/ağ telemetrisi ve
@@ -19,29 +40,49 @@ API alanları ve kod tanımlayıcıları geriye dönük uyumluluk için İngiliz
   Timescale etkinse varsayılan 30 günlük, yapılandırılabilir retention uygulanır.
 - systemd ve Windows Service snapshot'ları normalize edilerek sunucu bazında
   aranabilir ve durumlarına göre filtrelenebilir.
+
+### Loglar
+
 - Agent, Linux journald ile Windows System/Application Event kayıtlarını ortak
   önem modeline çevirip sınırlı mTLS batch'leri halinde periyodik gönderir.
 - journald, dosya ve Windows Event kayıtları ortak log modelinde aranabilir;
   sunucu detayında sınırlı geçmiş ve canlı SSE akışı birlikte izlenebilir.
 - PostgreSQL kullanan hub replikaları canlı log olaylarını `LISTEN/NOTIFY` üzerinden
   paylaşır; SSE istemcisi ingest yapan replikaya bağlı olmak zorunda değildir.
+
+### Operasyon işleri
+
 - Servis yeniden başlatma ve host reboot talepleri operatör token'ıyla onaylanır,
   kalıcı enrollment güven köküyle imzalanır; agent imzayı pinlenmiş CA anahtarıyla
   doğruladıktan sonra allowlist aksiyonunu çalıştırır, yürütme durumunu diskte
   korur ve idempotent, sıralı audit olayları gönderir.
+
+### Alarm ve denetim
+
 - CPU, bellek, disk ve agent erişilebilirlik kuralları olay açar; olaylar onaylanır,
   koşul normale dönünce çözülür ve bakım pencerelerinde yeni alarm bastırılır.
-- Arayüz; genel bakış, filo, servisler, metrikler, loglar, işler, alarmlar,
-  bulut hesapları, denetim izi ve ayarlar için ayrı, doğrudan açılabilir sayfalar sunar.
 - İş ve alarm olayları, sunucu bazlı kendi geçmişlerinin yanında
   `GET /api/v1/audit/events` ile tek bir birleşik, site bazlı zaman
   çizelgesinde de görüntülenebilir.
+
+### Bulut keşfi
+
+- AWS, Azure ve GCP hesaplarıyla gelen instance snapshot'ları PostgreSQL'de tutulur;
+  doğrulanmış provider agent kimliği otomatik, hostname/IP benzerliği yalnız aday olarak uzlaştırılır.
+
+### Arayüz
+
+- React arayüzü Go hub binary'sine gömülür; dağıtım için tek çalıştırılabilir
+  dosya yeterlidir.
+- Arayüz; genel bakış, filo, servisler, metrikler, loglar, işler, alarmlar,
+  bulut hesapları, denetim izi ve ayarlar için ayrı, doğrudan açılabilir sayfalar sunar.
 - Ayarlar sayfası etkin storage/Timescale modunu ve telemetri-log retention
   değerlerini ve çalışan hub'ın sürüm kimliğini secret bilgisi göstermeden okur.
 - Serin nötr açık ve grafit koyu tema arasında geçiş yapılabilir; cihaz tercihi
   tarayıcıda korunur ve tüm operasyon sayfalarına uygulanır.
-- AWS, Azure ve GCP hesaplarıyla gelen instance snapshot'ları PostgreSQL'de tutulur;
-  doğrulanmış provider agent kimliği otomatik, hostname/IP benzerliği yalnız aday olarak uzlaştırılır.
+
+### Dağıtım
+
 - Docker Compose geliştirme ortamı ve production odaklı Kubernetes/Helm chart'ı
   bulunur.
 
