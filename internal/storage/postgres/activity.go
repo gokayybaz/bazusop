@@ -4,11 +4,24 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/gokayybaz/bazusop/internal/audit"
+	"github.com/gokayybaz/bazusop/internal/activity"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
-func (store *Store) ListAuditEvents(ctx context.Context, scope tenancy.Scope, limit int) ([]audit.Event, error) {
+func (store *Store) RecordActivityEvent(ctx context.Context, event activity.Event) error {
+	_, err := store.pool.Exec(ctx, `
+		INSERT INTO activity_events (organization_id, site_id, source, reference_id, agent_id, type, actor, message, occurred_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		event.OrganizationID, event.SiteID, string(event.Source), event.ReferenceID, event.AgentID,
+		event.Type, event.Actor, event.Message, event.OccurredAt,
+	)
+	if err != nil {
+		return fmt.Errorf("record activity event: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) ListActivityEvents(ctx context.Context, scope tenancy.Scope, limit int) ([]activity.Event, error) {
 	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
@@ -30,23 +43,29 @@ func (store *Store) ListAuditEvents(ctx context.Context, scope tenancy.Scope, li
 			JOIN alert_incidents incident ON incident.id = event.incident_id
 				AND incident.organization_id = event.organization_id AND incident.site_id = event.site_id
 			WHERE event.organization_id = $1 AND event.site_id = $2
+
+			UNION ALL
+
+			SELECT organization_id, site_id, source, reference_id, agent_id, type, actor, message, occurred_at
+			FROM activity_events
+			WHERE organization_id = $1 AND site_id = $2
 		) combined
 		ORDER BY occurred_at DESC, source, reference_id
 		LIMIT $3`, scope.OrganizationID, scope.SiteID, limit)
 	if err != nil {
-		return nil, fmt.Errorf("query audit events: %w", err)
+		return nil, fmt.Errorf("query activity events: %w", err)
 	}
 	defer rows.Close()
-	events := make([]audit.Event, 0)
+	events := make([]activity.Event, 0)
 	for rows.Next() {
-		var event audit.Event
+		var event activity.Event
 		if err := rows.Scan(&event.OrganizationID, &event.SiteID, &event.Source, &event.ReferenceID, &event.AgentID, &event.Type, &event.Actor, &event.Message, &event.OccurredAt); err != nil {
-			return nil, fmt.Errorf("scan audit event: %w", err)
+			return nil, fmt.Errorf("scan activity event: %w", err)
 		}
 		events = append(events, event)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("iterate audit events: %w", err)
+		return nil, fmt.Errorf("iterate activity events: %w", err)
 	}
 	return events, nil
 }
