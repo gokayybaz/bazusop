@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/gokayybaz/bazusop/internal/activity"
 	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/serviceaccounts"
 	"github.com/gokayybaz/bazusop/internal/sessions"
@@ -68,9 +69,10 @@ func bearerToken(request *http.Request) (string, bool) {
 	return strings.TrimPrefix(header, prefix), true
 }
 
-func handleAssignSiteRole(sessionService *sessions.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
+func handleAssignSiteRole(sessionService *sessions.Service, authzService *authorization.Service, activityService *activity.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if _, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID); !ok {
+		actorID, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID)
+		if !ok {
 			return
 		}
 		var body struct {
@@ -84,18 +86,34 @@ func handleAssignSiteRole(sessionService *sessions.Service, authzService *author
 			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
+		if activityService != nil {
+			_ = activityService.Record(request.Context(), activity.Event{
+				OrganizationID: scope.OrganizationID, SiteID: scope.SiteID,
+				Source: activity.SourceSiteRole, ReferenceID: body.UserID, Type: "assigned",
+				Actor: actorID, Message: body.Role + " rolü atandı",
+			})
+		}
 		response.WriteHeader(http.StatusNoContent)
 	}
 }
 
-func handleRevokeSiteRole(sessionService *sessions.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
+func handleRevokeSiteRole(sessionService *sessions.Service, authzService *authorization.Service, activityService *activity.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if _, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID); !ok {
+		actorID, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID)
+		if !ok {
 			return
 		}
-		if err := authzService.RevokeRole(request.Context(), request.PathValue("userID"), request.PathValue("siteID")); err != nil {
+		userID := request.PathValue("userID")
+		if err := authzService.RevokeRole(request.Context(), userID, request.PathValue("siteID")); err != nil {
 			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
+		}
+		if activityService != nil {
+			_ = activityService.Record(request.Context(), activity.Event{
+				OrganizationID: scope.OrganizationID, SiteID: scope.SiteID,
+				Source: activity.SourceSiteRole, ReferenceID: userID, Type: "revoked",
+				Actor: actorID, Message: "site rolü kaldırıldı",
+			})
 		}
 		response.WriteHeader(http.StatusNoContent)
 	}

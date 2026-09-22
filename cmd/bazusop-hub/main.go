@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
-	"github.com/gokayybaz/bazusop/internal/audit"
+	"github.com/gokayybaz/bazusop/internal/activity"
 	"github.com/gokayybaz/bazusop/internal/audittrail"
 	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/cloudinventory"
@@ -69,7 +69,7 @@ func main() {
 	alertMemoryStore := alerting.NewMemoryStore()
 	var alertStore alerting.Store = alertMemoryStore
 	var cloudInventoryStore cloudinventory.Store = cloudinventory.NewMemoryStore()
-	var auditStore audit.Store = audit.NewMemoryStore(jobMemoryStore, alertMemoryStore)
+	var activityStore activity.Store = activity.NewMemoryStore(jobMemoryStore, alertMemoryStore)
 	var auditTrailStore audittrail.Store = audittrail.NewMemoryStore()
 	var identityStore identity.Store = identity.NewMemoryStore()
 	var sessionStore sessions.Store = sessions.NewMemoryStore()
@@ -104,7 +104,7 @@ func main() {
 		jobStore = postgresStore
 		alertStore = postgresStore
 		cloudInventoryStore = postgresStore
-		auditStore = postgresStore
+		activityStore = postgresStore
 		auditTrailStore = postgresStore
 		identityStore = postgresStore
 		sessionStore = postgresStore
@@ -137,7 +137,7 @@ func main() {
 		os.Exit(1)
 	}
 	cloudInventoryService := cloudinventory.NewService(cloudInventoryStore, inventoryService)
-	auditService := audit.NewService(auditStore)
+	activityService := activity.NewService(activityStore)
 	auditTrailService := audittrail.NewService(auditTrailStore)
 	// authorizationService is declared before identityService because
 	// identityService's site-role-grantor closure needs to call
@@ -196,7 +196,7 @@ func main() {
 			server.WithJobs(jobService),
 			server.WithAlerts(alertService),
 			server.WithCloudInventory(cloudInventoryService),
-			server.WithAudit(auditService),
+			server.WithActivity(activityService),
 			server.WithAuditTrail(auditTrailService),
 			server.WithIdentity(identityService, configuration.BootstrapSecret),
 			server.WithSessions(sessionService, identityService),

@@ -5,18 +5,24 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/gokayybaz/bazusop/internal/audit"
+	"github.com/gokayybaz/bazusop/internal/activity"
+	"github.com/gokayybaz/bazusop/internal/authorization"
+	"github.com/gokayybaz/bazusop/internal/serviceaccounts"
+	"github.com/gokayybaz/bazusop/internal/sessions"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
-func WithAudit(service *audit.Service) Option {
+func WithActivity(service *activity.Service) Option {
 	return func(options *handlerOptions) {
-		options.auditService = service
+		options.activityService = service
 	}
 }
 
-func handleListAuditEvents(service *audit.Service, scope tenancy.Scope) http.HandlerFunc {
+func handleListActivityEvents(service *activity.Service, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
+		if _, ok := requirePermission(response, request, sessionService, serviceAccountService, authzService, authorization.PermissionViewActivity, scope.SiteID); !ok {
+			return
+		}
 		limit := 100
 		if value := request.URL.Query().Get("limit"); value != "" {
 			parsed, err := strconv.Atoi(value)
@@ -27,7 +33,7 @@ func handleListAuditEvents(service *audit.Service, scope tenancy.Scope) http.Han
 			limit = parsed
 		}
 		values, err := service.List(request.Context(), scope, limit)
-		if errors.Is(err, audit.ErrInvalidAudit) {
+		if errors.Is(err, activity.ErrInvalidActivity) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
 		}
@@ -36,7 +42,7 @@ func handleListAuditEvents(service *audit.Service, scope tenancy.Scope) http.Han
 			return
 		}
 		writeJSON(response, http.StatusOK, struct {
-			Events []audit.Event `json:"events"`
+			Events []activity.Event `json:"events"`
 		}{values})
 	}
 }

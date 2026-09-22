@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gokayybaz/bazusop/internal/activity"
 	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/identity"
 	"github.com/gokayybaz/bazusop/internal/sessions"
@@ -49,7 +50,7 @@ func handleBootstrap(service *identity.Service, bootstrapSecret string) http.Han
 	}
 }
 
-func handleCreateInvite(service *identity.Service, sessionService *sessions.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
+func handleCreateInvite(service *identity.Service, sessionService *sessions.Service, authzService *authorization.Service, activityService *activity.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
 		actorUserID, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID)
 		if !ok {
@@ -83,6 +84,13 @@ func handleCreateInvite(service *identity.Service, sessionService *sessions.Serv
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
+		}
+		if activityService != nil {
+			_ = activityService.Record(request.Context(), activity.Event{
+				OrganizationID: scope.OrganizationID, SiteID: scope.SiteID,
+				Source: activity.SourceIdentity, ReferenceID: invite.ID, Type: "invite_created",
+				Actor: createdBy, Message: invite.Email + " davet edildi",
+			})
 		}
 		writeJSON(response, http.StatusCreated, struct {
 			Email string `json:"email"`
