@@ -1,27 +1,33 @@
-import { fireEvent, render, screen, within } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { App } from "./app"
 import { LandingPage } from "./landing-page"
+
+const authenticatedWhoAmI = { user_id: "user-1", email: "admin@example.com", role: "platform-admin", csrf_token: "csrf-token-abc", expires_at: "2026-09-22T22:00:00Z" }
+
+function respondWithSession(url: string) {
+  return url.endsWith("/api/v1/session") ? Promise.resolve({ ok: true, json: async () => authenticatedWhoAmI } as Response) : null
+}
 
 describe("bazUSOP shell", () => {
   beforeEach(() => {
     window.localStorage.clear()
     window.history.replaceState({}, "", "/")
     delete document.documentElement.dataset.theme
-	vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-	  ok: true,
-	  json: async () => ({ instances: [] }),
-	}))
-	vi.stubGlobal("scrollTo", vi.fn())
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      return respondWithSession(url) ?? Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+    }))
+    vi.stubGlobal("scrollTo", vi.fn())
   })
 
   afterEach(() => vi.unstubAllGlobals())
 
-  it("presents the unified operations overview", () => {
+  it("presents the unified operations overview", async () => {
     render(<App />)
 
-    expect(screen.getByRole("heading", { name: "Operasyon özeti" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "Operasyon özeti" })).toBeInTheDocument()
     expect(screen.getByText("Sunucular")).toBeInTheDocument()
     expect(screen.getByText("Ortalama CPU")).toBeInTheDocument()
     expect(screen.getByText("Açık alarmlar")).toBeInTheDocument()
@@ -51,44 +57,49 @@ describe("bazUSOP shell", () => {
 
   it("opens application pages directly from their URL", async () => {
     window.history.replaceState({}, "", "/settings")
-	vi.mocked(fetch).mockImplementation((input) => {
-	  if (String(input).endsWith("/api/v1/system/configuration")) return Promise.resolve({ ok: true, json: async () => ({ storage: "postgresql", timescale_enabled: true, telemetry_retention_days: 30, log_retention_days: 14, version: "0.3.0", commit: "abc123def456", build_date: "2026-09-12T09:30:00Z" }) } as Response)
-	  return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
-	})
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input)
+      const sessionResponse = respondWithSession(url)
+      if (sessionResponse) return sessionResponse
+      if (url.endsWith("/api/v1/system/configuration")) return Promise.resolve({ ok: true, json: async () => ({ storage: "postgresql", timescale_enabled: true, telemetry_retention_days: 30, log_retention_days: 14, version: "0.3.0", commit: "abc123def456", build_date: "2026-09-12T09:30:00Z" }) } as Response)
+      return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+    })
 
     render(<App />)
 
-    expect(screen.getByRole("heading", { name: "Ayarlar" })).toBeInTheDocument()
+    expect(await screen.findByRole("heading", { name: "Ayarlar" })).toBeInTheDocument()
     expect(screen.getByText("Görünüm")).toBeInTheDocument()
-	expect(await screen.findByText("Telemetri: 30 gün")).toBeInTheDocument()
-	expect(screen.getByText("Loglar: 14 gün")).toBeInTheDocument()
-	expect(screen.getByText("0.3.0")).toBeInTheDocument()
-	expect(screen.getByText("abc123def456")).toBeInTheDocument()
+    expect(await screen.findByText("Telemetri: 30 gün")).toBeInTheDocument()
+    expect(screen.getByText("Loglar: 14 gün")).toBeInTheDocument()
+    expect(screen.getByText("0.3.0")).toBeInTheDocument()
+    expect(screen.getByText("abc123def456")).toBeInTheDocument()
     expect(screen.queryByRole("region", { name: "Operasyon alarmları" })).not.toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Ayarlar" })).toHaveAttribute("aria-current", "page")
   })
 
   it("shows managed alarm incidents and opens the alarm center", async () => {
-	vi.mocked(fetch).mockImplementation((input) => {
-	  const url = String(input)
-	  if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [{ id: "incident-01", rule_id: "rule-01", rule_name: "Disk kritik eşiği", agent_id: "db-01", severity: "critical", status: "open", message: "Disk 96.0%; eşik 90.0%", latest_value: 96, opened_at: "2026-09-11T08:00:00Z" }] }) } as Response)
-	  return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
-	})
-	render(<App />)
-	expect(await screen.findByText("Disk kritik eşiği")).toBeInTheDocument()
-	expect(screen.getByRole("button", { name: "Alarmlar 1" })).toBeInTheDocument()
-	fireEvent.click(screen.getByRole("button", { name: "Alarmlar 1" }))
-	expect(window.location.pathname).toBe("/alerts")
-	expect(screen.getByRole("region", { name: "Alarm merkezi" })).toBeInTheDocument()
-	expect(screen.getByText("Politika değişiklikleri yönetici, olay onayı operatör yetkisi ister.")).toBeInTheDocument()
-	expect(screen.getByLabelText("Yetkili token")).toBeInTheDocument()
-	expect(screen.getByRole("button", { name: "incident-01 olayını onayla" })).toBeInTheDocument()
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input)
+      const sessionResponse = respondWithSession(url)
+      if (sessionResponse) return sessionResponse
+      if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [{ id: "incident-01", rule_id: "rule-01", rule_name: "Disk kritik eşiği", agent_id: "db-01", severity: "critical", status: "open", message: "Disk 96.0%; eşik 90.0%", latest_value: 96, opened_at: "2026-09-11T08:00:00Z" }] }) } as Response)
+      return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+    })
+    render(<App />)
+    expect(await screen.findByText("Disk kritik eşiği")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Alarmlar 1" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Alarmlar 1" }))
+    expect(window.location.pathname).toBe("/alerts")
+    expect(screen.getByRole("region", { name: "Alarm merkezi" })).toBeInTheDocument()
+    expect(screen.getByText("Politika değişiklikleri yönetici, olay onayı operatör yetkisi ister.")).toBeInTheDocument()
+    expect(screen.getByLabelText("Yetkili token")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "incident-01 olayını onayla" })).toBeInTheDocument()
   })
 
-  it("lets the operator switch between light and dark themes", () => {
+  it("lets the operator switch between light and dark themes", async () => {
     render(<App />)
 
-    fireEvent.click(screen.getAllByRole("button", { name: "Açık temayı kullan" })[0])
+    fireEvent.click((await screen.findAllByRole("button", { name: "Açık temayı kullan" }))[0])
 
     expect(document.documentElement.dataset.theme).toBe("light")
     expect(document.documentElement.style.colorScheme).toBe("light")
@@ -97,180 +108,233 @@ describe("bazUSOP shell", () => {
   })
 
   it("shows provider accounts and safely reconciled cloud instances on their own page", async () => {
-	vi.mocked(fetch).mockImplementation((input) => {
-	  const url = String(input)
-	  if (url.endsWith("/api/v1/cloud/accounts")) return Promise.resolve({ ok: true, json: async () => ({ accounts: [{ id: "account-01", name: "Üretim AWS", provider: "aws", external_id: "123456789012", status: "connected", last_sync_at: "2026-09-11T18:00:00Z" }] }) } as Response)
-	  if (url.endsWith("/api/v1/cloud/instances")) return Promise.resolve({ ok: true, json: async () => ({ instances: [{ account_id: "account-01", account_name: "Üretim AWS", provider: "aws", provider_instance_id: "i-0123", name: "edge-01", region: "eu-central-1", state: "running", os_family: "linux", private_ips: ["10.0.0.8"], public_ips: [], agent_id: "agent-01", match_status: "verified", match_reason: "provider_agent_id" }] }) } as Response)
-	  if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [] }) } as Response)
-	  return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
-	})
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input)
+      const sessionResponse = respondWithSession(url)
+      if (sessionResponse) return sessionResponse
+      if (url.endsWith("/api/v1/cloud/accounts")) return Promise.resolve({ ok: true, json: async () => ({ accounts: [{ id: "account-01", name: "Üretim AWS", provider: "aws", external_id: "123456789012", status: "connected", last_sync_at: "2026-09-11T18:00:00Z" }] }) } as Response)
+      if (url.endsWith("/api/v1/cloud/instances")) return Promise.resolve({ ok: true, json: async () => ({ instances: [{ account_id: "account-01", account_name: "Üretim AWS", provider: "aws", provider_instance_id: "i-0123", name: "edge-01", region: "eu-central-1", state: "running", os_family: "linux", private_ips: ["10.0.0.8"], public_ips: [], agent_id: "agent-01", match_status: "verified", match_reason: "provider_agent_id" }] }) } as Response)
+      if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [] }) } as Response)
+      return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+    })
 
-	render(<App />)
-	fireEvent.click(screen.getByRole("button", { name: "Bulut hesapları" }))
+    render(<App />)
+    fireEvent.click(await screen.findByRole("button", { name: "Bulut hesapları" }))
 
-	expect(window.location.pathname).toBe("/cloud")
-	expect(await screen.findAllByText("Üretim AWS")).toHaveLength(2)
-	expect(screen.getByRole("table", { name: "Bulut sunucuları" })).toBeInTheDocument()
-	expect(screen.getByText("i-0123")).toBeInTheDocument()
-	expect(screen.getByText("Doğrulandı")).toBeInTheDocument()
-	expect(screen.getByText("agent-01")).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/cloud")
+    expect(await screen.findAllByText("Üretim AWS")).toHaveLength(2)
+    expect(screen.getByRole("table", { name: "Bulut sunucuları" })).toBeInTheDocument()
+    expect(screen.getByText("i-0123")).toBeInTheDocument()
+    expect(screen.getByText("Doğrulandı")).toBeInTheDocument()
+    expect(screen.getByText("agent-01")).toBeInTheDocument()
   })
 
   it("shows a unified, time-ordered activity timeline merging job and alert events", async () => {
-	vi.mocked(fetch).mockImplementation((input) => {
-	  const url = String(input)
-	  if (url.startsWith("/api/v1/activity/events")) return Promise.resolve({ ok: true, json: async () => ({ events: [
-		{ organization_id: "org_default", site_id: "site_default", source: "alert", reference_id: "incident-01", agent_id: "agent-01", type: "opened", actor: "hub", message: "CPU %96", occurred_at: "2026-09-11T08:05:00Z" },
-		{ organization_id: "org_default", site_id: "site_default", source: "job", reference_id: "job-01", agent_id: "agent-01", type: "approved", actor: "gokay", message: "config rollout", occurred_at: "2026-09-11T08:00:00Z" },
-	  ] }) } as Response)
-	  if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [] }) } as Response)
-	  return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
-	})
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input)
+      const sessionResponse = respondWithSession(url)
+      if (sessionResponse) return sessionResponse
+      if (url.startsWith("/api/v1/activity/events")) return Promise.resolve({ ok: true, json: async () => ({ events: [
+        { organization_id: "org_default", site_id: "site_default", source: "alert", reference_id: "incident-01", agent_id: "agent-01", type: "opened", actor: "hub", message: "CPU %96", occurred_at: "2026-09-11T08:05:00Z" },
+        { organization_id: "org_default", site_id: "site_default", source: "job", reference_id: "job-01", agent_id: "agent-01", type: "approved", actor: "gokay", message: "config rollout", occurred_at: "2026-09-11T08:00:00Z" },
+      ] }) } as Response)
+      if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [] }) } as Response)
+      return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+    })
 
-	render(<App />)
-	fireEvent.click(screen.getByRole("button", { name: "Aktivite" }))
+    render(<App />)
+    fireEvent.click(await screen.findByRole("button", { name: "Aktivite" }))
 
-	expect(window.location.pathname).toBe("/activity")
-	expect(await screen.findByRole("table", { name: "Aktivite olayları" })).toBeInTheDocument()
-	expect(screen.getByText("Onaylandı")).toBeInTheDocument()
-	expect(screen.getByText("Açıldı")).toBeInTheDocument()
-	expect(screen.getByText("config rollout")).toBeInTheDocument()
-	expect(screen.getByText("CPU %96")).toBeInTheDocument()
-	const rows = screen.getAllByRole("row")
-	expect(rows[1]).toHaveTextContent("Açıldı")
-	expect(rows[2]).toHaveTextContent("Onaylandı")
+    expect(window.location.pathname).toBe("/activity")
+    expect(await screen.findByRole("table", { name: "Aktivite olayları" })).toBeInTheDocument()
+    expect(screen.getByText("Onaylandı")).toBeInTheDocument()
+    expect(screen.getByText("Açıldı")).toBeInTheDocument()
+    expect(screen.getByText("config rollout")).toBeInTheDocument()
+    expect(screen.getByText("CPU %96")).toBeInTheDocument()
+    const rows = screen.getAllByRole("row")
+    expect(rows[1]).toHaveTextContent("Açıldı")
+    expect(rows[2]).toHaveTextContent("Onaylandı")
   })
 
   it("shows a permission-filtered audit trail search with working filters", async () => {
-	vi.mocked(fetch).mockImplementation((input) => {
-	  const url = String(input)
-	  if (url.startsWith("/api/v1/audit/events")) return Promise.resolve({ ok: true, json: async () => ({ events: [
-		{ event_id: "e-1", occurred_at: "2026-09-11T08:05:00Z", correlation_id: "c-1", actor_type: "human", actor_id: "user-1", session_or_token_id: "", organization_id: "org_default", site_id: "site_default", action: "POST", permission: "manage_service_accounts", resource_type: "service_accounts", resource_id: "account-1", outcome: "success", error_code: "", source_ip: "", user_agent: "", change_summary: "" },
-	  ] }) } as Response)
-	  if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [] }) } as Response)
-	  return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
-	})
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input)
+      const sessionResponse = respondWithSession(url)
+      if (sessionResponse) return sessionResponse
+      if (url.startsWith("/api/v1/audit/events")) return Promise.resolve({ ok: true, json: async () => ({ events: [
+        { event_id: "e-1", occurred_at: "2026-09-11T08:05:00Z", correlation_id: "c-1", actor_type: "human", actor_id: "user-1", session_or_token_id: "", organization_id: "org_default", site_id: "site_default", action: "POST", permission: "manage_service_accounts", resource_type: "service_accounts", resource_id: "account-1", outcome: "success", error_code: "", source_ip: "", user_agent: "", change_summary: "" },
+      ] }) } as Response)
+      if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [] }) } as Response)
+      return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+    })
 
-	render(<App />)
-	fireEvent.click(screen.getByRole("button", { name: "Denetim izi" }))
+    render(<App />)
+    fireEvent.click(await screen.findByRole("button", { name: "Denetim izi" }))
 
-	expect(window.location.pathname).toBe("/audit")
-	const table = await screen.findByRole("table", { name: "Denetim kayıtları" })
-	expect(table).toBeInTheDocument()
-	expect(within(table).getByText("account-1")).toBeInTheDocument()
-	expect(within(table).getByText("Başarılı")).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/audit")
+    const table = await screen.findByRole("table", { name: "Denetim kayıtları" })
+    expect(table).toBeInTheDocument()
+    expect(within(table).getByText("account-1")).toBeInTheDocument()
+    expect(within(table).getByText("Başarılı")).toBeInTheDocument()
   })
 
   it("renders enrolled instances returned by the inventory API", async () => {
-	vi.mocked(fetch).mockResolvedValueOnce({
-	  ok: true,
-	  json: async () => ({
-		instances: [{
-		  agent_id: "agent-01",
-		  hostname: "edge-01.example.com",
-		  os_family: "linux",
-		  os_name: "Ubuntu",
-		  os_version: "24.04",
-		  architecture: "amd64",
-		  kernel_version: "6.8.0",
-		  cpu_cores: 8,
-		  memory_bytes: 17179869184,
-		  ip_addresses: ["10.0.0.8"],
-		  agent_version: "0.2.0",
-		  first_seen_at: "2026-09-10T19:00:00Z",
-		  last_seen_at: "2026-09-10T20:00:00Z",
-		  status: "connected",
-		}],
-	  }),
-	} as Response).mockResolvedValueOnce({
-	  ok: true,
-	  json: async () => ({ incidents: [] }),
-	} as Response).mockResolvedValueOnce({
-	  ok: true,
-	  json: async () => ({
-		latest: {
-		  recorded_at: "2026-09-11T04:05:00Z",
-		  cpu_percent: 47.8,
-		  memory_percent: 63.4,
-		  disk_percent: 71.1,
-		  network_rx_bytes: 2048,
-		  network_tx_bytes: 1024,
-		},
-		samples: [
-		  { recorded_at: "2026-09-11T04:00:00Z", cpu_percent: 42.5, memory_percent: 62.1, disk_percent: 71, network_rx_bytes: 1024, network_tx_bytes: 512 },
-		  { recorded_at: "2026-09-11T04:05:00Z", cpu_percent: 47.8, memory_percent: 63.4, disk_percent: 71.1, network_rx_bytes: 2048, network_tx_bytes: 1024 },
-		],
-	  }),
-	} as Response).mockResolvedValueOnce({
-	  ok: true,
-	  json: async () => ({
-		services: [
-		  { agent_id: "agent-01", name: "nginx.service", display_name: "NGINX Web Server", state: "running", startup_type: "automatic", observed_at: "2026-09-11T04:05:00Z" },
-		  { agent_id: "agent-01", name: "queue-worker.service", display_name: "Queue Worker", state: "failed", startup_type: "automatic", observed_at: "2026-09-11T04:05:00Z" },
-		],
-	  }),
-	} as Response).mockResolvedValueOnce({
-	  ok: true,
-	  json: async () => ({
-		entries: [
-		  { id: "log-01", agent_id: "agent-01", occurred_at: "2026-09-11T04:04:00Z", collector: "journald", source: "nginx.service", severity: "info", message: "worker process started" },
-		  { id: "log-02", agent_id: "agent-01", occurred_at: "2026-09-11T04:05:00Z", collector: "journald", source: "nginx.service", severity: "error", message: "upstream timeout" },
-		],
-	  }),
-	} as Response).mockResolvedValueOnce({
-	  ok: true,
-	  json: async () => ({
-		jobs: [{ id: "job-01", agent_id: "agent-01", action: "service.restart", target: "nginx.service", approved_by: "gokay", reason: "Yapılandırmayı etkinleştir", requested_at: "2026-09-11T04:06:00Z", status: "succeeded", last_sequence: 3, signature: "signed", signing_public_key: "key" }],
-	  }),
-	} as Response).mockResolvedValueOnce({
-	  ok: true,
-	  json: async () => ({
-		events: [
-		  { job_id: "job-01", sequence: 0, type: "approved", message: "Yapılandırmayı etkinleştir", actor: "gokay", occurred_at: "2026-09-11T04:06:00Z" },
-		  { job_id: "job-01", sequence: 1, type: "claimed", message: "agent claimed job", actor: "agent:agent-01", occurred_at: "2026-09-11T04:07:00Z" },
-		  { job_id: "job-01", sequence: 2, type: "succeeded", message: "nginx.service yeniden başlatıldı", actor: "agent:agent-01", occurred_at: "2026-09-11T04:08:00Z" },
-		],
-	  }),
-	} as Response)
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input)
+      const sessionResponse = respondWithSession(url)
+      if (sessionResponse) return sessionResponse
+      if (url.endsWith("/api/v1/instances")) return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          instances: [{
+            agent_id: "agent-01",
+            hostname: "edge-01.example.com",
+            os_family: "linux",
+            os_name: "Ubuntu",
+            os_version: "24.04",
+            architecture: "amd64",
+            kernel_version: "6.8.0",
+            cpu_cores: 8,
+            memory_bytes: 17179869184,
+            ip_addresses: ["10.0.0.8"],
+            agent_version: "0.2.0",
+            first_seen_at: "2026-09-10T19:00:00Z",
+            last_seen_at: "2026-09-10T20:00:00Z",
+            status: "connected",
+          }],
+        }),
+      } as Response)
+      if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [] }) } as Response)
+      if (url.includes("/telemetry")) return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          latest: { recorded_at: "2026-09-11T04:05:00Z", cpu_percent: 47.8, memory_percent: 63.4, disk_percent: 71.1, network_rx_bytes: 2048, network_tx_bytes: 1024 },
+          samples: [
+            { recorded_at: "2026-09-11T04:00:00Z", cpu_percent: 42.5, memory_percent: 62.1, disk_percent: 71, network_rx_bytes: 1024, network_tx_bytes: 512 },
+            { recorded_at: "2026-09-11T04:05:00Z", cpu_percent: 47.8, memory_percent: 63.4, disk_percent: 71.1, network_rx_bytes: 2048, network_tx_bytes: 1024 },
+          ],
+        }),
+      } as Response)
+      if (url.includes("/services")) return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          services: [
+            { agent_id: "agent-01", name: "nginx.service", display_name: "NGINX Web Server", state: "running", startup_type: "automatic", observed_at: "2026-09-11T04:05:00Z" },
+            { agent_id: "agent-01", name: "queue-worker.service", display_name: "Queue Worker", state: "failed", startup_type: "automatic", observed_at: "2026-09-11T04:05:00Z" },
+          ],
+        }),
+      } as Response)
+      if (url.includes("/logs")) return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          entries: [
+            { id: "log-01", agent_id: "agent-01", occurred_at: "2026-09-11T04:04:00Z", collector: "journald", source: "nginx.service", severity: "info", message: "worker process started" },
+            { id: "log-02", agent_id: "agent-01", occurred_at: "2026-09-11T04:05:00Z", collector: "journald", source: "nginx.service", severity: "error", message: "upstream timeout" },
+          ],
+        }),
+      } as Response)
+      if (url.includes("/jobs/") && url.endsWith("/events")) return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          events: [
+            { job_id: "job-01", sequence: 0, type: "approved", message: "Yapılandırmayı etkinleştir", actor: "gokay", occurred_at: "2026-09-11T04:06:00Z" },
+            { job_id: "job-01", sequence: 1, type: "claimed", message: "agent claimed job", actor: "agent:agent-01", occurred_at: "2026-09-11T04:07:00Z" },
+            { job_id: "job-01", sequence: 2, type: "succeeded", message: "nginx.service yeniden başlatıldı", actor: "agent:agent-01", occurred_at: "2026-09-11T04:08:00Z" },
+          ],
+        }),
+      } as Response)
+      if (url.includes("/jobs")) return Promise.resolve({
+        ok: true,
+        json: async () => ({
+          jobs: [{ id: "job-01", agent_id: "agent-01", action: "service.restart", target: "nginx.service", approved_by: "gokay", reason: "Yapılandırmayı etkinleştir", requested_at: "2026-09-11T04:06:00Z", status: "succeeded", last_sequence: 3, signature: "signed", signing_public_key: "key" }],
+        }),
+      } as Response)
+      return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+    })
 
-	render(<App />)
+    render(<App />)
 
-	fireEvent.click(screen.getByRole("button", { name: "Filo" }))
-	expect(await screen.findByText("edge-01.example.com")).toBeInTheDocument()
-	expect(screen.getByText("Ubuntu 24.04")).toBeInTheDocument()
-	expect(screen.getByText("8 çekirdek · 16 GiB")).toBeInTheDocument()
-	expect(screen.getByText("10.0.0.8")).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole("button", { name: "Filo" }))
+    expect(await screen.findByText("edge-01.example.com")).toBeInTheDocument()
+    expect(screen.getByText("Ubuntu 24.04")).toBeInTheDocument()
+    expect(screen.getByText("8 çekirdek · 16 GiB")).toBeInTheDocument()
+    expect(screen.getByText("10.0.0.8")).toBeInTheDocument()
 
-	fireEvent.click(screen.getByRole("button", { name: "edge-01.example.com metriklerini aç" }))
+    fireEvent.click(screen.getByRole("button", { name: "edge-01.example.com metriklerini aç" }))
 
-	expect(window.location.pathname).toBe("/metrics")
-	expect(await screen.findByRole("region", { name: "edge-01.example.com telemetrisi" })).toBeInTheDocument()
-	expect(screen.getByText("47.8%")).toBeInTheDocument()
-	expect(screen.getByRole("img", { name: "Son 24 saat CPU ve bellek kullanımı" })).toBeInTheDocument()
-	expect(screen.queryByRole("region", { name: "edge-01.example.com servisleri" })).not.toBeInTheDocument()
+    expect(window.location.pathname).toBe("/metrics")
+    expect(await screen.findByRole("region", { name: "edge-01.example.com telemetrisi" })).toBeInTheDocument()
+    expect(screen.getByText("47.8%")).toBeInTheDocument()
+    expect(screen.getByRole("img", { name: "Son 24 saat CPU ve bellek kullanımı" })).toBeInTheDocument()
+    expect(screen.queryByRole("region", { name: "edge-01.example.com servisleri" })).not.toBeInTheDocument()
 
-	fireEvent.click(screen.getByRole("button", { name: "Servisler" }))
-	expect(await screen.findByRole("region", { name: "edge-01.example.com servisleri" })).toBeInTheDocument()
-	expect(screen.getByText("NGINX Web Server")).toBeInTheDocument()
-	expect(screen.getByText("Queue Worker")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Servisler" }))
+    expect(await screen.findByRole("region", { name: "edge-01.example.com servisleri" })).toBeInTheDocument()
+    expect(screen.getByText("NGINX Web Server")).toBeInTheDocument()
+    expect(screen.getByText("Queue Worker")).toBeInTheDocument()
 
-	fireEvent.click(screen.getByRole("button", { name: "Başarısız servisleri göster" }))
-	expect(screen.queryByText("NGINX Web Server")).not.toBeInTheDocument()
-	expect(screen.getByText("Queue Worker")).toBeInTheDocument()
-	fireEvent.click(screen.getByRole("button", { name: "Loglar" }))
-	expect(await screen.findByRole("region", { name: "edge-01.example.com logları" })).toBeInTheDocument()
-	expect(screen.getByText("worker process started")).toBeInTheDocument()
-	expect(screen.getByText("upstream timeout")).toBeInTheDocument()
-	expect(screen.getByRole("button", { name: "Canlı akışı başlat" })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Başarısız servisleri göster" }))
+    expect(screen.queryByText("NGINX Web Server")).not.toBeInTheDocument()
+    expect(screen.getByText("Queue Worker")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Loglar" }))
+    expect(await screen.findByRole("region", { name: "edge-01.example.com logları" })).toBeInTheDocument()
+    expect(screen.getByText("worker process started")).toBeInTheDocument()
+    expect(screen.getByText("upstream timeout")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Canlı akışı başlat" })).toBeInTheDocument()
 
-	fireEvent.click(screen.getByRole("button", { name: "Hata loglarını göster" }))
-	expect(screen.queryByText("worker process started")).not.toBeInTheDocument()
-	expect(screen.getByText("upstream timeout")).toBeInTheDocument()
-	fireEvent.click(screen.getByRole("button", { name: "İşler" }))
-	expect(await screen.findByRole("region", { name: "edge-01.example.com işleri" })).toBeInTheDocument()
-	expect(screen.getByText("Servisi yeniden başlat")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Hata loglarını göster" }))
+    expect(screen.queryByText("worker process started")).not.toBeInTheDocument()
+    expect(screen.getByText("upstream timeout")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "İşler" }))
+    expect(await screen.findByRole("region", { name: "edge-01.example.com işleri" })).toBeInTheDocument()
+    expect(screen.getByText("Servisi yeniden başlat")).toBeInTheDocument()
 
-	fireEvent.click(screen.getByRole("button", { name: "job-01 işinin audit kaydını aç" }))
-	expect(await screen.findByText("nginx.service yeniden başlatıldı")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "job-01 işinin audit kaydını aç" }))
+    expect(await screen.findByText("nginx.service yeniden başlatıldı")).toBeInTheDocument()
+  })
+
+  it("redirects to the login page when there is no session", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input)
+      if (url.endsWith("/api/v1/session")) return Promise.resolve({ ok: false, status: 401 } as Response)
+      return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+    })
+
+    render(<App />)
+
+    expect(await screen.findByRole("heading", { name: "Giriş yap" })).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/login")
+    expect(screen.queryByRole("heading", { name: "Operasyon özeti" })).not.toBeInTheDocument()
+  })
+
+  it("logs in successfully and lands on the dashboard", async () => {
+    vi.mocked(fetch).mockImplementation((input) => {
+      const url = String(input)
+      if (url.endsWith("/api/v1/session")) return Promise.resolve({ ok: false, status: 401 } as Response)
+      if (url.endsWith("/api/v1/sessions")) return Promise.resolve({ ok: true, status: 201, json: async () => authenticatedWhoAmI } as Response)
+      return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+    })
+    window.history.replaceState({}, "", "/login")
+
+    render(<App />)
+
+    expect(await screen.findByRole("heading", { name: "Giriş yap" })).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText("E-posta"), { target: { value: "admin@example.com" } })
+    fireEvent.change(screen.getByLabelText("Parola"), { target: { value: "correct horse battery staple" } })
+    fireEvent.change(screen.getByLabelText("Doğrulayıcı kodu"), { target: { value: "123456" } })
+    fireEvent.click(screen.getByRole("button", { name: "Giriş yap" }))
+
+    expect(await screen.findByRole("heading", { name: "Operasyon özeti" })).toBeInTheDocument()
+    expect(window.location.pathname).toBe("/")
+    expect(screen.getByText("admin@example.com")).toBeInTheDocument()
+  })
+
+  it("logs out and returns to the login page", async () => {
+    render(<App />)
+
+    fireEvent.click(await screen.findByRole("button", { name: "Çıkış yap" }))
+
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Giriş yap" })).toBeInTheDocument())
+    expect(window.location.pathname).toBe("/login")
   })
 })
