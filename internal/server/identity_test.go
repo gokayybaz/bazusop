@@ -182,3 +182,64 @@ func TestCreateInviteRejectsAnInvalidRole(t *testing.T) {
 		t.Fatalf("expected 400 for a site role with no site_ids, got %d: %s", response.Code, response.Body.String())
 	}
 }
+
+func TestConfirmTOTPIsRateLimitedPerSourceIP(t *testing.T) {
+	t.Parallel()
+	handler := newIdentityHandler(t, "correct-secret")
+	cookies := bootstrapAndLogin(t, handler, "correct-secret", "admin@example.com", "correct horse battery staple")
+
+	inviteRequest := httptest.NewRequest(http.MethodPost, "/api/v1/users/invites", encodeJSON(t, map[string]string{"email": "new-user@example.com"}))
+	for _, cookie := range cookies {
+		inviteRequest.AddCookie(cookie)
+	}
+	inviteRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(cookies))
+	inviteResponse := httptest.NewRecorder()
+	handler.ServeHTTP(inviteResponse, inviteRequest)
+	var invitePayload struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(inviteResponse.Body).Decode(&invitePayload); err != nil || invitePayload.Token == "" {
+		t.Fatalf("expected a non-empty invite token, got %#v, %v", invitePayload, err)
+	}
+
+	consumeResponse := httptest.NewRecorder()
+	handler.ServeHTTP(consumeResponse, httptest.NewRequest(http.MethodPost, "/api/v1/invites/"+invitePayload.Token+"/consume", encodeJSON(t, map[string]string{"password": "a brand new password"})))
+	var consumedUser struct {
+		ID string `json:"id"`
+	}
+	if err := json.NewDecoder(consumeResponse.Body).Decode(&consumedUser); err != nil || consumedUser.ID == "" {
+		t.Fatalf("expected a user id, got %#v, %v", consumedUser, err)
+	}
+
+	for i := 0; i < 10; i++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/users/"+consumedUser.ID+"/confirm-totp", encodeJSON(t, map[string]string{"code": "000000"})))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("attempt %d: expected 400 for a wrong TOTP code within the rate limit, got %d", i+1, response.Code)
+		}
+	}
+
+	limited := httptest.NewRecorder()
+	handler.ServeHTTP(limited, httptest.NewRequest(http.MethodPost, "/api/v1/users/"+consumedUser.ID+"/confirm-totp", encodeJSON(t, map[string]string{"code": "000000"})))
+	if limited.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected the 11th attempt within 5 minutes to be rate limited, got %d", limited.Code)
+	}
+}
+
+func TestConsumeInviteIsRateLimitedPerSourceIP(t *testing.T) {
+	t.Parallel()
+	handler := newIdentityHandler(t, "correct-secret")
+	for i := 0; i < 10; i++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/invites/not-a-real-token/consume", encodeJSON(t, map[string]string{"password": "whatever"})))
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("attempt %d: expected 404 for an unknown invite token within the rate limit, got %d", i+1, response.Code)
+		}
+	}
+
+	limited := httptest.NewRecorder()
+	handler.ServeHTTP(limited, httptest.NewRequest(http.MethodPost, "/api/v1/invites/not-a-real-token/consume", encodeJSON(t, map[string]string{"password": "whatever"})))
+	if limited.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected the 11th attempt within 5 minutes to be rate limited, got %d", limited.Code)
+	}
+}

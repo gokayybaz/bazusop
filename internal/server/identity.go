@@ -9,6 +9,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/activity"
 	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/identity"
+	"github.com/gokayybaz/bazusop/internal/ratelimit"
 	"github.com/gokayybaz/bazusop/internal/sessions"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
@@ -104,8 +105,12 @@ func handleCreateInvite(service *identity.Service, sessionService *sessions.Serv
 	}
 }
 
-func handleConsumeInvite(service *identity.Service) http.HandlerFunc {
+func handleConsumeInvite(service *identity.Service, limiter *ratelimit.Limiter) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
+		if !limiter.Allow(sourceIP(request)) {
+			http.Error(response, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+			return
+		}
 		var body struct {
 			Password string `json:"password"`
 		}
@@ -121,6 +126,10 @@ func handleConsumeInvite(service *identity.Service) http.HandlerFunc {
 			http.Error(response, http.StatusText(http.StatusConflict), http.StatusConflict)
 			return
 		}
+		if errors.Is(err, identity.ErrInviteWrongIdentityType) {
+			http.Error(response, http.StatusText(http.StatusForbidden), http.StatusForbidden)
+			return
+		}
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
@@ -131,8 +140,12 @@ func handleConsumeInvite(service *identity.Service) http.HandlerFunc {
 	}
 }
 
-func handleConfirmTOTP(service *identity.Service) http.HandlerFunc {
+func handleConfirmTOTP(service *identity.Service, limiter *ratelimit.Limiter) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
+		if !limiter.Allow(sourceIP(request)) {
+			http.Error(response, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+			return
+		}
 		var body struct {
 			Code string `json:"code"`
 		}

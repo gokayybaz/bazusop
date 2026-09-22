@@ -225,3 +225,30 @@ func TestAdminCanRevokeAllSessionsOrgWide(t *testing.T) {
 		t.Fatalf("expected the org-wide-revoked session to be rejected, got %d", whoAmIResponse.Code)
 	}
 }
+
+func TestLoginIsRateLimitedPerSourceIP(t *testing.T) {
+	t.Parallel()
+	handler, _ := newSessionHandler(t)
+	email, password := "admin@example.com", "correct horse battery staple"
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
+		"secret": "bootstrap-secret", "email": email, "password": password,
+	})))
+
+	for i := 0; i < 10; i++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/sessions", encodeJSON(t, map[string]string{
+			"email": email, "password": "wrong password", "totp_code": "000000",
+		})))
+		if response.Code != http.StatusUnauthorized {
+			t.Fatalf("attempt %d: expected 401 for a wrong password within the rate limit, got %d", i+1, response.Code)
+		}
+	}
+
+	limited := httptest.NewRecorder()
+	handler.ServeHTTP(limited, httptest.NewRequest(http.MethodPost, "/api/v1/sessions", encodeJSON(t, map[string]string{
+		"email": email, "password": "wrong password", "totp_code": "000000",
+	})))
+	if limited.Code != http.StatusTooManyRequests {
+		t.Fatalf("expected the 11th attempt within 5 minutes to be rate limited, got %d", limited.Code)
+	}
+}

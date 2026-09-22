@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"time"
 
 	"github.com/gokayybaz/bazusop/internal/activity"
 	"github.com/gokayybaz/bazusop/internal/alerting"
@@ -15,6 +16,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/logstream"
+	"github.com/gokayybaz/bazusop/internal/ratelimit"
 	"github.com/gokayybaz/bazusop/internal/serviceaccounts"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/sessions"
@@ -71,6 +73,10 @@ func NewHandler(options ...Option) http.Handler {
 	if err := configuration.scope.Validate(); err != nil {
 		panic(fmt.Sprintf("invalid handler scope: %v", err))
 	}
+
+	loginLimiter := ratelimit.New(10, 5*time.Minute)
+	confirmTOTPLimiter := ratelimit.New(10, 5*time.Minute)
+	consumeInviteLimiter := ratelimit.New(10, 5*time.Minute)
 
 	mux := http.NewServeMux()
 	registerAudited(mux, "/api/v1/health", http.MethodGet, "health", nil, configuration.auditTrail, configuration.scope, handleHealth)
@@ -139,15 +145,15 @@ func NewHandler(options ...Option) http.Handler {
 	if configuration.identityService != nil {
 		registerAudited(mux, "/api/v1/bootstrap", http.MethodPost, "bootstrap", nil, configuration.auditTrail, configuration.scope, handleBootstrap(configuration.identityService, configuration.bootstrapSecret))
 		registerAudited(mux, "/api/v1/users/invites", http.MethodPost, "invites", nil, configuration.auditTrail, configuration.scope, handleCreateInvite(configuration.identityService, configuration.sessionService, configuration.authorizationService, configuration.activityService, configuration.scope))
-		registerAudited(mux, "/api/v1/invites/{token}/consume", http.MethodPost, "invites", []string{"token"}, configuration.auditTrail, configuration.scope, handleConsumeInvite(configuration.identityService))
-		registerAudited(mux, "/api/v1/users/{userID}/confirm-totp", http.MethodPost, "users", []string{"userID"}, configuration.auditTrail, configuration.scope, handleConfirmTOTP(configuration.identityService))
+		registerAudited(mux, "/api/v1/invites/{token}/consume", http.MethodPost, "invites", []string{"token"}, configuration.auditTrail, configuration.scope, handleConsumeInvite(configuration.identityService, consumeInviteLimiter))
+		registerAudited(mux, "/api/v1/users/{userID}/confirm-totp", http.MethodPost, "users", []string{"userID"}, configuration.auditTrail, configuration.scope, handleConfirmTOTP(configuration.identityService, confirmTOTPLimiter))
 		registerAudited(mux, "/api/v1/organization/oidc", http.MethodPut, "oidc_configuration", nil, configuration.auditTrail, configuration.scope, handleSetOIDCConfiguration(configuration.identityService, configuration.sessionService, configuration.authorizationService, configuration.scope))
 		registerAudited(mux, "/api/v1/organization/oidc", http.MethodGet, "oidc_configuration", nil, configuration.auditTrail, configuration.scope, handleGetOIDCConfiguration(configuration.identityService, configuration.sessionService, configuration.authorizationService, configuration.scope))
 		registerAudited(mux, "/api/v1/oidc/login", http.MethodGet, "oidc_login", nil, configuration.auditTrail, configuration.scope, handleOIDCLogin(configuration.identityService, configuration.scope))
 		registerAudited(mux, "/api/v1/oidc/callback", http.MethodGet, "oidc_login", nil, configuration.auditTrail, configuration.scope, handleOIDCCallback(configuration.identityService, configuration.sessionService, configuration.activityService, configuration.scope))
 	}
 	if configuration.sessionService != nil {
-		registerAudited(mux, "/api/v1/sessions", http.MethodPost, "sessions", nil, configuration.auditTrail, configuration.scope, handleLogin(configuration.sessionIdentityService, configuration.sessionService))
+		registerAudited(mux, "/api/v1/sessions", http.MethodPost, "sessions", nil, configuration.auditTrail, configuration.scope, handleLogin(configuration.sessionIdentityService, configuration.sessionService, loginLimiter))
 		registerAudited(mux, "/api/v1/session", http.MethodGet, "sessions", nil, configuration.auditTrail, configuration.scope, handleWhoAmI(configuration.sessionService, configuration.sessionIdentityService))
 		registerAudited(mux, "/api/v1/sessions", http.MethodDelete, "sessions", nil, configuration.auditTrail, configuration.scope, handleLogout(configuration.sessionService))
 		registerAudited(mux, "/api/v1/users/{userID}/sessions", http.MethodDelete, "sessions", []string{"userID"}, configuration.auditTrail, configuration.scope, handleRevokeUserSessions(configuration.sessionService, configuration.authorizationService, configuration.scope))

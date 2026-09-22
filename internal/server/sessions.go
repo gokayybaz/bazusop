@@ -6,6 +6,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/identity"
+	"github.com/gokayybaz/bazusop/internal/ratelimit"
 	"github.com/gokayybaz/bazusop/internal/sessions"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
@@ -62,8 +63,12 @@ func requireMatchingCSRFToken(response http.ResponseWriter, request *http.Reques
 	return true
 }
 
-func handleLogin(identityService *identity.Service, sessionService *sessions.Service) http.HandlerFunc {
+func handleLogin(identityService *identity.Service, sessionService *sessions.Service, limiter *ratelimit.Limiter) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
+		if !limiter.Allow(sourceIP(request)) {
+			http.Error(response, http.StatusText(http.StatusTooManyRequests), http.StatusTooManyRequests)
+			return
+		}
 		var body struct {
 			Email        string `json:"email"`
 			Password     string `json:"password"`
