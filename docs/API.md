@@ -35,6 +35,17 @@ döner.
   davetle olur; sonraki girişler `issuer + subject` ile kalıcı olarak
   tanınır. Yerel giriş (`POST /api/v1/sessions`) tamamen bağımsız çalışmaya
   devam eder.
+- Oturum çerezi tabanlı GET/HEAD DIŞI her istek `X-CSRF-Token` header'ının
+  oturumun CSRF token'ıyla eşleşmesini ister (double-submit-cookie deseni —
+  token hem oturum açılışında JSON yanıtında hem de `HttpOnly` OLMAYAN
+  `bazusop_csrf` çerezinde döner). Eksik veya yanlış token `403` döner.
+  Servis hesabı bearer token'ları bu kontrole tabi değildir (CSRF yalnız
+  tarayıcı çerezlerini otomatik gönderen istekleri hedefler).
+- Giriş (`POST /api/v1/sessions`), MFA onayı
+  (`POST /api/v1/users/{userID}/confirm-totp`) ve davet tüketimi
+  (`POST /api/v1/invites/{token}/consume`) kaynak IP başına dakikada
+  brute-force sınırlıdır (varsayılan: 5 dakikada 10 deneme); aşıldığında
+  `429` döner.
 
 ## Uçlar
 

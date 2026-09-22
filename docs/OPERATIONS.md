@@ -168,6 +168,16 @@ mevcut bir TLS Secret’tan read-only mount edilir.
 8. Kritik CPU/bellek/disk ve erişilebilirlik eşiklerini gerçek baseline'a göre
    ayarla; planlı çalışmadan önce kapsamı doğru bakım penceresini oluştur.
 
+## Rate limiting
+
+Giriş, MFA onayı ve davet tüketimi uçları kaynak IP başına process-içi bir
+sliding-window ile sınırlıdır (varsayılan: 5 dakikada 10 deneme, aşıldığında
+`429`). Bu sınır HUB REPLİKALARI ARASINDA SENKRONİZE DEĞİLDİR — birden fazla
+replika arkasında her replika kendi sınırını bağımsız uygular, bu yüzden
+etkili sınır replika sayısıyla orantılı büyür. Bu, mevcut hiçbir korumaya
+kıyasla önemli bir iyileştirmedir; tam dağıtık bir çözüm gelecekte ayrı bir
+sertleştirme çalışmasıdır.
+
 ## Sağlık ve sorun giderme
 
 - `GET /api/v1/health` liveness ve readiness probe’larının hedefidir.
