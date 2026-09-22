@@ -144,3 +144,43 @@ func TestMembershipsForUserListsEverySiteTheyBelongTo(t *testing.T) {
 		t.Fatalf("expected 2 memberships, got %#v %v", memberships, err)
 	}
 }
+
+func TestPermissionAllowsRoleMatchesCanForSiteScopedPermissions(t *testing.T) {
+	t.Parallel()
+	if !authorization.PermissionAllowsRole(authorization.PermissionCreateJobs, authorization.SiteRoleOperator) {
+		t.Fatal("expected an operator to satisfy PermissionCreateJobs directly")
+	}
+	if authorization.PermissionAllowsRole(authorization.PermissionManageAlerts, authorization.SiteRoleOperator) {
+		t.Fatal("expected an operator to not satisfy PermissionManageAlerts")
+	}
+}
+
+func TestPermissionAllowsRoleAlwaysDeniesOrgScopedPermissions(t *testing.T) {
+	t.Parallel()
+	for _, role := range []authorization.SiteRole{authorization.SiteRoleAdmin, authorization.SiteRoleOperator, authorization.SiteRoleViewer} {
+		if authorization.PermissionAllowsRole(authorization.PermissionManageUsers, role) {
+			t.Fatalf("expected PermissionManageUsers to be org-scoped (platform-admin only), got allowed for %s", role)
+		}
+	}
+}
+
+func TestPermissionManageServiceAccountsMatchesTheSiteAdminOnlyPattern(t *testing.T) {
+	t.Parallel()
+	service := newTestService(t, nil)
+	if err := service.AssignRole(t.Context(), "user-1", "org_default", "site-1", authorization.SiteRoleAdmin); err != nil {
+		t.Fatal(err)
+	}
+	allowed, err := service.Can(t.Context(), "user-1", authorization.PermissionManageServiceAccounts, "site-1")
+	if err != nil || !allowed {
+		t.Fatalf("expected site-admin to manage service accounts, got %v %v", allowed, err)
+	}
+
+	viewerService := newTestService(t, nil)
+	if err := viewerService.AssignRole(t.Context(), "user-2", "org_default", "site-1", authorization.SiteRoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	allowed, err = viewerService.Can(t.Context(), "user-2", authorization.PermissionManageServiceAccounts, "site-1")
+	if err != nil || allowed {
+		t.Fatalf("expected viewer to be denied PermissionManageServiceAccounts, got %v %v", allowed, err)
+	}
+}

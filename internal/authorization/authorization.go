@@ -12,16 +12,17 @@ import (
 type Permission string
 
 const (
-	PermissionManageUsers          Permission = "manage_users"
-	PermissionManageOrgSecurity    Permission = "manage_org_security"
-	PermissionViewSite             Permission = "view_site"
-	PermissionManageAgents         Permission = "manage_agents"
-	PermissionManageAlerts         Permission = "manage_alerts"
-	PermissionManageCloudAccounts  Permission = "manage_cloud_accounts"
-	PermissionCreateJobs           Permission = "create_jobs"
-	PermissionAcknowledgeIncidents Permission = "acknowledge_incidents"
-	PermissionViewActivity         Permission = "view_activity"
-	PermissionViewAuditEvents      Permission = "view_audit_events"
+	PermissionManageUsers           Permission = "manage_users"
+	PermissionManageOrgSecurity     Permission = "manage_org_security"
+	PermissionViewSite              Permission = "view_site"
+	PermissionManageAgents          Permission = "manage_agents"
+	PermissionManageAlerts          Permission = "manage_alerts"
+	PermissionManageCloudAccounts   Permission = "manage_cloud_accounts"
+	PermissionCreateJobs            Permission = "create_jobs"
+	PermissionAcknowledgeIncidents  Permission = "acknowledge_incidents"
+	PermissionViewActivity          Permission = "view_activity"
+	PermissionViewAuditEvents       Permission = "view_audit_events"
+	PermissionManageServiceAccounts Permission = "manage_service_accounts"
 )
 
 type SiteRole string
@@ -70,14 +71,15 @@ var orgScopedPermissions = map[Permission]bool{
 // orgScopedPermissions) is deny-by-default for every non-platform-admin
 // caller.
 var siteRolePermissions = map[Permission]map[SiteRole]bool{
-	PermissionViewSite:             {SiteRoleAdmin: true, SiteRoleOperator: true, SiteRoleViewer: true},
-	PermissionManageAgents:         {SiteRoleAdmin: true},
-	PermissionManageAlerts:         {SiteRoleAdmin: true},
-	PermissionManageCloudAccounts:  {SiteRoleAdmin: true},
-	PermissionCreateJobs:           {SiteRoleAdmin: true, SiteRoleOperator: true},
-	PermissionAcknowledgeIncidents: {SiteRoleAdmin: true, SiteRoleOperator: true},
-	PermissionViewActivity:         {SiteRoleAdmin: true, SiteRoleOperator: true, SiteRoleViewer: true},
-	PermissionViewAuditEvents:      {SiteRoleAdmin: true, SiteRoleOperator: true},
+	PermissionViewSite:              {SiteRoleAdmin: true, SiteRoleOperator: true, SiteRoleViewer: true},
+	PermissionManageAgents:          {SiteRoleAdmin: true},
+	PermissionManageAlerts:          {SiteRoleAdmin: true},
+	PermissionManageCloudAccounts:   {SiteRoleAdmin: true},
+	PermissionCreateJobs:            {SiteRoleAdmin: true, SiteRoleOperator: true},
+	PermissionAcknowledgeIncidents:  {SiteRoleAdmin: true, SiteRoleOperator: true},
+	PermissionViewActivity:          {SiteRoleAdmin: true, SiteRoleOperator: true, SiteRoleViewer: true},
+	PermissionViewAuditEvents:       {SiteRoleAdmin: true, SiteRoleOperator: true},
+	PermissionManageServiceAccounts: {SiteRoleAdmin: true},
 }
 
 type Service struct {
@@ -92,11 +94,29 @@ func NewService(store Store, platformAdmin PlatformAdminChecker) (*Service, erro
 	return &Service{store: store, platformAdmin: platformAdmin}, nil
 }
 
+// PermissionAllowsRole reports whether role alone (without any
+// platform-admin bypass) satisfies permission. Org-scoped permissions
+// always return false — they require platform-admin, an identity-level
+// concept unrelated to SiteRole. internal/serviceaccounts uses this
+// directly (a service account has no platform-admin bypass at all, so it
+// never needs the full Service.Can/store round trip).
+func PermissionAllowsRole(permission Permission, role SiteRole) bool {
+	if orgScopedPermissions[permission] {
+		return false
+	}
+	allowedRoles, known := siteRolePermissions[permission]
+	if !known {
+		return false
+	}
+	return allowedRoles[role]
+}
+
 // Can evaluates the fixed RBAC matrix deny-by-default: platform-admin
-// satisfies every permission everywhere; an org-scoped permission is
-// platform-admin only; a site-scoped permission requires a site membership
-// at siteID whose role is in the permission's allowed-role set. Any
-// unmodeled permission, or any lookup error treated as "no access", denies.
+// satisfies every permission everywhere; a site-scoped permission requires
+// a site membership at siteID whose role is in the permission's
+// allowed-role set (org-scoped permissions are platform-admin only, per
+// PermissionAllowsRole). Any unmodeled permission, or any lookup error
+// treated as "no access", denies.
 func (service *Service) Can(ctx context.Context, userID string, permission Permission, siteID string) (bool, error) {
 	isPlatformAdmin, err := service.platformAdmin(ctx, userID)
 	if err != nil {
@@ -105,13 +125,6 @@ func (service *Service) Can(ctx context.Context, userID string, permission Permi
 	if isPlatformAdmin {
 		return true, nil
 	}
-	if orgScopedPermissions[permission] {
-		return false, nil
-	}
-	allowedRoles, known := siteRolePermissions[permission]
-	if !known {
-		return false, nil
-	}
 	role, err := service.store.RoleForUserAtSite(ctx, userID, siteID)
 	if errors.Is(err, ErrMembershipNotFound) {
 		return false, nil
@@ -119,7 +132,7 @@ func (service *Service) Can(ctx context.Context, userID string, permission Permi
 	if err != nil {
 		return false, err
 	}
-	return allowedRoles[role], nil
+	return PermissionAllowsRole(permission, role), nil
 }
 
 func (service *Service) AssignRole(ctx context.Context, userID, organizationID, siteID string, role SiteRole) error {
