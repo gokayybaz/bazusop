@@ -30,6 +30,9 @@ func requirePermission(response http.ResponseWriter, request *http.Request, sess
 				http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
 				return "", false
 			}
+			if request.Method != http.MethodGet && request.Method != http.MethodHead && !requireMatchingCSRFToken(response, request, session) {
+				return "", false
+			}
 			allowed, err := authzService.Can(request.Context(), session.UserID, permission, siteID)
 			if err != nil {
 				http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)

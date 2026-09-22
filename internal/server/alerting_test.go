@@ -60,12 +60,13 @@ func TestMetricRuleCreatesAndAcknowledgesIncident(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, adminToken, _, err := sessionService.Create(t.Context(), admin.ID, admin.OrganizationID)
+	_, adminToken, adminCSRF, err := sessionService.Create(t.Context(), admin.ID, admin.OrganizationID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	createAccount := httptest.NewRequest(http.MethodPost, "/api/v1/sites/"+tenancy.DefaultSiteID+"/service-accounts", encodeJSON(t, map[string]any{"name": "ops-bot", "role": "site-admin"}))
 	createAccount.AddCookie(&http.Cookie{Name: "bazusop_session", Value: adminToken})
+	createAccount.Header.Set("X-CSRF-Token", adminCSRF)
 	accountResponse := httptest.NewRecorder()
 	handler.ServeHTTP(accountResponse, createAccount)
 	if accountResponse.Code != http.StatusCreated {

@@ -145,6 +145,7 @@ func TestOIDCLoginPKCEFlowCreatesSessionAndLocalLoginStaysIndependent(t *testing
 	for _, cookie := range adminCookies {
 		configRequest.AddCookie(cookie)
 	}
+	configRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(adminCookies))
 	configResponse := httptest.NewRecorder()
 	handler.ServeHTTP(configResponse, configRequest)
 	if configResponse.Code != http.StatusOK {
@@ -160,6 +161,7 @@ func TestOIDCLoginPKCEFlowCreatesSessionAndLocalLoginStaysIndependent(t *testing
 	for _, cookie := range adminCookies {
 		inviteRequest.AddCookie(cookie)
 	}
+	inviteRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(adminCookies))
 	inviteResponse := httptest.NewRecorder()
 	handler.ServeHTTP(inviteResponse, inviteRequest)
 	if inviteResponse.Code != http.StatusCreated {
@@ -236,6 +238,7 @@ func TestOIDCCallbackRejectsAMismatchedState(t *testing.T) {
 	for _, cookie := range adminCookies {
 		configRequest.AddCookie(cookie)
 	}
+	configRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(adminCookies))
 	handler.ServeHTTP(httptest.NewRecorder(), configRequest)
 
 	loginResponse := httptest.NewRecorder()
@@ -268,6 +271,7 @@ func TestOIDCCallbackRejectsWithoutAPendingInvite(t *testing.T) {
 	for _, cookie := range adminCookies {
 		configRequest.AddCookie(cookie)
 	}
+	configRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(adminCookies))
 	handler.ServeHTTP(httptest.NewRecorder(), configRequest)
 
 	loginResponse := httptest.NewRecorder()

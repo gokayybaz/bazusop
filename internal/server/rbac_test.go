@@ -41,13 +41,14 @@ func TestRequirePermissionAllowsAPlatformAdminSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, token, _, err := sessionService.Create(t.Context(), admin.ID, admin.OrganizationID)
+	_, token, csrfToken, err := sessionService.Create(t.Context(), admin.ID, admin.OrganizationID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/sites/site_default/memberships", encodeJSON(t, map[string]string{"user_id": "some-user", "role": "viewer"}))
 	request.AddCookie(&http.Cookie{Name: "bazusop_session", Value: token})
+	request.Header.Set("X-CSRF-Token", csrfToken)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusNoContent {
@@ -79,13 +80,14 @@ func TestRequirePermissionDeniesASessionLackingThePermission(t *testing.T) {
 	if err := authzService.AssignRole(t.Context(), viewer.ID, tenancy.DefaultOrganizationID, "site_default", authorization.SiteRoleViewer); err != nil {
 		t.Fatal(err)
 	}
-	_, sessionToken, _, err := sessionService.Create(t.Context(), viewer.ID, viewer.OrganizationID)
+	_, sessionToken, csrfToken, err := sessionService.Create(t.Context(), viewer.ID, viewer.OrganizationID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/sites/site_default/memberships", encodeJSON(t, map[string]string{"user_id": "another-user", "role": "viewer"}))
 	request.AddCookie(&http.Cookie{Name: "bazusop_session", Value: sessionToken})
+	request.Header.Set("X-CSRF-Token", csrfToken)
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusForbidden {

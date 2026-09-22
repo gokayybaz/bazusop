@@ -50,12 +50,13 @@ func TestCloudDiscoveryAPIReconcilesProviderInventory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, adminToken, _, err := sessionService.Create(ctx, admin.ID, admin.OrganizationID)
+	_, adminToken, adminCSRF, err := sessionService.Create(ctx, admin.ID, admin.OrganizationID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	createAccount := httptest.NewRequest(http.MethodPost, "/api/v1/sites/site_default/service-accounts", encodeJSON(t, map[string]any{"name": "cloud-bot", "role": "site-admin"}))
 	createAccount.AddCookie(&http.Cookie{Name: "bazusop_session", Value: adminToken})
+	createAccount.Header.Set("X-CSRF-Token", adminCSRF)
 	accountResponse := httptest.NewRecorder()
 	handler.ServeHTTP(accountResponse, createAccount)
 	if accountResponse.Code != http.StatusCreated {

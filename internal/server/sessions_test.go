@@ -161,6 +161,7 @@ func TestAdminCanRevokeAllSessionsForAUser(t *testing.T) {
 	for _, cookie := range cookies {
 		revokeRequest.AddCookie(cookie)
 	}
+	revokeRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(cookies))
 	revokeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(revokeResponse, revokeRequest)
 	if revokeResponse.Code != http.StatusNoContent {
@@ -207,6 +208,7 @@ func TestAdminCanRevokeAllSessionsOrgWide(t *testing.T) {
 	for _, cookie := range cookies {
 		revokeRequest.AddCookie(cookie)
 	}
+	revokeRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(cookies))
 	revokeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(revokeResponse, revokeRequest)
 	if revokeResponse.Code != http.StatusNoContent {

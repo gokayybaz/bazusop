@@ -55,11 +55,11 @@ func newServiceAccountHandler(t *testing.T) (http.Handler, []*http.Cookie) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, sessionToken, _, err := sessionService.Create(t.Context(), admin.ID, admin.OrganizationID)
+	_, sessionToken, csrfToken, err := sessionService.Create(t.Context(), admin.ID, admin.OrganizationID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return handler, []*http.Cookie{{Name: "bazusop_session", Value: sessionToken}}
+	return handler, []*http.Cookie{{Name: "bazusop_session", Value: sessionToken}, {Name: "bazusop_csrf", Value: csrfToken}}
 }
 
 func TestServiceAccountTokenAuthenticatesAndCreatesAJob(t *testing.T) {
@@ -72,6 +72,7 @@ func TestServiceAccountTokenAuthenticatesAndCreatesAJob(t *testing.T) {
 	for _, cookie := range adminCookies {
 		createRequest.AddCookie(cookie)
 	}
+	createRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(adminCookies))
 	createResponse := httptest.NewRecorder()
 	handler.ServeHTTP(createResponse, createRequest)
 	if createResponse.Code != http.StatusCreated {
@@ -106,6 +107,7 @@ func TestRevokedServiceAccountTokenIsRejected(t *testing.T) {
 	for _, cookie := range adminCookies {
 		createRequest.AddCookie(cookie)
 	}
+	createRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(adminCookies))
 	createResponse := httptest.NewRecorder()
 	handler.ServeHTTP(createResponse, createRequest)
 	var created struct {
@@ -122,6 +124,7 @@ func TestRevokedServiceAccountTokenIsRejected(t *testing.T) {
 	for _, cookie := range adminCookies {
 		revokeRequest.AddCookie(cookie)
 	}
+	revokeRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(adminCookies))
 	revokeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(revokeResponse, revokeRequest)
 	if revokeResponse.Code != http.StatusNoContent {
@@ -149,6 +152,7 @@ func TestServiceAccountTokenCannotManageOtherServiceAccounts(t *testing.T) {
 	for _, cookie := range adminCookies {
 		createRequest.AddCookie(cookie)
 	}
+	createRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(adminCookies))
 	createResponse := httptest.NewRecorder()
 	handler.ServeHTTP(createResponse, createRequest)
 	var created struct {

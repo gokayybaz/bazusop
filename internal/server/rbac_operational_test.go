@@ -65,16 +65,16 @@ func newOperatorAndSiteAdminSessions(t *testing.T) (handler http.Handler, siteAd
 	siteAdmin := inviteConsumeAndAssign(t, identityService, authzService, "site-admin@example.com", authorization.SiteRoleAdmin)
 	operator := inviteConsumeAndAssign(t, identityService, authzService, "operator@example.com", authorization.SiteRoleOperator)
 
-	_, siteAdminToken, _, err := sessionService.Create(t.Context(), siteAdmin.ID, siteAdmin.OrganizationID)
+	_, siteAdminToken, siteAdminCSRF, err := sessionService.Create(t.Context(), siteAdmin.ID, siteAdmin.OrganizationID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, operatorToken, _, err := sessionService.Create(t.Context(), operator.ID, operator.OrganizationID)
+	_, operatorToken, operatorCSRF, err := sessionService.Create(t.Context(), operator.ID, operator.OrganizationID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	siteAdminCookies = []*http.Cookie{{Name: "bazusop_session", Value: siteAdminToken}}
-	operatorCookies = []*http.Cookie{{Name: "bazusop_session", Value: operatorToken}}
+	siteAdminCookies = []*http.Cookie{{Name: "bazusop_session", Value: siteAdminToken}, {Name: "bazusop_csrf", Value: siteAdminCSRF}}
+	operatorCookies = []*http.Cookie{{Name: "bazusop_session", Value: operatorToken}, {Name: "bazusop_csrf", Value: operatorCSRF}}
 	return handler, siteAdminCookies, operatorCookies
 }
 
@@ -104,6 +104,7 @@ func TestSiteAdminCanCreateJobsButNotManageAlerts(t *testing.T) {
 	for _, cookie := range siteAdminCookies {
 		createJob.AddCookie(cookie)
 	}
+	createJob.Header.Set("X-CSRF-Token", csrfTokenFromCookies(siteAdminCookies))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, createJob)
 	if response.Code != http.StatusCreated {
@@ -121,6 +122,7 @@ func TestSiteAdminCanManageAlertsButOperatorCannot(t *testing.T) {
 	for _, cookie := range siteAdminCookies {
 		siteAdminRequest.AddCookie(cookie)
 	}
+	siteAdminRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(siteAdminCookies))
 	siteAdminResponse := httptest.NewRecorder()
 	handler.ServeHTTP(siteAdminResponse, siteAdminRequest)
 	if siteAdminResponse.Code != http.StatusCreated {
@@ -133,6 +135,7 @@ func TestSiteAdminCanManageAlertsButOperatorCannot(t *testing.T) {
 	for _, cookie := range operatorCookies {
 		operatorRequest.AddCookie(cookie)
 	}
+	operatorRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(operatorCookies))
 	operatorResponse := httptest.NewRecorder()
 	handler.ServeHTTP(operatorResponse, operatorRequest)
 	if operatorResponse.Code != http.StatusForbidden {

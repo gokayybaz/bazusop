@@ -90,7 +90,7 @@ func TestActivityEventsMergeAllSourcesOrderedByRecency(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, adminToken, _, err := sessionService.Create(t.Context(), admin.ID, admin.OrganizationID)
+	_, adminToken, adminCSRF, err := sessionService.Create(t.Context(), admin.ID, admin.OrganizationID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,6 +98,7 @@ func TestActivityEventsMergeAllSourcesOrderedByRecency(t *testing.T) {
 
 	inviteRequest := httptest.NewRequest(http.MethodPost, "/api/v1/users/invites", encodeJSON(t, map[string]string{"email": "new-viewer@example.com"}))
 	inviteRequest.AddCookie(adminCookie)
+	inviteRequest.Header.Set("X-CSRF-Token", adminCSRF)
 	inviteResponse := httptest.NewRecorder()
 	handler.ServeHTTP(inviteResponse, inviteRequest)
 	if inviteResponse.Code != http.StatusCreated {
@@ -106,6 +107,7 @@ func TestActivityEventsMergeAllSourcesOrderedByRecency(t *testing.T) {
 
 	assignRequest := httptest.NewRequest(http.MethodPost, "/api/v1/sites/"+scope.SiteID+"/memberships", encodeJSON(t, map[string]string{"user_id": admin.ID, "role": "viewer"}))
 	assignRequest.AddCookie(adminCookie)
+	assignRequest.Header.Set("X-CSRF-Token", adminCSRF)
 	assignResponse := httptest.NewRecorder()
 	handler.ServeHTTP(assignResponse, assignRequest)
 	if assignResponse.Code != http.StatusNoContent {
@@ -114,6 +116,7 @@ func TestActivityEventsMergeAllSourcesOrderedByRecency(t *testing.T) {
 
 	createAccountRequest := httptest.NewRequest(http.MethodPost, "/api/v1/sites/"+scope.SiteID+"/service-accounts", encodeJSON(t, map[string]any{"name": "ci-bot", "role": "operator"}))
 	createAccountRequest.AddCookie(adminCookie)
+	createAccountRequest.Header.Set("X-CSRF-Token", adminCSRF)
 	createAccountResponse := httptest.NewRecorder()
 	handler.ServeHTTP(createAccountResponse, createAccountRequest)
 	if createAccountResponse.Code != http.StatusCreated {

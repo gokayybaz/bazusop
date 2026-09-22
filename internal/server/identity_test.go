@@ -61,6 +61,20 @@ func bootstrapAndLogin(t *testing.T, handler http.Handler, bootstrapSecret, emai
 	return loginResponse.Result().Cookies()
 }
 
+// csrfTokenFromCookies extracts the CSRF cookie's value from a cookie
+// slice returned by a real HTTP login (e.g. bootstrapAndLogin) or a
+// manually-assembled test session — the CSRF cookie is deliberately
+// non-HttpOnly (see setSessionCookies) so a real browser client can read
+// it and echo it back as the X-CSRF-Token header; tests do the same.
+func csrfTokenFromCookies(cookies []*http.Cookie) string {
+	for _, cookie := range cookies {
+		if cookie.Name == "bazusop_csrf" {
+			return cookie.Value
+		}
+	}
+	return ""
+}
+
 func TestBootstrapRequiresTheConfiguredSecret(t *testing.T) {
 	t.Parallel()
 	handler := newIdentityHandler(t, "correct-secret")
@@ -99,6 +113,7 @@ func TestBootstrapInviteConsumeAndConfirmTOTPEndToEnd(t *testing.T) {
 	for _, cookie := range cookies {
 		inviteRequest.AddCookie(cookie)
 	}
+	inviteRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(cookies))
 	inviteResponse := httptest.NewRecorder()
 	handler.ServeHTTP(inviteResponse, inviteRequest)
 	if inviteResponse.Code != http.StatusCreated {
@@ -141,6 +156,7 @@ func TestCreateInviteWithASiteRoleGrantsMembershipOnConsumption(t *testing.T) {
 	for _, cookie := range cookies {
 		inviteRequest.AddCookie(cookie)
 	}
+	inviteRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(cookies))
 	inviteResponse := httptest.NewRecorder()
 	handler.ServeHTTP(inviteResponse, inviteRequest)
 	if inviteResponse.Code != http.StatusCreated {
@@ -159,6 +175,7 @@ func TestCreateInviteRejectsAnInvalidRole(t *testing.T) {
 	for _, cookie := range cookies {
 		request.AddCookie(cookie)
 	}
+	request.Header.Set("X-CSRF-Token", csrfTokenFromCookies(cookies))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {
