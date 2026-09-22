@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-// @ts-expect-error Node's built-in module is provided by the Vitest runtime.
 import { readFileSync } from "node:fs"
 
 declare const process: { cwd: () => string }
