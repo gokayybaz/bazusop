@@ -4,6 +4,7 @@ import { AppShell } from "./app-shell"
 import { ProtectedRoute } from "./lib/protected-route"
 import { SessionProvider } from "./lib/session"
 import { BootstrapPage } from "./pages/bootstrap"
+import { InvitePage } from "./pages/invite"
 import { LoginPage } from "./pages/login"
 
 export function App() {
@@ -13,6 +14,7 @@ export function App() {
         <Routes>
           <Route element={<LoginPage />} path="/login" />
           <Route element={<BootstrapPage />} path="/setup" />
+          <Route element={<InvitePage />} path="/invite/:token" />
           <Route
             element={
               <ProtectedRoute>
