@@ -14,8 +14,13 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"time"
+
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
+
+var ErrInvalidQuery = errors.New("invalid audit trail query")
 
 type ActorType string
 
@@ -56,8 +61,17 @@ type Event struct {
 	ChangeSummary    string
 }
 
+type Filter struct {
+	ActorType    ActorType
+	ResourceType string
+	Outcome      Outcome
+	Since        time.Time
+	Until        time.Time
+}
+
 type Store interface {
 	Record(ctx context.Context, event Event) error
+	ListAuditTrail(ctx context.Context, scope tenancy.Scope, filter Filter, limit int) ([]Event, error)
 }
 
 type Service struct {
@@ -80,6 +94,16 @@ func (service *Service) Record(ctx context.Context, event Event) error {
 		event.OccurredAt = time.Now().UTC()
 	}
 	return service.store.Record(ctx, event)
+}
+
+func (service *Service) List(ctx context.Context, scope tenancy.Scope, filter Filter, limit int) ([]Event, error) {
+	if err := scope.Validate(); err != nil {
+		return nil, err
+	}
+	if limit < 1 || limit > 500 {
+		return nil, ErrInvalidQuery
+	}
+	return service.store.ListAuditTrail(ctx, scope, filter, limit)
 }
 
 func newEventID() (string, error) {

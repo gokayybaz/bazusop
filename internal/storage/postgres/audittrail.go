@@ -25,18 +25,41 @@ func (store *Store) Record(ctx context.Context, event audittrail.Event) error {
 	return nil
 }
 
-func (store *Store) ListAuditTrail(ctx context.Context, scope tenancy.Scope, limit int) ([]audittrail.Event, error) {
+func (store *Store) ListAuditTrail(ctx context.Context, scope tenancy.Scope, filter audittrail.Filter, limit int) ([]audittrail.Event, error) {
 	if err := scope.Validate(); err != nil {
 		return nil, err
 	}
-	rows, err := store.pool.Query(ctx, `
+	query := `
 		SELECT event_id, occurred_at, correlation_id, actor_type, actor_id, session_or_token_id,
 			organization_id, site_id, action, permission, resource_type, resource_id,
 			outcome, error_code, source_ip, user_agent, change_summary
 		FROM audit_events
-		WHERE organization_id = $1 AND site_id = $2
-		ORDER BY occurred_at DESC
-		LIMIT $3`, scope.OrganizationID, scope.SiteID, limit)
+		WHERE organization_id = $1 AND site_id = $2`
+	args := []any{scope.OrganizationID, scope.SiteID}
+	if filter.ActorType != "" {
+		args = append(args, string(filter.ActorType))
+		query += fmt.Sprintf(" AND actor_type = $%d", len(args))
+	}
+	if filter.ResourceType != "" {
+		args = append(args, filter.ResourceType)
+		query += fmt.Sprintf(" AND resource_type = $%d", len(args))
+	}
+	if filter.Outcome != "" {
+		args = append(args, string(filter.Outcome))
+		query += fmt.Sprintf(" AND outcome = $%d", len(args))
+	}
+	if !filter.Since.IsZero() {
+		args = append(args, filter.Since)
+		query += fmt.Sprintf(" AND occurred_at >= $%d", len(args))
+	}
+	if !filter.Until.IsZero() {
+		args = append(args, filter.Until)
+		query += fmt.Sprintf(" AND occurred_at <= $%d", len(args))
+	}
+	args = append(args, limit)
+	query += fmt.Sprintf(" ORDER BY occurred_at DESC LIMIT $%d", len(args))
+
+	rows, err := store.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("query audit trail: %w", err)
 	}

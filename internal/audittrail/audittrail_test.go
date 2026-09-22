@@ -2,10 +2,12 @@ package audittrail_test
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/audittrail"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func TestMemoryStoreRecordsEventsInOrder(t *testing.T) {
@@ -73,5 +75,51 @@ func TestServiceDoesNotOverwriteCallerSuppliedEventIDOrOccurredAt(t *testing.T) 
 	}
 	if !events[0].OccurredAt.Equal(fixed) {
 		t.Fatalf("expected explicit OccurredAt to be preserved, got %v", events[0].OccurredAt)
+	}
+}
+
+func TestMemoryStoreListAuditTrailFiltersByScopeAndFields(t *testing.T) {
+	t.Parallel()
+	store := audittrail.NewMemoryStore()
+	scope := tenancy.Scope{OrganizationID: "org_default", SiteID: "site_default"}
+	otherScope := tenancy.Scope{OrganizationID: "org_default", SiteID: "site_other"}
+
+	human := audittrail.Event{EventID: "e-1", OccurredAt: time.Now().UTC(), CorrelationID: "c-1", ActorType: audittrail.ActorHuman, ActorID: "user-1", OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, Action: "POST", ResourceType: "service_accounts", Outcome: audittrail.OutcomeSuccess}
+	failed := audittrail.Event{EventID: "e-2", OccurredAt: time.Now().UTC().Add(time.Minute), CorrelationID: "c-2", ActorType: audittrail.ActorAnonymous, OrganizationID: scope.OrganizationID, SiteID: scope.SiteID, Action: "POST", ResourceType: "jobs", Outcome: audittrail.OutcomeFailure, ErrorCode: "401"}
+	otherSite := audittrail.Event{EventID: "e-3", OccurredAt: time.Now().UTC(), CorrelationID: "c-3", ActorType: audittrail.ActorHuman, OrganizationID: otherScope.OrganizationID, SiteID: otherScope.SiteID, Action: "POST", ResourceType: "service_accounts", Outcome: audittrail.OutcomeSuccess}
+	for _, event := range []audittrail.Event{human, failed, otherSite} {
+		if err := store.Record(context.Background(), event); err != nil {
+			t.Fatalf("record: %v", err)
+		}
+	}
+
+	all, err := store.ListAuditTrail(context.Background(), scope, audittrail.Filter{}, 50)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("expected 2 in-scope events, got %#v, %v", all, err)
+	}
+	if all[0].EventID != failed.EventID {
+		t.Fatalf("expected the more recent event first, got %#v", all[0])
+	}
+
+	onlySuccess, err := store.ListAuditTrail(context.Background(), scope, audittrail.Filter{Outcome: audittrail.OutcomeSuccess}, 50)
+	if err != nil || len(onlySuccess) != 1 || onlySuccess[0].EventID != human.EventID {
+		t.Fatalf("expected exactly the success event, got %#v, %v", onlySuccess, err)
+	}
+
+	byResource, err := store.ListAuditTrail(context.Background(), scope, audittrail.Filter{ResourceType: "jobs"}, 50)
+	if err != nil || len(byResource) != 1 || byResource[0].EventID != failed.EventID {
+		t.Fatalf("expected exactly the jobs-resource event, got %#v, %v", byResource, err)
+	}
+}
+
+func TestServiceListRejectsOutOfRangeLimit(t *testing.T) {
+	t.Parallel()
+	service := audittrail.NewService(audittrail.NewMemoryStore())
+	scope := tenancy.Scope{OrganizationID: "org_default", SiteID: "site_default"}
+	if _, err := service.List(context.Background(), scope, audittrail.Filter{}, 0); !errors.Is(err, audittrail.ErrInvalidQuery) {
+		t.Fatalf("expected ErrInvalidQuery for zero limit, got %v", err)
+	}
+	if _, err := service.List(context.Background(), scope, audittrail.Filter{}, 501); !errors.Is(err, audittrail.ErrInvalidQuery) {
+		t.Fatalf("expected ErrInvalidQuery for oversized limit, got %v", err)
 	}
 }

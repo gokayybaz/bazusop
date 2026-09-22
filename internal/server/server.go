@@ -133,6 +133,9 @@ func NewHandler(options ...Option) http.Handler {
 	if configuration.activityService != nil {
 		registerAudited(mux, "/api/v1/activity/events", http.MethodGet, "activity_timeline", nil, configuration.auditTrail, configuration.scope, handleListActivityEvents(configuration.activityService, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, configuration.scope))
 	}
+	if configuration.auditTrail != nil && configuration.authorizationService != nil {
+		registerAudited(mux, "/api/v1/audit/events", http.MethodGet, "audit_trail", nil, configuration.auditTrail, configuration.scope, handleListAuditTrail(configuration.auditTrail, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, configuration.scope))
+	}
 	if configuration.identityService != nil {
 		registerAudited(mux, "/api/v1/bootstrap", http.MethodPost, "bootstrap", nil, configuration.auditTrail, configuration.scope, handleBootstrap(configuration.identityService, configuration.bootstrapSecret))
 		registerAudited(mux, "/api/v1/users/invites", http.MethodPost, "invites", nil, configuration.auditTrail, configuration.scope, handleCreateInvite(configuration.identityService, configuration.sessionService, configuration.authorizationService, configuration.activityService, configuration.scope))

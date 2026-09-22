@@ -61,7 +61,7 @@ func TestPostgresAuditTrailIsAppendOnly(t *testing.T) {
 		t.Fatalf("record event: %v", err)
 	}
 
-	events, err := store.ListAuditTrail(ctx, scope, 10)
+	events, err := store.ListAuditTrail(ctx, scope, audittrail.Filter{}, 10)
 	if err != nil || len(events) != 1 || events[0].EventID != event.EventID || events[0].CorrelationID != event.CorrelationID || events[0].Outcome != audittrail.OutcomeSuccess {
 		t.Fatalf("expected the recorded event back, got %#v, %v", events, err)
 	}
