@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gokayybaz/bazusop/internal/audittrail"
@@ -241,5 +242,27 @@ func TestConsumeInviteIsRateLimitedPerSourceIP(t *testing.T) {
 	handler.ServeHTTP(limited, httptest.NewRequest(http.MethodPost, "/api/v1/invites/not-a-real-token/consume", encodeJSON(t, map[string]string{"password": "whatever"})))
 	if limited.Code != http.StatusTooManyRequests {
 		t.Fatalf("expected the 11th attempt within 5 minutes to be rate limited, got %d", limited.Code)
+	}
+}
+
+func TestWhoAmIResponseNeverIncludesPasswordOrTOTPSecret(t *testing.T) {
+	t.Parallel()
+	handler := newIdentityHandler(t, "correct-secret")
+	cookies := bootstrapAndLogin(t, handler, "correct-secret", "admin@example.com", "correct horse battery staple")
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/session", nil)
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	body := response.Body.String()
+	for _, forbidden := range []string{"correct horse battery staple", "password_hash", "totp_secret", "PasswordHash", "TOTPSecretEncrypted"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("whoami response leaked a secret field/value (%q): %s", forbidden, body)
+		}
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/gokayybaz/bazusop/internal/audittrail"
@@ -253,5 +254,37 @@ func TestServiceAccountRotateRevokeDisableRejectAnAccountFromAnotherSite(t *test
 
 	if _, err := serviceAccountService.Validate(t.Context(), token, "10.0.0.1"); err != nil {
 		t.Fatalf("expected the other-site account's token to remain valid after all rejected attempts, got %v", err)
+	}
+}
+
+func TestListServiceAccountsResponseNeverIncludesTheToken(t *testing.T) {
+	t.Parallel()
+	handler, adminCookies, _ := newServiceAccountHandler(t)
+	csrfToken := csrfTokenFromCookies(adminCookies)
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/sites/site_default/service-accounts", encodeJSON(t, map[string]any{
+		"name": "ci-bot", "role": "operator",
+	}))
+	for _, cookie := range adminCookies {
+		createRequest.AddCookie(cookie)
+	}
+	createRequest.Header.Set("X-CSRF-Token", csrfToken)
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, createRequest)
+	var created struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(createResponse.Body).Decode(&created); err != nil || created.Token == "" {
+		t.Fatalf("expected a one-time token from creation, got %v", err)
+	}
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/sites/site_default/service-accounts", nil)
+	for _, cookie := range adminCookies {
+		listRequest.AddCookie(cookie)
+	}
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, listRequest)
+	if strings.Contains(listResponse.Body.String(), created.Token) {
+		t.Fatalf("expected the list response to never include the raw token, got %s", listResponse.Body.String())
 	}
 }
