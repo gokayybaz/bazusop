@@ -222,42 +222,50 @@ func (service *Service) CreateInvite(ctx context.Context, createdBy, organizatio
 	return invite, token, nil
 }
 
-func (service *Service) ConsumeInvite(ctx context.Context, token, password string) (User, error) {
+func (service *Service) ConsumeInvite(ctx context.Context, token, password string) (User, TOTPEnrollment, error) {
 	tokenHash := hashToken(token)
 	invite, err := service.store.InviteByTokenHash(ctx, tokenHash)
 	if err != nil {
-		return User{}, err
+		return User{}, TOTPEnrollment{}, err
 	}
 	if invite.ConsumedAt != nil || invite.RevokedAt != nil || service.now().After(invite.ExpiresAt) {
-		return User{}, ErrInviteExpired
+		return User{}, TOTPEnrollment{}, ErrInviteExpired
 	}
 	if invite.IdentityType == IdentityTypeOIDC {
-		return User{}, ErrInviteWrongIdentityType
+		return User{}, TOTPEnrollment{}, ErrInviteWrongIdentityType
 	}
 	passwordHash, err := HashPassword(password)
 	if err != nil {
-		return User{}, err
+		return User{}, TOTPEnrollment{}, err
+	}
+	totpSecret, err := GenerateTOTPSecret()
+	if err != nil {
+		return User{}, TOTPEnrollment{}, err
+	}
+	encryptedSecret, err := EncryptTOTPSecret(totpSecret, service.totpEncryptionKey)
+	if err != nil {
+		return User{}, TOTPEnrollment{}, err
 	}
 	id, err := newID()
 	if err != nil {
-		return User{}, err
+		return User{}, TOTPEnrollment{}, err
 	}
 	user := User{
 		ID: id, OrganizationID: invite.OrganizationID, Email: invite.Email, Role: invite.Role,
-		PasswordHash: passwordHash, CreatedAt: service.now(),
+		PasswordHash: passwordHash, TOTPSecretEncrypted: encryptedSecret, CreatedAt: service.now(),
 	}
 	if err := service.store.CreateUser(ctx, user); err != nil {
-		return User{}, err
+		return User{}, TOTPEnrollment{}, err
 	}
 	if len(invite.SiteRoleGrants) > 0 && service.siteRoleGrantor != nil {
 		if err := service.siteRoleGrantor(ctx, user.ID, invite.SiteRoleGrants); err != nil {
-			return User{}, err
+			return User{}, TOTPEnrollment{}, err
 		}
 	}
 	if err := service.store.ConsumeInvite(ctx, tokenHash, user.ID, service.now()); err != nil {
-		return User{}, err
+		return User{}, TOTPEnrollment{}, err
 	}
-	return user, nil
+	return user, TOTPEnrollment{ProvisioningURI: TOTPProvisioningURI("bazUSOP", invite.Email, totpSecret)}, nil
 }
 
 // ConfirmTOTP completes TOTP enrollment. codeFromSecret is a seam so tests
@@ -273,23 +281,9 @@ func (service *Service) ConfirmTOTP(ctx context.Context, userID string, codeFrom
 	if user.TOTPConfirmedAt != nil {
 		return TOTPEnrollment{}, ErrTOTPAlreadyConfirmed
 	}
-	var secret []byte
-	if hasSecret(user) {
-		secret, err = DecryptTOTPSecret(user.TOTPSecretEncrypted, service.totpEncryptionKey)
-		if err != nil {
-			return TOTPEnrollment{}, err
-		}
-	} else {
-		newSecret, err := GenerateTOTPSecret()
-		if err != nil {
-			return TOTPEnrollment{}, err
-		}
-		secret = newSecret
-		encrypted, err := EncryptTOTPSecret(secret, service.totpEncryptionKey)
-		if err != nil {
-			return TOTPEnrollment{}, err
-		}
-		user.TOTPSecretEncrypted = encrypted
+	secret, err := DecryptTOTPSecret(user.TOTPSecretEncrypted, service.totpEncryptionKey)
+	if err != nil {
+		return TOTPEnrollment{}, err
 	}
 	submitted := codeFromSecret(secret)
 	if !VerifyTOTPCode(secret, submitted, at) {
@@ -311,10 +305,8 @@ func (service *Service) ConfirmTOTP(ctx context.Context, userID string, codeFrom
 	if err := service.store.SaveRecoveryCodes(ctx, userID, hashes); err != nil {
 		return TOTPEnrollment{}, err
 	}
-	return TOTPEnrollment{RecoveryCodes: codes}, nil
+	return TOTPEnrollment{ProvisioningURI: TOTPProvisioningURI("bazUSOP", user.Email, secret), RecoveryCodes: codes}, nil
 }
-
-func hasSecret(user User) bool { return len(user.TOTPSecretEncrypted) > 0 }
 
 func (service *Service) VerifyCredentials(ctx context.Context, organizationID, email, password, totpCode string) (User, error) {
 	user, err := service.store.UserByEmail(ctx, organizationID, email)
