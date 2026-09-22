@@ -24,6 +24,17 @@ döner.
 - İş teslim alma ve olay raporlama uçları mTLS agent kimliğini zorunlu tutar.
 - Agent kimliği sertifikadaki `spiffe://bazusop/agent/{agent_id}` URI SAN
   değerinden alınır; istek gövdesinden agent ID kabul edilmez.
+- Opsiyonel OIDC girişi Authorization Code + PKCE kullanır. Platform
+  yöneticisi `PUT /api/v1/organization/oidc` ile discovery URL, issuer,
+  client ID/secret ve redirect URL'i yapılandırır (`PermissionManageOrgSecurity`
+  — yalnız platform yöneticisi); client secret hiçbir okuma API'sinde geri
+  dönmez. `GET /api/v1/oidc/login` IdP'ye yönlendirir; `GET
+  /api/v1/oidc/callback` kodu değiştirir, ID token'ı doğrular (imza, issuer,
+  audience, süre, nonce, PKCE) ve bir oturum açar. İlk giriş yalnız
+  `identity_type: "oidc"` ile oluşturulmuş, e-postası eşleşen geçerli bir
+  davetle olur; sonraki girişler `issuer + subject` ile kalıcı olarak
+  tanınır. Yerel giriş (`POST /api/v1/sessions`) tamamen bağımsız çalışmaya
+  devam eder.
 
 ## Uçlar
 
@@ -390,3 +401,27 @@ otomatik agent bağı kurulmaz. Diğer kayıtlar `unmatched` kalır.
 Tüm hesapların son keşif sonucunu `{ "instances": [...] }` zarfıyla döndürür.
 Her kayıt provider konumu, ağ adresleri, `match_status`, `match_reason`, doğrulanmış
 `agent_id` veya inceleme amaçlı `candidate_agent_id` alanlarını içerir.
+
+### `POST /api/v1/users/invites`
+
+`PermissionManageUsers` (platform yöneticisi) ister. Body'de isteğe bağlı
+`identity_type` alanı `"local"` (varsayılan) veya `"oidc"` olabilir — bir
+OIDC daveti yalnız OIDC callback akışıyla tüketilebilir, `local` daveti
+yalnız `/invites/{token}/consume` ile.
+
+### `PUT|GET /api/v1/organization/oidc`
+
+`PermissionManageOrgSecurity` (yalnız platform yöneticisi) ister. `PUT`
+organizasyonun OIDC ayarlarını oluşturur/günceller; `GET` bunları client
+secret olmadan okur. Yapılandırılmamışsa `GET` `404` döner.
+
+### `GET /api/v1/oidc/login` / `GET /api/v1/oidc/callback`
+
+Kimlik doğrulama gerektirmez (bunlar girişin kendisidir). `login` IdP'nin
+yetkilendirme uç noktasına `302` ile yönlendirir ve kısa ömürlü bir
+`bazusop_oidc_flow` çerezine `state`/`nonce`/PKCE `code_verifier` yazar.
+`callback` bu çerezi okuyup temizler, `state`'i doğrular, kodu değiştirir,
+ID token'ı doğrular ve başarılı olursa bir oturum çerezi kurup `/`'a
+yönlendirir. OIDC yapılandırılmamışsa `404`, geçersiz `state` veya eksik
+`code` `400`, ID token doğrulaması başarısız olursa `401`, geçerli bir
+davet bulunamazsa `403` döner.

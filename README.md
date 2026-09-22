@@ -163,6 +163,11 @@ artık yalnız geçerli bir insan oturumu veya servis hesabı token'ı ile
 çalışır — ayrıntılar ve otomasyon (CI/CD) geçişi için bkz.
 [docs/MIGRATION_v0.4.md](docs/MIGRATION_v0.4.md).
 
+Opsiyonel OIDC girişi platform yöneticisi tarafından `PUT
+/api/v1/organization/oidc` ile yapılandırılır; ilk OIDC girişi yalnız
+`identity_type: "oidc"` ile oluşturulmuş geçerli bir davetle çalışır. Yerel
+giriş her zaman bağımsız çalışmaya devam eder.
+
 Agent değişkenleri:
 
 | Değişken | Açıklama |
