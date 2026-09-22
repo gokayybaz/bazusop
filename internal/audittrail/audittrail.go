@@ -41,24 +41,26 @@ const (
 
 // Event is intentionally flat (no nested structs) so every field maps to
 // exactly one audit_events column with no ambiguity about how to store it.
+// JSON tags exist for spike 11.8's GET /api/v1/audit/events search endpoint;
+// this type was write-only (never serialized) before that.
 type Event struct {
-	EventID          string
-	OccurredAt       time.Time
-	CorrelationID    string
-	ActorType        ActorType
-	ActorID          string
-	SessionOrTokenID string
-	OrganizationID   string
-	SiteID           string
-	Action           string
-	Permission       string
-	ResourceType     string
-	ResourceID       string
-	Outcome          Outcome
-	ErrorCode        string
-	SourceIP         string
-	UserAgent        string
-	ChangeSummary    string
+	EventID          string    `json:"event_id"`
+	OccurredAt       time.Time `json:"occurred_at"`
+	CorrelationID    string    `json:"correlation_id"`
+	ActorType        ActorType `json:"actor_type"`
+	ActorID          string    `json:"actor_id"`
+	SessionOrTokenID string    `json:"session_or_token_id"`
+	OrganizationID   string    `json:"organization_id"`
+	SiteID           string    `json:"site_id"`
+	Action           string    `json:"action"`
+	Permission       string    `json:"permission"`
+	ResourceType     string    `json:"resource_type"`
+	ResourceID       string    `json:"resource_id"`
+	Outcome          Outcome   `json:"outcome"`
+	ErrorCode        string    `json:"error_code"`
+	SourceIP         string    `json:"source_ip"`
+	UserAgent        string    `json:"user_agent"`
+	ChangeSummary    string    `json:"change_summary"`
 }
 
 type Filter struct {
