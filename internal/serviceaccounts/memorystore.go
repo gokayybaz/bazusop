@@ -108,7 +108,7 @@ func (store *MemoryStore) RevokeActiveTokensForAccount(_ context.Context, accoun
 	return nil
 }
 
-func (store *MemoryStore) Touch(_ context.Context, tokenID string, at time.Time, sourceIP string) error {
+func (store *MemoryStore) TouchToken(_ context.Context, tokenID string, at time.Time, sourceIP string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
 	record, ok := store.tokens[tokenID]

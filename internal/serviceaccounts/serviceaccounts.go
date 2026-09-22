@@ -78,7 +78,7 @@ type Store interface {
 	TokenByID(ctx context.Context, id string) (Token, string, error)
 	RevokeToken(ctx context.Context, id string, at time.Time) error
 	RevokeActiveTokensForAccount(ctx context.Context, accountID string, at time.Time) error
-	Touch(ctx context.Context, tokenID string, at time.Time, sourceIP string) error
+	TouchToken(ctx context.Context, tokenID string, at time.Time, sourceIP string) error
 }
 
 type Service struct {
@@ -176,7 +176,7 @@ func (service *Service) Validate(ctx context.Context, presented, sourceIP string
 	if account.DisabledAt != nil {
 		return ServiceAccount{}, ErrAccountDisabled
 	}
-	if err := service.store.Touch(ctx, token.ID, service.now(), sourceIP); err != nil {
+	if err := service.store.TouchToken(ctx, token.ID, service.now(), sourceIP); err != nil {
 		return ServiceAccount{}, err
 	}
 	return account, nil
