@@ -121,18 +121,43 @@ func (service *Service) CreateAccount(ctx context.Context, organizationID, siteI
 	return account, token, nil
 }
 
-func (service *Service) RotateToken(ctx context.Context, accountID string, expiryDays int) (string, error) {
+func (service *Service) RotateToken(ctx context.Context, siteID, accountID string, expiryDays int) (string, error) {
+	account, err := service.store.AccountByID(ctx, accountID)
+	if err != nil {
+		return "", err
+	}
+	if account.SiteID != siteID {
+		return "", ErrAccountNotFound
+	}
 	if err := service.store.RevokeActiveTokensForAccount(ctx, accountID, service.now()); err != nil {
 		return "", err
 	}
 	return service.issueToken(ctx, accountID, expiryDays)
 }
 
-func (service *Service) RevokeToken(ctx context.Context, tokenID string) error {
+func (service *Service) RevokeToken(ctx context.Context, siteID, tokenID string) error {
+	token, _, err := service.store.TokenByID(ctx, tokenID)
+	if err != nil {
+		return err
+	}
+	account, err := service.store.AccountByID(ctx, token.ServiceAccountID)
+	if err != nil {
+		return err
+	}
+	if account.SiteID != siteID {
+		return ErrTokenNotFound
+	}
 	return service.store.RevokeToken(ctx, tokenID, service.now())
 }
 
-func (service *Service) DisableAccount(ctx context.Context, accountID string) error {
+func (service *Service) DisableAccount(ctx context.Context, siteID, accountID string) error {
+	account, err := service.store.AccountByID(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	if account.SiteID != siteID {
+		return ErrAccountNotFound
+	}
 	if err := service.store.RevokeActiveTokensForAccount(ctx, accountID, service.now()); err != nil {
 		return err
 	}

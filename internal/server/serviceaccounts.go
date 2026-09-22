@@ -21,6 +21,10 @@ func handleCreateServiceAccount(service *serviceaccounts.Service, sessionService
 		if !ok {
 			return
 		}
+		if request.PathValue("siteID") != scope.SiteID {
+			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
 		var body struct {
 			Name       string `json:"name"`
 			Role       string `json:"role"`
@@ -59,6 +63,10 @@ func handleListServiceAccounts(service *serviceaccounts.Service, sessionService 
 		if _, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageServiceAccounts, scope.SiteID); !ok {
 			return
 		}
+		if request.PathValue("siteID") != scope.SiteID {
+			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
 		accounts, err := service.ListForSite(request.Context(), request.PathValue("siteID"))
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
@@ -83,7 +91,11 @@ func handleRotateServiceAccountToken(service *serviceaccounts.Service, sessionSe
 			return
 		}
 		accountID := request.PathValue("accountID")
-		token, err := service.RotateToken(request.Context(), accountID, body.ExpiryDays)
+		token, err := service.RotateToken(request.Context(), scope.SiteID, accountID, body.ExpiryDays)
+		if errors.Is(err, serviceaccounts.ErrAccountNotFound) {
+			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+			return
+		}
 		if errors.Is(err, serviceaccounts.ErrInvalidExpiry) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return
@@ -112,7 +124,11 @@ func handleRevokeServiceAccountToken(service *serviceaccounts.Service, sessionSe
 			return
 		}
 		tokenID := request.PathValue("tokenID")
-		if err := service.RevokeToken(request.Context(), tokenID); err != nil {
+		if err := service.RevokeToken(request.Context(), scope.SiteID, tokenID); err != nil {
+			if errors.Is(err, serviceaccounts.ErrTokenNotFound) {
+				http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+				return
+			}
 			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
@@ -134,7 +150,11 @@ func handleDisableServiceAccount(service *serviceaccounts.Service, sessionServic
 			return
 		}
 		accountID := request.PathValue("accountID")
-		if err := service.DisableAccount(request.Context(), accountID); err != nil {
+		if err := service.DisableAccount(request.Context(), scope.SiteID, accountID); err != nil {
+			if errors.Is(err, serviceaccounts.ErrAccountNotFound) {
+				http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
+				return
+			}
 			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}

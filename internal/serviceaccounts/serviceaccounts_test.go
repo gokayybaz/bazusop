@@ -98,7 +98,7 @@ func TestRotateTokenInvalidatesThePreviousOne(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	newToken, err := service.RotateToken(t.Context(), account.ID, 0)
+	newToken, err := service.RotateToken(t.Context(), "site_default", account.ID, 0)
 	if err != nil {
 		t.Fatalf("rotate: %v", err)
 	}
@@ -121,7 +121,7 @@ func TestRevokeTokenRejectsFurtherUse(t *testing.T) {
 		t.Fatal(err)
 	}
 	tokenID, _, _ := serviceaccounts.ParseToken(token)
-	if err := service.RevokeToken(t.Context(), tokenID); err != nil {
+	if err := service.RevokeToken(t.Context(), "site_default", tokenID); err != nil {
 		t.Fatalf("revoke: %v", err)
 	}
 	if _, err := service.Validate(t.Context(), token, "10.0.0.1"); !errors.Is(err, serviceaccounts.ErrTokenRevoked) {
@@ -137,11 +137,54 @@ func TestDisableAccountRejectsFurtherUseEvenWithAValidToken(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.DisableAccount(t.Context(), account.ID); err != nil {
+	if err := service.DisableAccount(t.Context(), "site_default", account.ID); err != nil {
 		t.Fatalf("disable: %v", err)
 	}
 	if _, err := service.Validate(t.Context(), token, "10.0.0.1"); !errors.Is(err, serviceaccounts.ErrTokenRevoked) {
 		t.Fatalf("expected DisableAccount to also revoke the active token (ErrTokenRevoked), got %v", err)
+	}
+}
+
+func TestRotateTokenRejectsAnAccountFromAnotherSite(t *testing.T) {
+	t.Parallel()
+	service := newTestService(t, time.Now)
+	account, _, err := service.CreateAccount(t.Context(), "org_default", "site-a", "ci-bot", authorization.SiteRoleOperator, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.RotateToken(t.Context(), "site-b", account.ID, 0); !errors.Is(err, serviceaccounts.ErrAccountNotFound) {
+		t.Fatalf("expected ErrAccountNotFound for a cross-site rotate attempt, got %v", err)
+	}
+}
+
+func TestRevokeTokenRejectsATokenFromAnotherSite(t *testing.T) {
+	t.Parallel()
+	service := newTestService(t, time.Now)
+	_, token, err := service.CreateAccount(t.Context(), "org_default", "site-a", "ci-bot", authorization.SiteRoleOperator, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenID, _, _ := serviceaccounts.ParseToken(token)
+	if err := service.RevokeToken(t.Context(), "site-b", tokenID); !errors.Is(err, serviceaccounts.ErrTokenNotFound) {
+		t.Fatalf("expected ErrTokenNotFound for a cross-site revoke attempt, got %v", err)
+	}
+	if _, err := service.Validate(t.Context(), token, "10.0.0.1"); err != nil {
+		t.Fatalf("expected the token to remain valid after a rejected cross-site revoke, got %v", err)
+	}
+}
+
+func TestDisableAccountRejectsAnAccountFromAnotherSite(t *testing.T) {
+	t.Parallel()
+	service := newTestService(t, time.Now)
+	account, token, err := service.CreateAccount(t.Context(), "org_default", "site-a", "ci-bot", authorization.SiteRoleOperator, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.DisableAccount(t.Context(), "site-b", account.ID); !errors.Is(err, serviceaccounts.ErrAccountNotFound) {
+		t.Fatalf("expected ErrAccountNotFound for a cross-site disable attempt, got %v", err)
+	}
+	if _, err := service.Validate(t.Context(), token, "10.0.0.1"); err != nil {
+		t.Fatalf("expected the account to remain active after a rejected cross-site disable, got %v", err)
 	}
 }
 
