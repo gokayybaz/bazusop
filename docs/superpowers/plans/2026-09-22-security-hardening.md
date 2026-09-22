@@ -40,7 +40,7 @@
 **Arayüzler:**
 - Değiştirir: `requirePermission`'ın oturum-çerezi yolu artık GET/HEAD dışı isteklerde `requireMatchingCSRFToken`'ı çağırır (imza değişmez).
 
-- [ ] **Adım 1: `internal/server/rbac.go`'daki `requirePermission`'ı güncelle**
+- [x] **Adım 1: `internal/server/rbac.go`'daki `requirePermission`'ı güncelle**
 
 ```go
 func requirePermission(response http.ResponseWriter, request *http.Request, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, permission authorization.Permission, siteID string) (string, bool) {
@@ -88,12 +88,12 @@ func requirePermission(response http.ResponseWriter, request *http.Request, sess
 
 (Yalnız `if request.Method != http.MethodGet && request.Method != http.MethodHead && !requireMatchingCSRFToken(response, request, session) { return "", false }` satırı eklendi, geri kalan fonksiyon değişmedi.)
 
-- [ ] **Adım 2: Build'i doğrula (test dosyaları henüz güncellenmedi, beklenen kırık testler)**
+- [x] **Adım 2: Build'i doğrula (test dosyaları henüz güncellenmedi, beklenen kırık testler)**
 
 Çalıştır: `go build ./... 2>&1 | head -30`
 Beklenen: BAŞARILI (üretim kodu). `go test ./internal/server/...` bu noktada BAŞARISIZ olur (beklenen ara durum) — Adım 3-11 düzeltir.
 
-- [ ] **Adım 3: `internal/server/identity_test.go`'ya CSRF çıkarma yardımcısını ekle, üç testi düzelt**
+- [x] **Adım 3: `internal/server/identity_test.go`'ya CSRF çıkarma yardımcısını ekle, üç testi düzelt**
 
 `bootstrapAndLogin` fonksiyonunun hemen altına ekle:
 
@@ -147,12 +147,12 @@ func csrfTokenFromCookies(cookies []*http.Cookie) string {
 	request.Header.Set("X-CSRF-Token", csrfTokenFromCookies(cookies))
 ```
 
-- [ ] **Adım 4: Testleri çalıştır**
+- [x] **Adım 4: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestBootstrap|TestCreateInvite' -v 2>&1 | tail -40`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 5: `internal/server/rbac_test.go`'yu düzelt**
+- [x] **Adım 5: `internal/server/rbac_test.go`'yu düzelt**
 
 `TestRequirePermissionAllowsAPlatformAdminSession`'ı şununla değiştir:
 
@@ -188,12 +188,12 @@ func TestRequirePermissionAllowsAPlatformAdminSession(t *testing.T) {
 
 `TestRequirePermissionDeniesASessionLackingThePermission`'daki `_, sessionToken, _, err := sessionService.Create(...)` satırını `_, sessionToken, csrfToken, err := sessionService.Create(...)` yap ve `request.AddCookie(...)`'den hemen sonra `request.Header.Set("X-CSRF-Token", csrfToken)` ekle (bu test zaten `403` beklediği için — CSRF kontrolü izin kontrolünden ÖNCE geldiğinden, CSRF header'ı doğru olmadan test YANLIŞ SEBEPLE 403 alırdı; doğru CSRF header'ı vererek testin GERÇEKTEN izin eksikliğini test ettiğinden emin olunur).
 
-- [ ] **Adım 6: Testleri çalıştır**
+- [x] **Adım 6: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestRequirePermission' -v 2>&1 | tail -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 7: `internal/server/rbac_operational_test.go`'yu düzelt**
+- [x] **Adım 7: `internal/server/rbac_operational_test.go`'yu düzelt**
 
 `newOperatorAndSiteAdminSessions`'daki iki `sessionService.Create` çağrısını ve dönen cookie slice'larını güncelle:
 
@@ -236,12 +236,12 @@ Beklenen: BAŞARILI
 	operatorRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(operatorCookies))
 ```
 
-- [ ] **Adım 8: Testleri çalıştır**
+- [x] **Adım 8: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestSiteAdmin' -v 2>&1 | tail -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 9: `internal/server/activity_test.go`, `alerting_test.go`, `cloudinventory_test.go`, `jobs_test.go`'yu düzelt**
+- [x] **Adım 9: `internal/server/activity_test.go`, `alerting_test.go`, `cloudinventory_test.go`, `jobs_test.go`'yu düzelt**
 
 Dört dosyanın hepsinde AYNI mekanik değişiklik: `_, adminToken, _, err := sessionService.Create(...)` satırını `_, adminToken, adminCSRF, err := sessionService.Create(...)` yap, ve o token'ı kullanan İLK POST isteğine (servis hesabı oluşturma — tek mutasyon bu dosyalarda) header ekle.
 
@@ -281,12 +281,12 @@ Dört dosyanın hepsinde AYNI mekanik değişiklik: `_, adminToken, _, err := se
 
 (Her dosyadaki mevcut `/sites/...` yolunu ve body'yi DEĞİŞTİRME — yalnız `sessionService.Create`'in üçüncü dönüş değerini `_`'den `adminCSRF`'e çevir ve `createAccount.Header.Set(...)` satırını ekle.)
 
-- [ ] **Adım 10: Testleri çalıştır**
+- [x] **Adım 10: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestActivityEventsMergeAllSources|TestMetricRule|TestCloudDiscoveryAPI|TestApprovedJobFlows' -v 2>&1 | tail -60`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 11: `internal/server/sessions_test.go`'yu düzelt**
+- [x] **Adım 11: `internal/server/sessions_test.go`'yu düzelt**
 
 `TestAdminCanRevokeAllSessionsForAUser`'daki `revokeRequest` bloğuna ekle:
 
@@ -310,12 +310,12 @@ Beklenen: BAŞARILI
 
 (`TestLoginWhoAmILogoutEndToEnd` zaten `logoutRequest.Header.Set("X-CSRF-Token", loginPayload.CSRFToken)` satırına sahip — değişmeden kalır.)
 
-- [ ] **Adım 12: Testleri çalıştır**
+- [x] **Adım 12: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestAdminCanRevoke' -v 2>&1 | tail -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 13: `internal/server/oidc_test.go`'yu düzelt**
+- [x] **Adım 13: `internal/server/oidc_test.go`'yu düzelt**
 
 `TestOIDCLoginPKCEFlowCreatesSessionAndLocalLoginStaysIndependent`'teki `configRequest` ve `inviteRequest`'e ekle:
 
@@ -335,12 +335,12 @@ Beklenen: BAŞARILI
 
 `TestOIDCCallbackRejectsAMismatchedState` ve `TestOIDCCallbackRejectsWithoutAPendingInvite`'teki `configRequest`'e de aynı şekilde ekle.
 
-- [ ] **Adım 14: Testleri çalıştır**
+- [x] **Adım 14: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestOIDC' -v 2>&1 | tail -60`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 15: `internal/server/csrf_test.go`'yu yaz — CSRF'e özel yeni testler**
+- [x] **Adım 15: `internal/server/csrf_test.go`'yu yaz — CSRF'e özel yeni testler**
 
 ```go
 package server_test
@@ -470,17 +470,17 @@ func TestMutationsRequireACSRFTokenEvenWithAValidSession(t *testing.T) {
 
 (`TestReadOnlyRequestsDoNotRequireACSRFToken` taslağı da kaldırılır — `internal/server/activity_test.go`'daki mevcut `TestActivityEventsMergeAllSourcesOrderedByRecency` zaten bir GET isteğini CSRF header'sız, yalnız oturum çerezi ile başarıyla çalıştırıyor; bu davranış ZATEN kanıtlanmış durumda, ayrı bir test eklemek tekrar olur.)
 
-- [ ] **Adım 16: Testleri çalıştır**
+- [x] **Adım 16: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestMutationsRequireACSRFToken' -v 2>&1 | tail -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 17: Tam `internal/server` paket testini çalıştır**
+- [x] **Adım 17: Tam `internal/server` paket testini çalıştır**
 
 Çalıştır: `go vet ./internal/server/... && gofmt -l internal/server/*.go && GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -v 2>&1 | tail -300`
 Beklenen: vet/gofmt çıktısı yok; TÜM testler (eski + yeni) BAŞARILI
 
-- [ ] **Adım 18: Commit**
+- [x] **Adım 18: Commit**
 
 ```bash
 git add internal/server/rbac.go internal/server/csrf_test.go internal/server/identity_test.go internal/server/rbac_test.go internal/server/rbac_operational_test.go internal/server/activity_test.go internal/server/alerting_test.go internal/server/cloudinventory_test.go internal/server/jobs_test.go internal/server/sessions_test.go internal/server/oidc_test.go
@@ -496,7 +496,7 @@ git commit -m "fix: enforce CSRF token verification on every session-cookie muta
 **Arayüzler:**
 - Değiştirir: `Service.RotateToken(ctx, siteID, accountID string, expiryDays int) (string, error)`, `Service.RevokeToken(ctx, siteID, tokenID string) error`, `Service.DisableAccount(ctx, siteID, accountID string) error` (hepsi yeni `siteID` parametresi alır).
 
-- [ ] **Adım 1: `internal/serviceaccounts/serviceaccounts.go`'yu güncelle**
+- [x] **Adım 1: `internal/serviceaccounts/serviceaccounts.go`'yu güncelle**
 
 ```go
 func (service *Service) RotateToken(ctx context.Context, siteID, accountID string, expiryDays int) (string, error) {
@@ -545,7 +545,7 @@ func (service *Service) DisableAccount(ctx context.Context, siteID, accountID st
 
 (`CreateAccount`, `ListForSite`, `Validate`, `issueToken`, `hashSecret` değişmeden kalır.)
 
-- [ ] **Adım 2: `internal/serviceaccounts/serviceaccounts_test.go`'daki mevcut çağrıları güncelle**
+- [x] **Adım 2: `internal/serviceaccounts/serviceaccounts_test.go`'daki mevcut çağrıları güncelle**
 
 `TestRotateTokenInvalidatesThePreviousOne`'daki satırı değiştir:
 
@@ -565,7 +565,7 @@ func (service *Service) DisableAccount(ctx context.Context, siteID, accountID st
 	if err := service.DisableAccount(t.Context(), "site_default", account.ID); err != nil {
 ```
 
-- [ ] **Adım 3: Yeni cross-site IDOR testlerini ekle**
+- [x] **Adım 3: Yeni cross-site IDOR testlerini ekle**
 
 Dosyanın sonuna ekle:
 
@@ -614,12 +614,12 @@ func TestDisableAccountRejectsAnAccountFromAnotherSite(t *testing.T) {
 }
 ```
 
-- [ ] **Adım 4: Testleri çalıştır**
+- [x] **Adım 4: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/serviceaccounts/... -v 2>&1 | tail -60`
 Beklenen: BAŞARILI (tüm testler)
 
-- [ ] **Adım 5: `internal/server/serviceaccounts.go`'yu güncelle**
+- [x] **Adım 5: `internal/server/serviceaccounts.go`'yu güncelle**
 
 `handleCreateServiceAccount`'a, `requirePermission`'dan hemen sonra path/scope tutarlılık kontrolü ekle:
 
@@ -736,12 +736,12 @@ func handleDisableServiceAccount(service *serviceaccounts.Service, sessionServic
 		...
 ```
 
-- [ ] **Adım 6: Build'i doğrula**
+- [x] **Adım 6: Build'i doğrula**
 
 Çalıştır: `go build ./internal/server/... 2>&1 | head -30`
 Beklenen: `internal/server_test` (test paketi) derlenemeyebilir (Adım 7 düzeltir); üretim kodu başarılı olmalı: `go build ./internal/serviceaccounts/... ./internal/server/...`
 
-- [ ] **Adım 7: `internal/server/serviceaccounts_test.go`'yu güncelle**
+- [x] **Adım 7: `internal/server/serviceaccounts_test.go`'yu güncelle**
 
 `newServiceAccountHandler`'ı hem CSRF cookie'sini hem de `*serviceaccounts.Service`'i döndürecek şekilde değiştir:
 
@@ -800,7 +800,7 @@ func newServiceAccountHandler(t *testing.T) (http.Handler, []*http.Cookie, *serv
 
 (`TestRevokedServiceAccountTokenIsRejected`'daki `revokeRequest`'e de aynı satırı ekle.)
 
-- [ ] **Adım 8: Yeni scope-bypass testlerini ekle**
+- [x] **Adım 8: Yeni scope-bypass testlerini ekle**
 
 Dosyanın sonuna ekle:
 
@@ -891,17 +891,17 @@ func TestServiceAccountRotateRevokeDisableRejectAnAccountFromAnotherSite(t *test
 }
 ```
 
-- [ ] **Adım 9: Testleri çalıştır**
+- [x] **Adım 9: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestServiceAccount' -v 2>&1 | tail -100`
 Beklenen: BAŞARILI (tüm testler)
 
-- [ ] **Adım 10: Full build/vet/gofmt**
+- [x] **Adım 10: Full build/vet/gofmt**
 
 Çalıştır: `go build ./... 2>&1 && echo BUILD_OK && go vet ./... 2>&1 && echo VET_OK && gofmt -l internal/serviceaccounts/*.go internal/server/*.go`
 Beklenen: ikisi de başarılı, gofmt çıktısı yok
 
-- [ ] **Adım 11: Commit**
+- [x] **Adım 11: Commit**
 
 ```bash
 git add internal/serviceaccounts/serviceaccounts.go internal/serviceaccounts/serviceaccounts_test.go internal/server/serviceaccounts.go internal/server/serviceaccounts_test.go
@@ -917,7 +917,7 @@ git commit -m "fix: verify service account rotate/revoke/disable target the call
 **Arayüzler:**
 - Üretir: `ratelimit.Limiter`, `ratelimit.New(max int, window time.Duration, options ...Option) *Limiter`, `(*Limiter) Allow(key string) bool`, `ratelimit.WithClock(func() time.Time) Option`.
 
-- [ ] **Adım 1: `internal/ratelimit/ratelimit.go`'yu yaz**
+- [x] **Adım 1: `internal/ratelimit/ratelimit.go`'yu yaz**
 
 ```go
 // Package ratelimit provides a minimal, process-local sliding-window rate
@@ -977,7 +977,7 @@ func (limiter *Limiter) Allow(key string) bool {
 }
 ```
 
-- [ ] **Adım 2: `internal/ratelimit/ratelimit_test.go`'yu yaz**
+- [x] **Adım 2: `internal/ratelimit/ratelimit_test.go`'yu yaz**
 
 ```go
 package ratelimit_test
@@ -1034,12 +1034,12 @@ func TestAllowResetsAfterTheWindowElapses(t *testing.T) {
 }
 ```
 
-- [ ] **Adım 3: Testleri çalıştır**
+- [x] **Adım 3: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/ratelimit/... -v 2>&1 | tail -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 4: `internal/server/sessions.go`'daki `handleLogin`'i rate-limit edecek şekilde güncelle**
+- [x] **Adım 4: `internal/server/sessions.go`'daki `handleLogin`'i rate-limit edecek şekilde güncelle**
 
 Import listesine `"github.com/gokayybaz/bazusop/internal/ratelimit"` ekle.
 
@@ -1071,7 +1071,7 @@ func handleLogin(identityService *identity.Service, sessionService *sessions.Ser
 
 (Fonksiyonun geri kalanı değişmeden kalır.)
 
-- [ ] **Adım 5: `internal/server/identity.go`'daki `handleConfirmTOTP` ve `handleConsumeInvite`'ı rate-limit edecek şekilde güncelle**
+- [x] **Adım 5: `internal/server/identity.go`'daki `handleConfirmTOTP` ve `handleConsumeInvite`'ı rate-limit edecek şekilde güncelle**
 
 Import listesine `"github.com/gokayybaz/bazusop/internal/ratelimit"` ekle.
 
@@ -1131,7 +1131,7 @@ func handleConfirmTOTP(service *identity.Service, limiter *ratelimit.Limiter) ht
 
 **Yazarken düzeltme:** `handleConsumeInvite`'a eklenen `identity.ErrInviteWrongIdentityType` kontrolü, 11.9'da eklenen ama hiç ele alınmayan bir hata dalını düzeltiyor — önceden bu durum genel `500`'e düşüyordu, şimdi doğru şekilde `403` döner.
 
-- [ ] **Adım 6: `internal/server/server.go`'ya üç limiter'ı oluştur ve kabloya**
+- [x] **Adım 6: `internal/server/server.go`'ya üç limiter'ı oluştur ve kabloya**
 
 Import listesine `"time"` ve `"github.com/gokayybaz/bazusop/internal/ratelimit"` ekle.
 
@@ -1156,17 +1156,17 @@ Import listesine `"time"` ve `"github.com/gokayybaz/bazusop/internal/ratelimit"`
 		registerAudited(mux, "/api/v1/users/{userID}/confirm-totp", http.MethodPost, "users", []string{"userID"}, configuration.auditTrail, configuration.scope, handleConfirmTOTP(configuration.identityService, confirmTOTPLimiter))
 ```
 
-- [ ] **Adım 7: Build'i doğrula**
+- [x] **Adım 7: Build'i doğrula**
 
 Çalıştır: `go build ./... 2>&1 | head -30`
 Beklenen: üretim kodu BAŞARILI; test dosyaları henüz güncellenmediği için `go vet`/`go test` bu handler'ları çağıran yerlerde başarısız OLMAZ (imzaları değiştirmedik, yalnız server.go'daki dahili çağrı sitelerini değiştirdik — hiçbir test dosyası `handleLogin`/`handleConsumeInvite`/`handleConfirmTOTP`'ı doğrudan çağırmıyor, hepsi `server.NewHandler(...)` üzerinden HTTP ile test ediliyor). `go build ./...` zaten başarılıysa bu adım tamamdır.
 
-- [ ] **Adım 8: `internal/server/sessions_test.go`/`identity_test.go`'daki mevcut testlerin YİNE de geçtiğini doğrula (limiter varsayılan eşiği aşmadıkları için)**
+- [x] **Adım 8: `internal/server/sessions_test.go`/`identity_test.go`'daki mevcut testlerin YİNE de geçtiğini doğrula (limiter varsayılan eşiği aşmadıkları için)**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestLogin|TestBootstrap|TestCreateInvite|TestAdminCanRevoke' -v 2>&1 | tail -100`
 Beklenen: BAŞARILI (her test en fazla 1-2 kez login/confirm-totp/consume-invite çağırıyor, eşik 10 — hiçbiri tetiklenmez)
 
-- [ ] **Adım 9: Rate limiting'in gerçekten tetiklendiğini kanıtlayan yeni testler ekle**
+- [x] **Adım 9: Rate limiting'in gerçekten tetiklendiğini kanıtlayan yeni testler ekle**
 
 `internal/server/sessions_test.go`'nun sonuna ekle:
 
@@ -1264,17 +1264,17 @@ func TestConsumeInviteIsRateLimitedPerSourceIP(t *testing.T) {
 }
 ```
 
-- [ ] **Adım 10: Testleri çalıştır**
+- [x] **Adım 10: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'RateLimited' -v 2>&1 | tail -60`
 Beklenen: BAŞARILI (üç yeni test)
 
-- [ ] **Adım 11: Tam `internal/server` ve `internal/ratelimit` testlerini çalıştır**
+- [x] **Adım 11: Tam `internal/server` ve `internal/ratelimit` testlerini çalıştır**
 
 Çalıştır: `go vet ./... && gofmt -l internal/ratelimit/*.go internal/server/*.go && GOCACHE=/tmp/bazusop-go-cache go test ./internal/ratelimit/... ./internal/server/... -v 2>&1 | tail -300`
 Beklenen: vet/gofmt çıktısı yok; TÜM testler BAŞARILI
 
-- [ ] **Adım 12: Commit**
+- [x] **Adım 12: Commit**
 
 ```bash
 git add internal/ratelimit internal/server/sessions.go internal/server/identity.go internal/server/server.go internal/server/identity_test.go
@@ -1285,7 +1285,7 @@ git commit -m "feat: rate limit login, TOTP confirmation and invite consumption 
 
 **Dosyalar:** Değiştir: `internal/server/identity_test.go`, `internal/server/serviceaccounts_test.go`
 
-- [ ] **Adım 1: `internal/server/identity_test.go`'ya whoami'nin parola/TOTP secret'ı hiç döndürmediğini kanıtlayan bir test ekle**
+- [x] **Adım 1: `internal/server/identity_test.go`'ya whoami'nin parola/TOTP secret'ı hiç döndürmediğini kanıtlayan bir test ekle**
 
 ```go
 func TestWhoAmIResponseNeverIncludesPasswordOrTOTPSecret(t *testing.T) {
@@ -1313,7 +1313,7 @@ func TestWhoAmIResponseNeverIncludesPasswordOrTOTPSecret(t *testing.T) {
 
 (Dosyanın import listesine `"strings"` eklenmesi gerekiyorsa ekle.)
 
-- [ ] **Adım 2: `internal/server/serviceaccounts_test.go`'ya listeleme yanıtının token içermediğini kanıtlayan bir test ekle**
+- [x] **Adım 2: `internal/server/serviceaccounts_test.go`'ya listeleme yanıtının token içermediğini kanıtlayan bir test ekle**
 
 ```go
 func TestListServiceAccountsResponseNeverIncludesTheToken(t *testing.T) {
@@ -1351,12 +1351,12 @@ func TestListServiceAccountsResponseNeverIncludesTheToken(t *testing.T) {
 
 (Dosyanın import listesine `"strings"` eklenmesi gerekiyorsa ekle.)
 
-- [ ] **Adım 2: Testleri çalıştır**
+- [x] **Adım 2: Testleri çalıştır**
 
 Çalıştır: `GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'NeverIncludes' -v 2>&1 | tail -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 3: Commit**
+- [x] **Adım 3: Commit**
 
 ```bash
 git add internal/server/identity_test.go internal/server/serviceaccounts_test.go
@@ -1367,7 +1367,7 @@ git commit -m "test: prove whoami and service-account listing never leak secret 
 
 **Dosyalar:** Değiştir: `docs/API.md`, `docs/OPERATIONS.md`
 
-- [ ] **Adım 1: `docs/API.md`'yi güncelle**
+- [x] **Adım 1: `docs/API.md`'yi güncelle**
 
 `## Kimlik doğrulama` bölümüne ekle:
 
@@ -1385,7 +1385,7 @@ git commit -m "test: prove whoami and service-account listing never leak secret 
   `429` döner.
 ```
 
-- [ ] **Adım 2: `docs/OPERATIONS.md`'ye rate limiting'in process-içi olduğunu belgeleyen bir not ekle**
+- [x] **Adım 2: `docs/OPERATIONS.md`'ye rate limiting'in process-içi olduğunu belgeleyen bir not ekle**
 
 Uygun bir yere (örn. "Sağlık ve sorun giderme" bölümünden önce) ekle:
 
@@ -1401,7 +1401,7 @@ kıyasla önemli bir iyileştirmedir; tam dağıtık bir çözüm gelecekte ayr�
 sertleştirme çalışmasıdır.
 ```
 
-- [ ] **Adım 3: Commit**
+- [x] **Adım 3: Commit**
 
 ```bash
 git add docs/API.md docs/OPERATIONS.md
@@ -1412,11 +1412,11 @@ git commit -m "docs: document CSRF enforcement and rate limiting behavior"
 
 **Dosyalar:** yok (yalnız doğrulama).
 
-- [ ] **Adım 1: Docker Compose ile hub'ı ayağa kaldır**
+- [x] **Adım 1: Docker Compose ile hub'ı ayağa kaldır**
 
 Çalıştır: `docker compose -p bazusop-verify-1110 down -v >/dev/null 2>&1; POSTGRES_PASSWORD=verify-pw BAZUSOP_ENROLLMENT_TOKEN=verify-token BAZUSOP_BOOTSTRAP_SECRET=verify-bootstrap BAZUSOP_TOTP_ENCRYPTION_KEY=verify-totp-key BAZUSOP_SERVICE_ACCOUNT_PEPPER=verify-pepper BAZUSOP_PORT=18099 docker compose -p bazusop-verify-1110 up --build -d` ve `/api/v1/health`'in 200 dönmesini bekle.
 
-- [ ] **Adım 2: Bootstrap ol, giriş yap**
+- [x] **Adım 2: Bootstrap ol, giriş yap**
 
 ```bash
 rm -f /tmp/bazusop-1110-cookies.txt
@@ -1430,7 +1430,7 @@ cat /tmp/bazusop-1110-login.json
 
 Beklenen: `201`.
 
-- [ ] **Adım 3: CSRF token olmadan bir mutasyonun `403` döndüğünü doğrula**
+- [x] **Adım 3: CSRF token olmadan bir mutasyonun `403` döndüğünü doğrula**
 
 ```bash
 CSRF=$(python3 -c "import json; print(json.load(open('/tmp/bazusop-1110-login.json').__enter__() if False else open('/tmp/bazusop-1110-login.json'))['csrf_token'])" 2>/dev/null || python3 -c "
@@ -1447,7 +1447,7 @@ curl -s -o /dev/null -w "doğru CSRF header ile davet (beklenen 201): %{http_cod
 
 Beklenen: sırasıyla `403` ve `201`.
 
-- [ ] **Adım 4: Brute-force rate limiting'in gerçekten tetiklendiğini doğrula**
+- [x] **Adım 4: Brute-force rate limiting'in gerçekten tetiklendiğini doğrula**
 
 ```bash
 for i in $(seq 1 11); do
@@ -1459,7 +1459,7 @@ done
 
 Beklenen: ilk 10 deneme `401`, 11. deneme `429`.
 
-- [ ] **Adım 5: Servis hesabı site-scope IDOR düzeltmesini doğrula**
+- [x] **Adım 5: Servis hesabı site-scope IDOR düzeltmesini doğrula**
 
 ```bash
 curl -s -b /tmp/bazusop-1110-cookies.txt -H "X-CSRF-Token: $CSRF" -X POST http://127.0.0.1:18099/api/v1/sites/baska-bir-site/service-accounts \
@@ -1468,14 +1468,14 @@ curl -s -b /tmp/bazusop-1110-cookies.txt -H "X-CSRF-Token: $CSRF" -X POST http:/
 
 Beklenen: `404`.
 
-- [ ] **Adım 6: Temizlik**
+- [x] **Adım 6: Temizlik**
 
 ```bash
 docker compose -p bazusop-verify-1110 down -v
 rm -f /tmp/bazusop-1110-cookies.txt /tmp/bazusop-1110-bootstrap.json /tmp/bazusop-1110-login.json
 ```
 
-- [ ] **Adım 7: Full test suite'i son kez çalıştır (Postgres dahil)**
+- [x] **Adım 7: Full test suite'i son kez çalıştır (Postgres dahil)**
 
 Çalıştır: `docker rm -f bazusop-test-pg >/dev/null 2>&1; docker run -d --name bazusop-test-pg -e POSTGRES_USER=bazusop -e POSTGRES_PASSWORD=bazusop_test -e POSTGRES_DB=bazusop_test -p 5432:5432 postgres:18 >/dev/null` ve hazır olmasını bekle.
 
