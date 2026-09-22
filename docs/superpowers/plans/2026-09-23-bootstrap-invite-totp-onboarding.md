@@ -37,7 +37,7 @@
 **Arayüzler:**
 - Değiştirir: `Service.ConsumeInvite(ctx, token, password) (User, TOTPEnrollment, error)` (önceki imza: `(User, error)`). `Service.ConfirmTOTP` imzası değişmez ama artık dönen `TOTPEnrollment.ProvisioningURI` de doludur (önceden yalnız `RecoveryCodes` doluydu).
 
-- [ ] **Adım 1: `internal/identity/identity.go`'daki `ConsumeInvite`'ı güncelle**
+- [x] **Adım 1: `internal/identity/identity.go`'daki `ConsumeInvite`'ı güncelle**
 
 ```go
 func (service *Service) ConsumeInvite(ctx context.Context, token, password string) (User, TOTPEnrollment, error) {
@@ -87,7 +87,7 @@ func (service *Service) ConsumeInvite(ctx context.Context, token, password strin
 }
 ```
 
-- [ ] **Adım 2: `ConfirmTOTP`'u, artık secret üretmeyecek ve `ProvisioningURI`'yi de dönecek şekilde güncelle; `hasSecret`'ı sil**
+- [x] **Adım 2: `ConfirmTOTP`'u, artık secret üretmeyecek ve `ProvisioningURI`'yi de dönecek şekilde güncelle; `hasSecret`'ı sil**
 
 ```go
 func (service *Service) ConfirmTOTP(ctx context.Context, userID string, codeFromSecret func(secret []byte) string, at time.Time) (TOTPEnrollment, error) {
@@ -128,12 +128,12 @@ func (service *Service) ConfirmTOTP(ctx context.Context, userID string, codeFrom
 
 (`func hasSecret(user User) bool { return len(user.TOTPSecretEncrypted) > 0 }` fonksiyonunu dosyadan tamamen sil — artık hiçbir çağıranı kalmıyor.)
 
-- [ ] **Adım 3: Build'i doğrula (test dosyaları henüz güncellenmedi, beklenen derleme hataları)**
+- [x] **Adım 3: Build'i doğrula (test dosyaları henüz güncellenmedi, beklenen derleme hataları)**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go build ./internal/identity/... 2>&1 | head -20`
 Beklenen: `BUILD_OK` (üretim kodu derlenir; `go vet ./...`/`go test ./...` bu noktada `internal/identity`, `internal/server` test paketlerinde başarısız olur — Adım 4 ve Görev 2 düzeltir)
 
-- [ ] **Adım 4: `internal/identity/identity_test.go`'daki dört çağrı sitesini güncelle**
+- [x] **Adım 4: `internal/identity/identity_test.go`'daki dört çağrı sitesini güncelle**
 
 `TestInviteLifecycleCreateConsumeConfirmTOTP`'daki satırı değiştir (51. satır civarı):
 
@@ -177,7 +177,7 @@ Beklenen: `BUILD_OK` (üretim kodu derlenir; `go vet ./...`/`go test ./...` bu n
 	if _, _, err := service.ConsumeInvite(t.Context(), token, "a password"); !errors.Is(err, identity.ErrInviteWrongIdentityType) {
 ```
 
-- [ ] **Adım 5: Gerçek bir istemcinin yalnız `provisioning_uri`'yi kullanarak onboarding'i tamamlayabildiğini kanıtlayan yeni bir test ekle**
+- [x] **Adım 5: Gerçek bir istemcinin yalnız `provisioning_uri`'yi kullanarak onboarding'i tamamlayabildiğini kanıtlayan yeni bir test ekle**
 
 `internal/identity/identity_test.go`'nun sonuna ekle:
 
@@ -220,12 +220,12 @@ func TestConsumeInviteReturnsAProvisioningURIThatAnIndependentClientCanUse(t *te
 
 Dosyanın import bloğuna `"encoding/base32"` ve `"net/url"` ekle (mevcut `"context"`, `"errors"`, `"testing"`, `"time"`, `"github.com/gokayybaz/bazusop/internal/identity"` importlarının yanına, alfabetik sırayla).
 
-- [ ] **Adım 6: Testleri çalıştır**
+- [x] **Adım 6: Testleri çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go vet ./internal/identity/... && gofmt -l internal/identity/*.go && GOCACHE=/tmp/bazusop-go-cache go test ./internal/identity/... -v 2>&1 | tail -80`
 Beklenen: vet/gofmt çıktısı yok; tüm testler BAŞARILI
 
-- [ ] **Adım 7: Commit**
+- [x] **Adım 7: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -243,7 +243,7 @@ git commit -m "fix: ConsumeInvite now generates and returns the TOTP provisionin
 **Arayüzler:**
 - Değiştirir: `POST /api/v1/invites/{token}/consume` yanıtı artık `provisioning_uri` alanı içerir; `POST /api/v1/users/{userID}/confirm-totp` yanıtı da artık `provisioning_uri` içerir (istemci QR'ı ister consume ister confirm adımında gösterebilir).
 
-- [ ] **Adım 1: `internal/server/identity.go`'daki `handleConsumeInvite`'ı güncelle**
+- [x] **Adım 1: `internal/server/identity.go`'daki `handleConsumeInvite`'ı güncelle**
 
 ```go
 func handleConsumeInvite(service *identity.Service, limiter *ratelimit.Limiter) http.HandlerFunc {
@@ -283,7 +283,7 @@ func handleConsumeInvite(service *identity.Service, limiter *ratelimit.Limiter) 
 }
 ```
 
-- [ ] **Adım 2: `handleConfirmTOTP`'un yanıtına `provisioning_uri` ekle**
+- [x] **Adım 2: `handleConfirmTOTP`'un yanıtına `provisioning_uri` ekle**
 
 ```go
 		writeJSON(response, http.StatusOK, struct {
@@ -294,12 +294,12 @@ func handleConsumeInvite(service *identity.Service, limiter *ratelimit.Limiter) 
 
 (Yalnız bu `writeJSON` çağrısı değişir; fonksiyonun geri kalanı — rate limit kontrolü, hata dalları — aynı kalır.)
 
-- [ ] **Adım 3: Build'i doğrula**
+- [x] **Adım 3: Build'i doğrula**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go build ./internal/server/... 2>&1 | head -20`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 4: `internal/server/rbac_operational_test.go` ve `rbac_test.go`'daki çağrı sitelerini güncelle**
+- [x] **Adım 4: `internal/server/rbac_operational_test.go` ve `rbac_test.go`'daki çağrı sitelerini güncelle**
 
 `rbac_operational_test.go`'daki `inviteConsumeAndAssign`'de:
 
@@ -313,12 +313,12 @@ Beklenen: BAŞARILI
 	viewer, _, err := identityService.ConsumeInvite(t.Context(), token, "a brand new password")
 ```
 
-- [ ] **Adım 5: Testleri çalıştır**
+- [x] **Adım 5: Testleri çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestSiteAdmin|TestRequirePermission' -v 2>&1 | tail -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 6: `internal/server/identity_test.go`'ya, gerçek bir istemcinin yalnız `provisioning_uri`'yi kullanarak onboarding'i HTTP seviyesinde tamamlayıp giriş yapabildiğini kanıtlayan bir test ekle**
+- [x] **Adım 6: `internal/server/identity_test.go`'ya, gerçek bir istemcinin yalnız `provisioning_uri`'yi kullanarak onboarding'i HTTP seviyesinde tamamlayıp giriş yapabildiğini kanıtlayan bir test ekle**
 
 Dosyanın sonuna, `secretFromProvisioningURI` yardımcı fonksiyonuyla birlikte ekle:
 
@@ -396,17 +396,17 @@ func TestInviteConsumeReturnsAProvisioningURIARealClientCanUseToConfirmAndLogIn(
 
 Dosyanın import bloğuna `"encoding/base32"`, `"net/url"` ve `"time"` ekle (mevcut `"encoding/json"`, `"net/http"`, `"net/http/httptest"`, `"strings"`, `"testing"` importlarının yanına, alfabetik sırayla).
 
-- [ ] **Adım 7: Testleri çalıştır**
+- [x] **Adım 7: Testleri çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestInviteConsumeReturnsAProvisioningURI' -v 2>&1 | tail -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 8: Tam paket testlerini çalıştır**
+- [x] **Adım 8: Tam paket testlerini çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go vet ./internal/server/... && gofmt -l internal/server/*.go && GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... 2>&1 | tail -10`
 Beklenen: vet/gofmt çıktısı yok; `ok`
 
-- [ ] **Adım 9: Commit**
+- [x] **Adım 9: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -424,12 +424,12 @@ git commit -m "feat: return provisioning_uri from invite consumption and TOTP co
 **Arayüzler:**
 - Üretir: `TotpQrCode({ provisioningUri: string })`, `RecoveryCodes({ codes: string[] })` — Görev 4 ve 5'te `BootstrapPage`/`InvitePage` tarafından tüketilir.
 
-- [ ] **Adım 1: `qrcode` ve tip tanımlarını kur**
+- [x] **Adım 1: `qrcode` ve tip tanımlarını kur**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm install qrcode@^1.5.4 && npm install --save-dev @types/qrcode@^1.5.6 2>&1 | tail -20`
 Beklenen: `package.json`'a `"qrcode": "^1.5.4"` (dependencies) ve `"@types/qrcode": "^1.5.6"` (devDependencies) eklenir.
 
-- [ ] **Adım 2: `web/src/components/totp-qr-code.tsx`'i yaz**
+- [x] **Adım 2: `web/src/components/totp-qr-code.tsx`'i yaz**
 
 ```tsx
 import { useEffect, useState } from "react"
@@ -474,7 +474,7 @@ export function TotpQrCode({ provisioningUri }: { provisioningUri: string }) {
 }
 ```
 
-- [ ] **Adım 3: `web/src/components/totp-qr-code.test.tsx`'i yaz**
+- [x] **Adım 3: `web/src/components/totp-qr-code.test.tsx`'i yaz**
 
 ```tsx
 import { render, screen, waitFor } from "@testing-library/react"
@@ -492,7 +492,7 @@ describe("TotpQrCode", () => {
 })
 ```
 
-- [ ] **Adım 4: `web/src/components/recovery-codes.tsx`'i yaz**
+- [x] **Adım 4: `web/src/components/recovery-codes.tsx`'i yaz**
 
 ```tsx
 export function RecoveryCodes({ codes }: { codes: string[] }) {
@@ -516,7 +516,7 @@ export function RecoveryCodes({ codes }: { codes: string[] }) {
 }
 ```
 
-- [ ] **Adım 5: `web/src/components/recovery-codes.test.tsx`'i yaz**
+- [x] **Adım 5: `web/src/components/recovery-codes.test.tsx`'i yaz**
 
 ```tsx
 import { render, screen } from "@testing-library/react"
@@ -539,17 +539,17 @@ describe("RecoveryCodes", () => {
 })
 ```
 
-- [ ] **Adım 6: Testleri çalıştır**
+- [x] **Adım 6: Testleri çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx vitest run totp-qr-code recovery-codes 2>&1 | tail -40`
 Beklenen: 2 test dosyası, hepsi BAŞARILI
 
-- [ ] **Adım 7: Tip kontrolü**
+- [x] **Adım 7: Tip kontrolü**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx tsc -b --noEmit 2>&1 | tail -40`
 Beklenen: hata yok
 
-- [ ] **Adım 8: Commit**
+- [x] **Adım 8: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -567,7 +567,7 @@ git commit -m "feat: add TotpQrCode and RecoveryCodes shared onboarding componen
 - Tüketir: `TotpQrCode`, `RecoveryCodes` (`../components/...`).
 - Üretir: `BootstrapPage` — Görev 4'ün `app.tsx` route'una eklenir.
 
-- [ ] **Adım 1: `web/src/pages/bootstrap.tsx`'i yaz**
+- [x] **Adım 1: `web/src/pages/bootstrap.tsx`'i yaz**
 
 ```tsx
 import { type FormEvent, useState } from "react"
@@ -684,7 +684,7 @@ export function BootstrapPage() {
 }
 ```
 
-- [ ] **Adım 2: `web/src/app.tsx`'e `/setup` route'unu ekle**
+- [x] **Adım 2: `web/src/app.tsx`'e `/setup` route'unu ekle**
 
 ```tsx
 import { BrowserRouter, Route, Routes } from "react-router-dom"
@@ -717,7 +717,7 @@ export function App() {
 }
 ```
 
-- [ ] **Adım 3: `web/src/pages/login.tsx`'e "İlk kurulum" bağlantısını ekle**
+- [x] **Adım 3: `web/src/pages/login.tsx`'e "İlk kurulum" bağlantısını ekle**
 
 `Navigate, useNavigate` import satırını `Link, Navigate, useNavigate` yap. Formun sonuna, `submit` butonundan hemen sonra ekle:
 
@@ -736,7 +736,7 @@ export function App() {
 
 (Yalnız `<Link className="auth-setup-link" to="/setup">İlk kurulum</Link>` satırı eklendi.)
 
-- [ ] **Adım 4: `web/src/styles.css`'e yeni stiller ekle**
+- [x] **Adım 4: `web/src/styles.css`'e yeni stiller ekle**
 
 Dosyanın sonuna ekle:
 
@@ -752,7 +752,7 @@ Dosyanın sonuna ekle:
 .auth-setup-link { display: block; margin-top: 4px; color: var(--subtle); font-size: 11px; text-align: center; text-decoration: none; }
 ```
 
-- [ ] **Adım 5: `web/src/pages/bootstrap.test.tsx`'i yaz**
+- [x] **Adım 5: `web/src/pages/bootstrap.test.tsx`'i yaz**
 
 ```tsx
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
@@ -810,22 +810,22 @@ describe("BootstrapPage", () => {
 })
 ```
 
-- [ ] **Adım 6: Testleri çalıştır**
+- [x] **Adım 6: Testleri çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx vitest run bootstrap.test 2>&1 | tail -50`
 Beklenen: 2 test BAŞARILI
 
-- [ ] **Adım 7: `app.test.tsx`'in hâlâ geçtiğini doğrula (yeni route eklendi, mevcut davranış değişmemeli)**
+- [x] **Adım 7: `app.test.tsx`'in hâlâ geçtiğini doğrula (yeni route eklendi, mevcut davranış değişmemeli)**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm test 2>&1 | tail -30`
 Beklenen: tüm testler BAŞARILI
 
-- [ ] **Adım 8: Tip kontrolü ve production build**
+- [x] **Adım 8: Tip kontrolü ve production build**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm run build 2>&1 | tail -40`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 9: Commit**
+- [x] **Adım 9: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -842,7 +842,7 @@ git commit -m "feat: add the /setup bootstrap page with QR and recovery code dis
 **Arayüzler:**
 - Tüketir: `TotpQrCode`, `RecoveryCodes` (`../components/...`), `useParams` (`react-router-dom`).
 
-- [ ] **Adım 1: `web/src/pages/invite.tsx`'i yaz**
+- [x] **Adım 1: `web/src/pages/invite.tsx`'i yaz**
 
 ```tsx
 import { type FormEvent, useState } from "react"
@@ -998,7 +998,7 @@ export function InvitePage() {
 }
 ```
 
-- [ ] **Adım 2: `web/src/app.tsx`'e `/invite/:token` route'unu ekle**
+- [x] **Adım 2: `web/src/app.tsx`'e `/invite/:token` route'unu ekle**
 
 ```tsx
 import { BrowserRouter, Route, Routes } from "react-router-dom"
@@ -1033,7 +1033,7 @@ export function App() {
 }
 ```
 
-- [ ] **Adım 3: `web/src/pages/invite.test.tsx`'i yaz**
+- [x] **Adım 3: `web/src/pages/invite.test.tsx`'i yaz**
 
 ```tsx
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
@@ -1104,17 +1104,17 @@ describe("InvitePage", () => {
 })
 ```
 
-- [ ] **Adım 4: Testleri çalıştır**
+- [x] **Adım 4: Testleri çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx vitest run invite.test 2>&1 | tail -50`
 Beklenen: 2 test BAŞARILI
 
-- [ ] **Adım 5: Tam frontend test süitini ve production build'i çalıştır**
+- [x] **Adım 5: Tam frontend test süitini ve production build'i çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm test 2>&1 | tail -30 && npm run build 2>&1 | tail -30`
 Beklenen: tüm testler BAŞARILI, build BAŞARILI
 
-- [ ] **Adım 6: Commit**
+- [x] **Adım 6: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -1126,15 +1126,15 @@ git commit -m "feat: add the /invite/:token page for password + TOTP onboarding"
 
 **Dosyalar:** yok (yalnız doğrulama).
 
-- [ ] **Adım 1: Docker Compose ile hub'ı yeniden derleyip ayağa kaldır**
+- [x] **Adım 1: Docker Compose ile hub'ı yeniden derleyip ayağa kaldır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && docker compose down -v >/dev/null 2>&1; BAZUSOP_PORT=8090 BAZUSOP_BOOTSTRAP_SECRET=verify-bootstrap BAZUSOP_TOTP_ENCRYPTION_KEY=verify-totp-key BAZUSOP_SERVICE_ACCOUNT_PEPPER=verify-pepper docker compose up --build -d 2>&1 | tail -30`
 
-- [ ] **Adım 2: Sağlık kontrolünü bekle**
+- [x] **Adım 2: Sağlık kontrolünü bekle**
 
 Çalıştır: `for i in $(seq 1 20); do curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8090/api/v1/health | grep -q 200 && echo healthy && break; sleep 1; done`
 
-- [ ] **Adım 3: Tek bir Python betiğiyle bootstrap → giriş → davet oluştur → davet kabul et → TOTP onayla → giriş yap uçtan uca (tarayıcı istemcisini simüle eder, Go test süitinin dışında bağımsız kanıt)**
+- [x] **Adım 3: Tek bir Python betiğiyle bootstrap → giriş → davet oluştur → davet kabul et → TOTP onayla → giriş yap uçtan uca (tarayıcı istemcisini simüle eder, Go test süitinin dışında bağımsız kanıt)**
 
 ```bash
 python3 -c "
@@ -1193,14 +1193,14 @@ print('new user logged in, user_id:', new_login_payload['user_id'])
 
 Beklenen: script hatasız tamamlanır; "invite consumed, provisioning_uri present: True", "confirm-totp accepted, recovery codes: 10", "new user logged in, user_id: ..." satırlarını basar. Bu, tam davet → TOTP → giriş akışının gerçek bir HTTP istemcisiyle (Go testi değil) uçtan uca çalıştığını kanıtlar.
 
-- [ ] **Adım 4: Temizlik**
+- [x] **Adım 4: Temizlik**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
 docker compose down -v
 ```
 
-- [ ] **Adım 5: Go ve frontend testlerini son kez birlikte çalıştır**
+- [x] **Adım 5: Go ve frontend testlerini son kez birlikte çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go build ./... && go vet ./... && gofmt -l . && GOCACHE=/tmp/bazusop-go-cache go test ./... 2>&1 | tail -30`
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm test 2>&1 | tail -30 && npm run build 2>&1 | tail -20`
