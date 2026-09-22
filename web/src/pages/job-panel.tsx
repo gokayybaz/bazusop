@@ -4,6 +4,7 @@ import { ChevronRight, ListChecks } from "lucide-react"
 import { Badge } from "../components/ui/badge"
 import { Card } from "../components/ui/card"
 import { formatLastSeen } from "../lib/format"
+import { useSession } from "../lib/session"
 import type { InventoryInstance, JobEvent, OperationJob } from "../types"
 
 export function JobPanel({ instance, jobs, onCreated, state }: {
@@ -12,12 +13,12 @@ export function JobPanel({ instance, jobs, onCreated, state }: {
   onCreated: (job: OperationJob) => void
   state: "idle" | "loading" | "ready" | "error"
 }) {
+  const { apiFetch } = useSession()
   const [creating, setCreating] = useState(false)
   const [action, setAction] = useState<OperationJob["action"]>("service.restart")
   const [target, setTarget] = useState("")
   const [approvedBy, setApprovedBy] = useState("")
   const [reason, setReason] = useState("")
-  const [operatorToken, setOperatorToken] = useState("")
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(false)
   const [selectedJob, setSelectedJob] = useState<OperationJob | null>(null)
@@ -28,9 +29,9 @@ export function JobPanel({ instance, jobs, onCreated, state }: {
     event.preventDefault()
     setSubmitting(true)
     setSubmitError(false)
-    fetch(`/api/v1/instances/${encodeURIComponent(instance.agent_id)}/jobs`, {
+    apiFetch(`/api/v1/instances/${encodeURIComponent(instance.agent_id)}/jobs`, {
       method: "POST",
-      headers: { "Authorization": `Bearer ${operatorToken}`, "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ action, target: action === "service.restart" ? target : "", approved_by: approvedBy, reason }),
     })
       .then((response) => {
@@ -42,7 +43,6 @@ export function JobPanel({ instance, jobs, onCreated, state }: {
         setCreating(false)
         setTarget("")
         setReason("")
-        setOperatorToken("")
       })
       .catch(() => setSubmitError(true))
       .finally(() => setSubmitting(false))
@@ -75,7 +75,6 @@ export function JobPanel({ instance, jobs, onCreated, state }: {
           <label><span>Aksiyon</span><select onChange={(event) => setAction(event.target.value as OperationJob["action"])} value={action}><option value="service.restart">Servisi yeniden başlat</option><option value="host.reboot">Sunucuyu yeniden başlat</option></select></label>
           <label><span>Hedef servis</span><input disabled={action === "host.reboot"} onChange={(event) => setTarget(event.target.value)} placeholder="nginx.service" required={action === "service.restart"} value={target} /></label>
           <label><span>Onaylayan</span><input onChange={(event) => setApprovedBy(event.target.value)} placeholder="Operatör kimliği" required value={approvedBy} /></label>
-          <label><span>Operatör token'ı</span><input autoComplete="current-password" onChange={(event) => setOperatorToken(event.target.value)} placeholder="••••••••" required type="password" value={operatorToken} /></label>
           <label className="job-reason"><span>Gerekçe</span><input onChange={(event) => setReason(event.target.value)} placeholder="Bu aksiyon neden gerekli?" required value={reason} /></label>
           <button className="job-submit" disabled={submitting} type="submit">{submitting ? "Sıraya alınıyor…" : "Onayı kaydet ve sıraya al"}</button>
           {submitError ? <p className="job-form-error">İş oluşturulamadı. Alanları ve hub bağlantısını kontrol edin.</p> : null}
