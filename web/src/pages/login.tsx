@@ -1,5 +1,5 @@
 import { type FormEvent, useState } from "react"
-import { Navigate, useNavigate } from "react-router-dom"
+import { Link, Navigate, useNavigate } from "react-router-dom"
 
 import { useSession } from "../lib/session"
 
@@ -77,6 +77,9 @@ export function LoginPage() {
         <button disabled={submitting} type="submit">
           {submitting ? "Giriş yapılıyor…" : "Giriş yap"}
         </button>
+        <Link className="auth-setup-link" to="/setup">
+          İlk kurulum
+        </Link>
       </form>
     </div>
   )
