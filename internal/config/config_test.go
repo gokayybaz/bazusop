@@ -30,22 +30,6 @@ func TestEnrollmentToken(t *testing.T) {
 	}
 }
 
-func TestOperatorToken(t *testing.T) {
-	t.Setenv("BAZUSOP_OPERATOR_TOKEN", "operator-secret")
-
-	if token := config.Load().OperatorToken; token != "operator-secret" {
-		t.Fatalf("expected configured operator token, got %q", token)
-	}
-}
-
-func TestAdminToken(t *testing.T) {
-	t.Setenv("BAZUSOP_ADMIN_TOKEN", "admin-secret")
-
-	if token := config.Load().AdminToken; token != "admin-secret" {
-		t.Fatalf("expected configured admin token, got %q", token)
-	}
-}
-
 func TestBootstrapSecret(t *testing.T) {
 	t.Setenv("BAZUSOP_BOOTSTRAP_SECRET", "bootstrap-secret")
 

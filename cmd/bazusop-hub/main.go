@@ -163,7 +163,7 @@ func main() {
 			os.Exit(1)
 		}
 	} else {
-		logger.Warn("BAZUSOP_BOOTSTRAP_SECRET and/or BAZUSOP_TOTP_ENCRYPTION_KEY are not set; local identity (bootstrap/invites) is disabled")
+		logger.Warn("BAZUSOP_BOOTSTRAP_SECRET and/or BAZUSOP_TOTP_ENCRYPTION_KEY are not set; local identity is disabled, and since spike 11.7 removed the legacy bearer bridge, no session or service-account authentication is possible — every mutating API route will reject all requests")
 	}
 	var serviceAccountService *serviceaccounts.Service
 	if authorizationService != nil && configuration.ServiceAccountPepper != "" {
@@ -184,12 +184,6 @@ func main() {
 		}
 	}
 	buildIdentity := version.Current()
-	if configuration.OperatorToken == "" && configuration.AdminToken == "" {
-		logger.Warn("BAZUSOP_OPERATOR_TOKEN and BAZUSOP_ADMIN_TOKEN are not set; authorized mutations are disabled")
-	}
-	if configuration.AdminToken == "" {
-		logger.Warn("BAZUSOP_ADMIN_TOKEN is not set; operator token retains administrative access for compatibility")
-	}
 	httpServer := &http.Server{
 		Addr: configuration.HTTPAddress,
 		Handler: server.NewHandler(
@@ -199,12 +193,11 @@ func main() {
 			server.WithTelemetry(telemetryService),
 			server.WithServiceInventory(serviceInventoryService),
 			server.WithLogs(logService),
-			server.WithJobs(jobService, configuration.OperatorToken),
-			server.WithAlerts(alertService, configuration.OperatorToken),
-			server.WithCloudInventory(cloudInventoryService, configuration.OperatorToken),
+			server.WithJobs(jobService),
+			server.WithAlerts(alertService),
+			server.WithCloudInventory(cloudInventoryService),
 			server.WithAudit(auditService),
 			server.WithAuditTrail(auditTrailService),
-			server.WithAdminToken(configuration.AdminToken),
 			server.WithIdentity(identityService, configuration.BootstrapSecret),
 			server.WithSessions(sessionService, identityService),
 			server.WithAuthorization(authorizationService),
