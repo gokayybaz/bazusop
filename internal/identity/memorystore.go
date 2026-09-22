@@ -2,6 +2,7 @@ package identity
 
 import (
 	"context"
+	"sort"
 	"sync"
 	"time"
 )
@@ -215,4 +216,17 @@ func (store *MemoryStore) ConsumeRecoveryCode(_ context.Context, userID, codeHas
 	}
 	hashes[codeHash] = true
 	return true, nil
+}
+
+func (store *MemoryStore) UsersForOrganization(_ context.Context, organizationID string) ([]User, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	var users []User
+	for _, user := range store.usersByID {
+		if user.OrganizationID == organizationID {
+			users = append(users, user)
+		}
+	}
+	sort.Slice(users, func(i, j int) bool { return users[i].Email < users[j].Email })
+	return users, nil
 }

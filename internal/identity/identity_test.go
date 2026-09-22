@@ -364,3 +364,33 @@ func TestConsumeInviteReturnsAProvisioningURIThatAnIndependentClientCanUse(t *te
 		t.Fatalf("expected a code computed only from the provisioning URI's secret to be accepted, got %v", err)
 	}
 }
+
+func TestUsersForOrganizationReturnsOnlyThatOrganizationsUsersSortedByEmail(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	if _, _, err := service.Bootstrap(t.Context(), "org_default", "zed@example.com", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	otherOrgService := newTestService()
+	if _, _, err := otherOrgService.Bootstrap(t.Context(), "other_org", "other@example.com", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := service.CreateInvite(t.Context(), "admin", "org_default", "alice@example.com", identity.RolePlatformAdmin, nil, identity.IdentityTypeLocal)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.ConsumeInvite(t.Context(), token, "a brand new password"); err != nil {
+		t.Fatal(err)
+	}
+
+	users, err := service.UsersForOrganization(t.Context(), "org_default")
+	if err != nil {
+		t.Fatalf("users for organization: %v", err)
+	}
+	if len(users) != 2 {
+		t.Fatalf("expected exactly 2 users in org_default, got %#v", users)
+	}
+	if users[0].Email != "alice@example.com" || users[1].Email != "zed@example.com" {
+		t.Fatalf("expected users sorted by email, got %#v", users)
+	}
+}

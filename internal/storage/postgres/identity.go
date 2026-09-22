@@ -312,3 +312,25 @@ func (store *Store) OIDCConfigurationByOrganization(ctx context.Context, organiz
 	}
 	return config, nil
 }
+
+func (store *Store) UsersForOrganization(ctx context.Context, organizationID string) ([]identity.User, error) {
+	rows, err := store.pool.Query(ctx, `
+		SELECT id, organization_id, email, role, password_hash, totp_secret_encrypted, totp_confirmed_at, created_at, disabled_at, oidc_issuer, oidc_subject
+		FROM users WHERE organization_id=$1 ORDER BY email`, organizationID)
+	if err != nil {
+		return nil, fmt.Errorf("query users for organization: %w", err)
+	}
+	defer rows.Close()
+	var users []identity.User
+	for rows.Next() {
+		user, err := scanUser(rows)
+		if err != nil {
+			return nil, err
+		}
+		users = append(users, user)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate users: %w", err)
+	}
+	return users, nil
+}
