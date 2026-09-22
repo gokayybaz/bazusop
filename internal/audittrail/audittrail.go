@@ -20,10 +20,11 @@ import (
 type ActorType string
 
 const (
-	ActorAgent       ActorType = "agent"
-	ActorHuman       ActorType = "human"
-	ActorLegacyToken ActorType = "legacy_token"
-	ActorAnonymous   ActorType = "anonymous"
+	ActorAgent          ActorType = "agent"
+	ActorHuman          ActorType = "human"
+	ActorServiceAccount ActorType = "service_account"
+	ActorLegacyToken    ActorType = "legacy_token"
+	ActorAnonymous      ActorType = "anonymous"
 )
 
 type Outcome string

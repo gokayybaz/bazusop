@@ -21,6 +21,7 @@ type Config struct {
 	BootstrapSecret        string
 	TOTPEncryptionKey      string
 	TrustedOrigins         []string
+	ServiceAccountPepper   string
 }
 
 func Load() Config {
@@ -43,6 +44,7 @@ func Load() Config {
 		BootstrapSecret:        os.Getenv("BAZUSOP_BOOTSTRAP_SECRET"),
 		TOTPEncryptionKey:      os.Getenv("BAZUSOP_TOTP_ENCRYPTION_KEY"),
 		TrustedOrigins:         trustedOrigins(os.Getenv("BAZUSOP_TRUSTED_ORIGINS")),
+		ServiceAccountPepper:   os.Getenv("BAZUSOP_SERVICE_ACCOUNT_PEPPER"),
 	}
 }
 

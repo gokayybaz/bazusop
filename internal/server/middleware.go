@@ -7,8 +7,10 @@ import (
 	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gokayybaz/bazusop/internal/audittrail"
+	"github.com/gokayybaz/bazusop/internal/serviceaccounts"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
@@ -38,6 +40,11 @@ func deriveActor(request *http.Request) (audittrail.ActorType, string) {
 	if cookie, err := request.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
 		sum := sha256.Sum256([]byte(cookie.Value))
 		return audittrail.ActorHuman, hex.EncodeToString(sum[:])
+	}
+	if authorization := request.Header.Get("Authorization"); strings.HasPrefix(authorization, "Bearer "+serviceaccounts.TokenPrefix) {
+		if tokenID, _, ok := serviceaccounts.ParseToken(strings.TrimPrefix(authorization, "Bearer ")); ok {
+			return audittrail.ActorServiceAccount, tokenID
+		}
 	}
 	if request.Header.Get("Authorization") != "" {
 		return audittrail.ActorLegacyToken, "bearer"

@@ -25,6 +25,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/logstream"
 	"github.com/gokayybaz/bazusop/internal/server"
+	"github.com/gokayybaz/bazusop/internal/serviceaccounts"
 	"github.com/gokayybaz/bazusop/internal/serviceinventory"
 	"github.com/gokayybaz/bazusop/internal/sessions"
 	postgresstore "github.com/gokayybaz/bazusop/internal/storage/postgres"
@@ -73,6 +74,7 @@ func main() {
 	var identityStore identity.Store = identity.NewMemoryStore()
 	var sessionStore sessions.Store = sessions.NewMemoryStore()
 	var authorizationStore authorization.Store = authorization.NewMemoryStore()
+	var serviceAccountStore serviceaccounts.Store = serviceaccounts.NewMemoryStore()
 	storageMode := "memory"
 	if configuration.DatabaseURL != "" {
 		startupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -107,6 +109,7 @@ func main() {
 		identityStore = postgresStore
 		sessionStore = postgresStore
 		authorizationStore = postgresStore
+		serviceAccountStore = postgresStore
 		storageMode = "postgresql"
 	} else {
 		logger.Warn("DATABASE_URL is not set; inventory will be stored in memory")
@@ -162,6 +165,16 @@ func main() {
 	} else {
 		logger.Warn("BAZUSOP_BOOTSTRAP_SECRET and/or BAZUSOP_TOTP_ENCRYPTION_KEY are not set; local identity (bootstrap/invites) is disabled")
 	}
+	var serviceAccountService *serviceaccounts.Service
+	if authorizationService != nil && configuration.ServiceAccountPepper != "" {
+		serviceAccountService, err = serviceaccounts.NewService(serviceAccountStore, configuration.ServiceAccountPepper)
+		if err != nil {
+			logger.Error("could not initialize service account service", "error", err)
+			os.Exit(1)
+		}
+	} else if authorizationService != nil {
+		logger.Warn("BAZUSOP_SERVICE_ACCOUNT_PEPPER is not set; service account tokens are disabled")
+	}
 	var sessionService *sessions.Service
 	if identityService != nil {
 		sessionService, err = sessions.NewService(sessionStore, identityService.IsUserActive)
@@ -195,6 +208,7 @@ func main() {
 			server.WithIdentity(identityService, configuration.BootstrapSecret),
 			server.WithSessions(sessionService, identityService),
 			server.WithAuthorization(authorizationService),
+			server.WithServiceAccounts(serviceAccountService),
 			server.WithTrustedOrigins(configuration.TrustedOrigins),
 			server.WithRuntimeConfiguration(server.RuntimeConfiguration{
 				Storage: storageMode, TimescaleEnabled: configuration.TimescaleEnabled && storageMode == "postgresql",
