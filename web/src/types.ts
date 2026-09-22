@@ -1,4 +1,4 @@
-export type PageID = "overview" | "fleet" | "services" | "metrics" | "logs" | "jobs" | "alerts" | "cloud" | "audit" | "settings"
+export type PageID = "overview" | "fleet" | "services" | "metrics" | "logs" | "jobs" | "alerts" | "cloud" | "activity" | "audit" | "settings"
 
 export type InventoryInstance = {
   agent_id: string
@@ -102,4 +102,6 @@ export type AlertRule = { id: string; name: string; kind: "metric" | "reachabili
 export type MaintenanceWindow = { id: string; name: string; agent_id: string; starts_at: string; ends_at: string; created_by: string; created_at: string }
 export type CloudAccount = { id: string; name: string; provider: "aws" | "azure" | "gcp"; external_id: string; status: "pending" | "connected"; last_sync_at?: string }
 export type CloudInstance = { account_id: string; account_name: string; provider: CloudAccount["provider"]; provider_instance_id: string; name: string; region: string; zone?: string; state: string; os_family: "linux" | "windows" | "unknown"; private_ips: string[]; public_ips: string[]; agent_id_hint?: string; agent_id: string; candidate_agent_id?: string; match_status: "verified" | "candidate" | "unmatched"; match_reason: string }
-export type AuditEvent = { organization_id: string; site_id: string; source: "job" | "alert"; reference_id: string; agent_id: string; type: string; actor: string; message: string; occurred_at: string }
+export type ActivityEvent = { organization_id: string; site_id: string; source: "job" | "alert" | "identity" | "site_role" | "service_account"; reference_id: string; agent_id: string; type: string; actor: string; message: string; occurred_at: string }
+
+export type AuditTrailEvent = { event_id: string; occurred_at: string; correlation_id: string; actor_type: "agent" | "human" | "service_account" | "legacy_token" | "anonymous"; actor_id: string; session_or_token_id: string; organization_id: string; site_id: string; action: string; permission: string; resource_type: string; resource_id: string; outcome: "success" | "failure"; error_code: string; source_ip: string; user_agent: string; change_summary: string }

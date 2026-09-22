@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import { App } from "./app"
@@ -116,12 +116,36 @@ describe("bazUSOP shell", () => {
 	expect(screen.getByText("agent-01")).toBeInTheDocument()
   })
 
-  it("shows a unified, time-ordered audit timeline merging job and alert events", async () => {
+  it("shows a unified, time-ordered activity timeline merging job and alert events", async () => {
+	vi.mocked(fetch).mockImplementation((input) => {
+	  const url = String(input)
+	  if (url.startsWith("/api/v1/activity/events")) return Promise.resolve({ ok: true, json: async () => ({ events: [
+		{ organization_id: "org_default", site_id: "site_default", source: "alert", reference_id: "incident-01", agent_id: "agent-01", type: "opened", actor: "hub", message: "CPU %96", occurred_at: "2026-09-11T08:05:00Z" },
+		{ organization_id: "org_default", site_id: "site_default", source: "job", reference_id: "job-01", agent_id: "agent-01", type: "approved", actor: "gokay", message: "config rollout", occurred_at: "2026-09-11T08:00:00Z" },
+	  ] }) } as Response)
+	  if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [] }) } as Response)
+	  return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+	})
+
+	render(<App />)
+	fireEvent.click(screen.getByRole("button", { name: "Aktivite" }))
+
+	expect(window.location.pathname).toBe("/activity")
+	expect(await screen.findByRole("table", { name: "Aktivite olayları" })).toBeInTheDocument()
+	expect(screen.getByText("Onaylandı")).toBeInTheDocument()
+	expect(screen.getByText("Açıldı")).toBeInTheDocument()
+	expect(screen.getByText("config rollout")).toBeInTheDocument()
+	expect(screen.getByText("CPU %96")).toBeInTheDocument()
+	const rows = screen.getAllByRole("row")
+	expect(rows[1]).toHaveTextContent("Açıldı")
+	expect(rows[2]).toHaveTextContent("Onaylandı")
+  })
+
+  it("shows a permission-filtered audit trail search with working filters", async () => {
 	vi.mocked(fetch).mockImplementation((input) => {
 	  const url = String(input)
 	  if (url.startsWith("/api/v1/audit/events")) return Promise.resolve({ ok: true, json: async () => ({ events: [
-		{ organization_id: "org_default", site_id: "site_default", source: "alert", reference_id: "incident-01", agent_id: "agent-01", type: "opened", actor: "hub", message: "CPU %96", occurred_at: "2026-09-11T08:05:00Z" },
-		{ organization_id: "org_default", site_id: "site_default", source: "job", reference_id: "job-01", agent_id: "agent-01", type: "approved", actor: "gokay", message: "config rollout", occurred_at: "2026-09-11T08:00:00Z" },
+		{ event_id: "e-1", occurred_at: "2026-09-11T08:05:00Z", correlation_id: "c-1", actor_type: "human", actor_id: "user-1", session_or_token_id: "", organization_id: "org_default", site_id: "site_default", action: "POST", permission: "manage_service_accounts", resource_type: "service_accounts", resource_id: "account-1", outcome: "success", error_code: "", source_ip: "", user_agent: "", change_summary: "" },
 	  ] }) } as Response)
 	  if (url.includes("/incidents")) return Promise.resolve({ ok: true, json: async () => ({ incidents: [] }) } as Response)
 	  return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
@@ -131,14 +155,10 @@ describe("bazUSOP shell", () => {
 	fireEvent.click(screen.getByRole("button", { name: "Denetim izi" }))
 
 	expect(window.location.pathname).toBe("/audit")
-	expect(await screen.findByRole("table", { name: "Denetim olayları" })).toBeInTheDocument()
-	expect(screen.getByText("Onaylandı")).toBeInTheDocument()
-	expect(screen.getByText("Açıldı")).toBeInTheDocument()
-	expect(screen.getByText("config rollout")).toBeInTheDocument()
-	expect(screen.getByText("CPU %96")).toBeInTheDocument()
-	const rows = screen.getAllByRole("row")
-	expect(rows[1]).toHaveTextContent("Açıldı")
-	expect(rows[2]).toHaveTextContent("Onaylandı")
+	const table = await screen.findByRole("table", { name: "Denetim kayıtları" })
+	expect(table).toBeInTheDocument()
+	expect(within(table).getByText("account-1")).toBeInTheDocument()
+	expect(within(table).getByText("Başarılı")).toBeInTheDocument()
   })
 
   it("renders enrolled instances returned by the inventory API", async () => {

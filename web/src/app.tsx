@@ -5,8 +5,9 @@ import { ThemeToggle } from "./components/theme-toggle"
 import { Badge } from "./components/ui/badge"
 import { InstancePage } from "./components/instance-page"
 import { navigation, pageFromPath, pageMeta, secondaryNavigation } from "./navigation"
+import { ActivityPage } from "./pages/activity"
 import { AlarmCenter } from "./pages/alarm-center"
-import { AuditPage } from "./pages/audit"
+import { AuditTrailPage } from "./pages/audit"
 import { CloudInventoryPage } from "./pages/cloud-inventory"
 import { FleetPage } from "./pages/fleet"
 import { JobPanel } from "./pages/job-panel"
@@ -204,7 +205,8 @@ export function App() {
                   state={jobState}
                 /> : null}</InstancePage> : null}
             {activePage === "cloud" ? <CloudInventoryPage /> : null}
-            {activePage === "audit" ? <AuditPage /> : null}
+            {activePage === "activity" ? <ActivityPage /> : null}
+            {activePage === "audit" ? <AuditTrailPage /> : null}
             {activePage === "settings" ? <SettingsPage /> : null}
           </div>
         </main>

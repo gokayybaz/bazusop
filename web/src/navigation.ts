@@ -1,4 +1,4 @@
-import { Bell, Boxes, ChartNoAxesCombined, Cloud, Gauge, ListChecks, Server, Settings, ShieldCheck, TerminalSquare } from "lucide-react"
+import { Activity, Bell, Boxes, ChartNoAxesCombined, Cloud, Gauge, ListChecks, Server, Settings, ShieldCheck, TerminalSquare } from "lucide-react"
 
 import type { PageID } from "./types"
 
@@ -14,6 +14,7 @@ export const navigation = [
 
 export const secondaryNavigation = [
   { id: "cloud" as const, icon: Cloud, label: "Bulut hesapları", path: "/cloud" },
+  { id: "activity" as const, icon: Activity, label: "Aktivite", path: "/activity" },
   { id: "audit" as const, icon: ShieldCheck, label: "Denetim izi", path: "/audit" },
   { id: "settings" as const, icon: Settings, label: "Ayarlar", path: "/settings" },
 ]
@@ -27,7 +28,8 @@ export const pageMeta: Record<PageID, { eyebrow: string; title: string; descript
   jobs: { eyebrow: "OPERASYON", title: "İşler", description: "İmzalı ve denetlenebilir uzak aksiyonlar" },
   alerts: { eyebrow: "OLAY YÖNETİMİ", title: "Alarmlar", description: "Kurallar, olaylar ve bakım pencereleri" },
   cloud: { eyebrow: "KEŞİF", title: "Bulut hesapları", description: "AWS, Azure ve GCP envanter bağlantıları" },
-  audit: { eyebrow: "YÖNETİŞİM", title: "Denetim izi", description: "Operasyon ve olay geçmişi" },
+  activity: { eyebrow: "YÖNETİŞİM", title: "Aktivite", description: "İş, alarm, kimlik ve servis hesabı olaylarının zaman çizelgesi" },
+  audit: { eyebrow: "YÖNETİŞİM", title: "Denetim izi", description: "İzin bazlı, her isteği kapsayan güvenlik denetim kaydı" },
   settings: { eyebrow: "SİSTEM", title: "Ayarlar", description: "Hub ve arayüz tercihleri" },
 }
 
