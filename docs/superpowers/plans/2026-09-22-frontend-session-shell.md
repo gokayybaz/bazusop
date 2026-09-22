@@ -34,7 +34,7 @@
 **Arayüzler:**
 - Değiştirir: `GET /api/v1/session` yanıtı artık `csrf_token` alanı içerir (frontend'in sayfa yenilemesi sonrası CSRF token'ı yeniden öğrenmesinin TEK yolu — `bazusop_csrf` çerezi `Path: "/api"` ile sınırlı olduğundan, `/` kökünde servis edilen SPA sayfası onu `document.cookie` ile göremez; bu yüzden token JSON gövdesinde dönülür).
 
-- [ ] **Adım 1: `internal/server/sessions.go`'daki `handleWhoAmI`'ı güncelle**
+- [x] **Adım 1: `internal/server/sessions.go`'daki `handleWhoAmI`'ı güncelle**
 
 ```go
 func handleWhoAmI(sessionService *sessions.Service, identityService *identity.Service) http.HandlerFunc {
@@ -61,12 +61,12 @@ func handleWhoAmI(sessionService *sessions.Service, identityService *identity.Se
 
 (Yalnız `CSRFToken string \`json:"csrf_token"\`` alanı ve `session.CSRFToken` değeri eklendi; fonksiyonun geri kalanı değişmedi.)
 
-- [ ] **Adım 2: Build'i doğrula**
+- [x] **Adım 2: Build'i doğrula**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go build ./internal/server/... 2>&1 && echo BUILD_OK`
 Beklenen: `BUILD_OK`
 
-- [ ] **Adım 3: `internal/server/sessions_test.go`'daki `TestLoginWhoAmILogoutEndToEnd`'i güncelle**
+- [x] **Adım 3: `internal/server/sessions_test.go`'daki `TestLoginWhoAmILogoutEndToEnd`'i güncelle**
 
 `whoAmIResponse` bloğunun hemen ardına, mevcut `if whoAmIResponse.Code != http.StatusOK { ... }` kontrolünden sonra ekle:
 
@@ -84,17 +84,17 @@ Beklenen: `BUILD_OK`
 
 (`whoAmIResponse.Body`, tıpkı `loginResponse.Body` gibi, `httptest.ResponseRecorder`'ın `*bytes.Buffer`'ıdır — bir kez decode edilebilir; bu test zaten `whoAmIResponse.Code`'u kontrol ettikten sonra body'yi tekrar okumuyordu, bu yüzden yeni decode çağrısı güvenli.)
 
-- [ ] **Adım 4: Testi çalıştır**
+- [x] **Adım 4: Testi çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestLoginWhoAmILogoutEndToEnd' -v 2>&1 | tail -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 5: Tam `internal/server` paket testini çalıştır**
+- [x] **Adım 5: Tam `internal/server` paket testini çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go vet ./internal/server/... && gofmt -l internal/server/*.go && GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... 2>&1 | tail -10`
 Beklenen: vet/gofmt çıktısı yok; `ok`
 
-- [ ] **Adım 6: Commit**
+- [x] **Adım 6: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -111,7 +111,7 @@ git commit -m "feat: return the CSRF token from whoami so a page refresh doesn't
 **Arayüzler:**
 - Üretir: `SessionProvider` (React bileşeni), `useSession()` hook'u — `{ state: SessionState, login(credentials): Promise<LoginResult>, logout(): Promise<void>, apiFetch(input, init?): Promise<Response> }` döndürür. `SessionState` bir union: `{status:"loading"} | {status:"anonymous"} | {status:"authenticated", user:{userId,email,role}, csrfToken, expiresAt}`.
 
-- [ ] **Adım 1: `web/src/lib/session.tsx`'i yaz**
+- [x] **Adım 1: `web/src/lib/session.tsx`'i yaz**
 
 ```tsx
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react"
@@ -216,7 +216,7 @@ export function useSession(): SessionContextValue {
 }
 ```
 
-- [ ] **Adım 2: `web/src/lib/session.test.tsx`'i yaz**
+- [x] **Adım 2: `web/src/lib/session.test.tsx`'i yaz**
 
 ```tsx
 import { act, render, screen, waitFor } from "@testing-library/react"
@@ -335,17 +335,17 @@ describe("SessionProvider", () => {
 
 **Yazarken düzeltme:** `beforeEach`/`afterEach` içeren diğer test dosyalarının aksine, bu dosya `beforeEach` KULLANMIYOR — her test kendi `vi.stubGlobal("fetch", ...)` çağrısını yapıyor (farklı senaryolar farklı mock'lar gerektiriyor, ortak bir varsayılan gereksiz). Yalnız `afterEach(() => vi.unstubAllGlobals())` yeterli.
 
-- [ ] **Adım 3: Testleri çalıştır**
+- [x] **Adım 3: Testleri çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm test -- session.test.tsx 2>&1 | tail -60`
 Beklenen: 6 test BAŞARILI
 
-- [ ] **Adım 4: Tip kontrolü**
+- [x] **Adım 4: Tip kontrolü**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx tsc -b --noEmit 2>&1 | tail -40`
 Beklenen: hata yok (henüz kullanılmayan bir dosya olsa bile mevcut kodla tip çakışması olmamalı)
 
-- [ ] **Adım 5: Commit**
+- [x] **Adım 5: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -366,12 +366,12 @@ git commit -m "feat: add SessionProvider and CSRF-aware apiFetch to the frontend
 - Tüketir: `useSession` (`./lib/session`).
 - Üretir: `ProtectedRoute` (children alan bir sarmalayıcı bileşen), `LoginPage`, `AppShell` (eski `App`'in yerini alan, artık `react-router-dom` hook'larını kullanan bileşen), yeni `App` (yalnız router tanımı).
 
-- [ ] **Adım 1: `react-router-dom`'u kur**
+- [x] **Adım 1: `react-router-dom`'u kur**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm install react-router-dom@^7.18.4 2>&1 | tail -20`
 Beklenen: `package.json`'a `"react-router-dom": "^7.18.4"` eklenir, `package-lock.json` güncellenir, hata yok.
 
-- [ ] **Adım 2: `web/src/lib/protected-route.tsx`'i yaz**
+- [x] **Adım 2: `web/src/lib/protected-route.tsx`'i yaz**
 
 ```tsx
 import type { ReactNode } from "react"
@@ -393,7 +393,7 @@ export function ProtectedRoute({ children }: { children: ReactNode }) {
 }
 ```
 
-- [ ] **Adım 3: `web/src/pages/login.tsx`'i yaz**
+- [x] **Adım 3: `web/src/pages/login.tsx`'i yaz**
 
 ```tsx
 import { type FormEvent, useState } from "react"
@@ -481,7 +481,7 @@ export function LoginPage() {
 }
 ```
 
-- [ ] **Adım 4: `web/src/app-shell.tsx`'i, mevcut `web/src/app.tsx`'in gövdesini taşıyıp uyarlayarak yaz**
+- [x] **Adım 4: `web/src/app-shell.tsx`'i, mevcut `web/src/app.tsx`'in gövdesini taşıyıp uyarlayarak yaz**
 
 ```tsx
 import { Bell, LogOut, Search } from "lucide-react"
@@ -715,7 +715,7 @@ export function AppShell() {
 
 **Yazarken düzeltme:** Orijinal `app.tsx`'te `Command` ikonu `lucide-react`'tan import ediliyordu (`import { Bell, Command, Search } from "lucide-react"`); yukarıdaki JSX onu hâlâ kullanıyor (`<kbd><Command size={12} /> K</kbd>`) ama import satırına `LogOut` eklenirken `Command` yanlışlıkla düşürülmüş görünüyor — import satırını `import { Bell, Command, LogOut, Search } from "lucide-react"` olarak düzelt.
 
-- [ ] **Adım 5: `web/src/app.tsx`'i router köküne indirge**
+- [x] **Adım 5: `web/src/app.tsx`'i router köküne indirge**
 
 ```tsx
 import { BrowserRouter, Route, Routes } from "react-router-dom"
@@ -746,7 +746,7 @@ export function App() {
 }
 ```
 
-- [ ] **Adım 6: `web/src/styles.css`'e giriş ekranı ve kullanıcı menüsü stillerini ekle**
+- [x] **Adım 6: `web/src/styles.css`'e giriş ekranı ve kullanıcı menüsü stillerini ekle**
 
 Dosyanın sonuna ekle:
 
@@ -769,12 +769,12 @@ Dosyanın sonuna ekle:
 @media (min-width: 1100px) { .user-menu-details { display: block; } }
 ```
 
-- [ ] **Adım 7: Tip kontrolü ve production build**
+- [x] **Adım 7: Tip kontrolü ve production build**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm run build 2>&1 | tail -60`
 Beklenen: BAŞARILI (bu adımda `app.test.tsx` henüz güncellenmediği için testler BAŞARISIZ olabilir — Görev 4 düzeltir; `npm run build` yalnız tip kontrolü + prod bundle'ı doğrular, testleri çalıştırmaz)
 
-- [ ] **Adım 8: Commit**
+- [x] **Adım 8: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -790,7 +790,7 @@ git commit -m "feat: add react-router-dom, ProtectedRoute and a real login page"
 **Arayüzler:**
 - Tüketir: `App` (`./app`), `LoginPage` (`./pages/login`), `SessionProvider` (`./lib/session`).
 
-- [ ] **Adım 1: `web/src/app.test.tsx`'in tamamını yeniden yaz**
+- [x] **Adım 1: `web/src/app.test.tsx`'in tamamını yeniden yaz**
 
 Mevcut dosyadaki her senaryo korunur; tek fark, `beforeEach`'in varsayılan `fetch` mock'unun artık `GET /api/v1/session`'ı da (oturumlu) yanıtlaması, ve her özel `mockImplementation`'ın da aynı `/api/v1/session` dalını eklemesi. Yeni üç test (login akışı, oturumsuz yönlendirme, çıkış) sona eklenir.
 
@@ -1127,17 +1127,17 @@ describe("bazUSOP shell", () => {
 })
 ```
 
-- [ ] **Adım 2: Testleri çalıştır**
+- [x] **Adım 2: Testleri çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm test 2>&1 | tail -150`
 Beklenen: TÜM testler BAŞARILI
 
-- [ ] **Adım 3: Production build'i tekrar doğrula**
+- [x] **Adım 3: Production build'i tekrar doğrula**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm run build 2>&1 | tail -40`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 4: Commit**
+- [x] **Adım 4: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -1149,15 +1149,15 @@ git commit -m "test: make the frontend test suite session-aware and cover login/
 
 **Dosyalar:** yok (yalnız doğrulama).
 
-- [ ] **Adım 1: Docker Compose ile hub'ı yeniden derleyip ayağa kaldır**
+- [x] **Adım 1: Docker Compose ile hub'ı yeniden derleyip ayağa kaldır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && docker compose down -v >/dev/null 2>&1; BAZUSOP_PORT=8090 BAZUSOP_BOOTSTRAP_SECRET=verify-bootstrap BAZUSOP_TOTP_ENCRYPTION_KEY=verify-totp-key BAZUSOP_SERVICE_ACCOUNT_PEPPER=verify-pepper docker compose up --build -d 2>&1 | tail -30`
 
-- [ ] **Adım 2: Sağlık kontrolünü bekle**
+- [x] **Adım 2: Sağlık kontrolünü bekle**
 
 Çalıştır: `for i in $(seq 1 20); do curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8090/api/v1/health | grep -q 200 && echo healthy && break; sleep 1; done`
 
-- [ ] **Adım 3: Bootstrap ol, tarayıcı benzeri bir akışla giriş yap (curl ile, gerçek tarayıcı davranışını simüle ederek)**
+- [x] **Adım 3: Bootstrap ol, tarayıcı benzeri bir akışla giriş yap (curl ile, gerçek tarayıcı davranışını simüle ederek)**
 
 ```bash
 rm -f /tmp/bazusop-1310-cookies.txt
@@ -1166,7 +1166,7 @@ curl -s -c /tmp/bazusop-1310-cookies.txt -X POST http://127.0.0.1:8090/api/v1/bo
 cat /tmp/bazusop-1310-bootstrap.json
 ```
 
-- [ ] **Adım 4: Ana sayfanın (oturumsuz) giriş ekranına yönlendiren bir SPA index döndürdüğünü doğrula**
+- [x] **Adım 4: Ana sayfanın (oturumsuz) giriş ekranına yönlendiren bir SPA index döndürdüğünü doğrula**
 
 ```bash
 curl -s http://127.0.0.1:8090/ | grep -o '<title>[^<]*</title>'
@@ -1174,7 +1174,7 @@ curl -s http://127.0.0.1:8090/ | grep -o '<title>[^<]*</title>'
 
 Beklenen: `<title>bazUSOP · Operasyonlar</title>` (SPA kabuğu döner; giriş yönlendirmesi client-side router tarafından yapılır — bu adım yalnız statik dosyanın servis edildiğini doğrular, gerçek yönlendirme tarayıcıda çalışır).
 
-- [ ] **Adım 5: Whoami'nin artık csrf_token döndürdüğünü doğrula**
+- [x] **Adım 5: Whoami'nin artık csrf_token döndürdüğünü doğrula**
 
 ```bash
 CODE=$(python3 -c "import json; print(json.load(open('/tmp/bazusop-1310-bootstrap.json'))['recovery_codes'][0])")
@@ -1185,11 +1185,11 @@ curl -s -b /tmp/bazusop-1310-cookies.txt http://127.0.0.1:8090/api/v1/session -w
 
 Beklenen: yanıt gövdesinde `csrf_token` alanı dolu ve `/tmp/bazusop-1310-login.json`'daki login yanıtının `csrf_token`'ıyla aynı.
 
-- [ ] **Adım 6: Gerçek tarayıcıda manuel doğrulama (bilgi amaçlı)**
+- [x] **Adım 6: Gerçek tarayıcıda manuel doğrulama (bilgi amaçlı)**
 
 `http://127.0.0.1:8090` tarayıcıda açıldığında: (a) oturum yoksa `/login` ekranına yönlenmeli, (b) `admin@example.com` / `correct horse battery staple` / az önceki recovery code ile giriş yapılabilmeli, (c) dashboard'da sağ üstte gerçek e-posta ve "Çıkış yap" görünmeli, (d) çıkış yapınca `/login`'e dönmeli. Bu adım otomatik değildir; önceki adımların API seviyesinde kanıtladığı akışın tarayıcıda da tutarlı olduğunu teyit eder.
 
-- [ ] **Adım 7: Temizlik**
+- [x] **Adım 7: Temizlik**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -1197,7 +1197,7 @@ docker compose down -v
 rm -f /tmp/bazusop-1310-cookies.txt /tmp/bazusop-1310-bootstrap.json /tmp/bazusop-1310-login.json
 ```
 
-- [ ] **Adım 8: Go ve frontend testlerini son kez birlikte çalıştır**
+- [x] **Adım 8: Go ve frontend testlerini son kez birlikte çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go build ./... && go vet ./... && GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... 2>&1 | tail -10`
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm test 2>&1 | tail -30 && npm run build 2>&1 | tail -20`
