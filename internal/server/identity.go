@@ -172,3 +172,53 @@ func handleConfirmTOTP(service *identity.Service, limiter *ratelimit.Limiter) ht
 		}{enrollment.ProvisioningURI, enrollment.RecoveryCodes})
 	}
 }
+
+func handleListUsers(identityService *identity.Service, authzService *authorization.Service, sessionService *sessions.Service, scope tenancy.Scope) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		if _, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID); !ok {
+			return
+		}
+		users, err := identityService.UsersForOrganization(request.Context(), scope.OrganizationID)
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+			return
+		}
+		type siteRolePayload struct {
+			SiteID string `json:"site_id"`
+			Role   string `json:"role"`
+		}
+		type userPayload struct {
+			ID              string            `json:"id"`
+			Email           string            `json:"email"`
+			Role            string            `json:"role"`
+			DisabledAt      *string           `json:"disabled_at,omitempty"`
+			TOTPConfirmedAt *string           `json:"totp_confirmed_at,omitempty"`
+			SiteRoles       []siteRolePayload `json:"site_roles"`
+		}
+		payload := make([]userPayload, 0, len(users))
+		for _, user := range users {
+			memberships, err := authzService.MembershipsForUser(request.Context(), user.ID)
+			if err != nil {
+				http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
+				return
+			}
+			siteRoles := make([]siteRolePayload, 0, len(memberships))
+			for _, membership := range memberships {
+				siteRoles = append(siteRoles, siteRolePayload{SiteID: membership.SiteID, Role: string(membership.Role)})
+			}
+			entry := userPayload{ID: user.ID, Email: user.Email, Role: string(user.Role), SiteRoles: siteRoles}
+			if user.DisabledAt != nil {
+				formatted := user.DisabledAt.Format(timeLayout)
+				entry.DisabledAt = &formatted
+			}
+			if user.TOTPConfirmedAt != nil {
+				formatted := user.TOTPConfirmedAt.Format(timeLayout)
+				entry.TOTPConfirmedAt = &formatted
+			}
+			payload = append(payload, entry)
+		}
+		writeJSON(response, http.StatusOK, struct {
+			Users []userPayload `json:"users"`
+		}{payload})
+	}
+}
