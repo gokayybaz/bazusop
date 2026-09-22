@@ -40,8 +40,13 @@ Her spike aynı teslimat döngüsünü izler:
 | 12 — Birleşik denetim izi | İş ve alarm olayları `GET /api/v1/audit/events` ile tek zaman çizelgesinde birleşir; `/audit` sayfası gerçek veriyi gösterir | İki farklı kaynaktan gelen olay tek zaman çizelgesinde doğru sırada görünür; site'lar arası sızıntı yok; `limit` çalışır |
 
 Spike 11 numarası [kurumsal kimlik/RBAC/audit tasarımına](superpowers/specs/2026-09-13-enterprise-rbac-identity-audit-design.md)
-ayrılmıştır (11.1–11.10, `v0.4.x`); bu doküman henüz uygulanmamış onaylı bir
-tasarımdır, sıradaki en yüksek öncelikli iştir.
+ayrılmıştı (11.1–11.10, `v0.4.x`); backend tarafı tamamlandı.
+
+Spike 13 numarası [frontend kimlik doğrulama ve RBAC yönetim arayüzü
+tasarımına](superpowers/specs/2026-09-22-frontend-identity-rbac-ui-design.md)
+ayrılmıştır (13.1–13.6, `v0.5.x`) — 11.x'in bilinçli olarak ertelediği UI
+yüzeylerini tamamlar; bu doküman henüz uygulanmamış onaylı bir tasarımdır,
+sıradaki en yüksek öncelikli iştir.
 
 ## Mimari kısıtlar
 
