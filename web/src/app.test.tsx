@@ -92,7 +92,6 @@ describe("bazUSOP shell", () => {
     expect(window.location.pathname).toBe("/alerts")
     expect(screen.getByRole("region", { name: "Alarm merkezi" })).toBeInTheDocument()
     expect(screen.getByText("Politika değişiklikleri yönetici, olay onayı operatör yetkisi ister.")).toBeInTheDocument()
-    expect(screen.getByLabelText("Yetkili token")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "incident-01 olayını onayla" })).toBeInTheDocument()
   })
 

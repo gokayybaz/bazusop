@@ -30,7 +30,7 @@
 **Arayüzler:**
 - Tüketir: `useSession` (`../lib/session`) — `apiFetch` için.
 
-- [ ] **Adım 1: `web/src/pages/job-panel.tsx`'i güncelle**
+- [x] **Adım 1: `web/src/pages/job-panel.tsx`'i güncelle**
 
 `import` bloğuna ekle:
 
@@ -102,12 +102,12 @@ Formdan "Operatör token'ı" alanını kaldır:
 
 (Yalnız `<label><span>Operatör token'ı</span>...</label>` satırı kaldırıldı; diğer her şey aynı.)
 
-- [ ] **Adım 2: Build/tip kontrolünü doğrula (test dosyası henüz yazılmadı)**
+- [x] **Adım 2: Build/tip kontrolünü doğrula (test dosyası henüz yazılmadı)**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx tsc -b --noEmit 2>&1 | tail -40`
 Beklenen: hata yok
 
-- [ ] **Adım 3: `web/src/pages/job-panel.test.tsx`'i yaz**
+- [x] **Adım 3: `web/src/pages/job-panel.test.tsx`'i yaz**
 
 ```tsx
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
@@ -167,12 +167,12 @@ describe("JobPanel", () => {
 })
 ```
 
-- [ ] **Adım 4: Testi çalıştır**
+- [x] **Adım 4: Testi çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx vitest run job-panel.test 2>&1 | tail -60`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 5: Commit**
+- [x] **Adım 5: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -189,7 +189,7 @@ git commit -m "fix: create jobs via the session's CSRF-protected apiFetch, not a
 **Arayüzler:**
 - Tüketir: `useSession` (`../lib/session`) — `apiFetch` için.
 
-- [ ] **Adım 1: `web/src/pages/alarm-center.tsx`'i güncelle**
+- [x] **Adım 1: `web/src/pages/alarm-center.tsx`'i güncelle**
 
 ```tsx
 import { type FormEvent, useEffect, useState } from "react"
@@ -266,12 +266,12 @@ export function AlarmCenter({ incidents, onIncidentUpdated }: { incidents: Alert
 function incidentStatusLabel(status: AlertIncident["status"]) { return { open: "Açık", acknowledged: "Onaylandı", resolved: "Çözüldü" }[status] }
 ```
 
-- [ ] **Adım 2: Build/tip kontrolünü doğrula**
+- [x] **Adım 2: Build/tip kontrolünü doğrula**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx tsc -b --noEmit 2>&1 | tail -40`
 Beklenen: hata yok
 
-- [ ] **Adım 3: `web/src/pages/alarm-center.test.tsx`'i yaz**
+- [x] **Adım 3: `web/src/pages/alarm-center.test.tsx`'i yaz**
 
 ```tsx
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
@@ -365,12 +365,12 @@ describe("AlarmCenter", () => {
 })
 ```
 
-- [ ] **Adım 4: Testleri çalıştır**
+- [x] **Adım 4: Testleri çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx vitest run alarm-center.test 2>&1 | tail -80`
 Beklenen: 2 test BAŞARILI
 
-- [ ] **Adım 5: Commit**
+- [x] **Adım 5: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -383,16 +383,16 @@ git commit -m "fix: manage alerts via the session's CSRF-protected apiFetch, not
 **Dosyalar:**
 - Değiştir: `web/src/app.test.tsx`
 
-- [ ] **Adım 1: "shows managed alarm incidents and opens the alarm center" testinden kaldırılan alana dair iddiayı sil**
+- [x] **Adım 1: "shows managed alarm incidents and opens the alarm center" testinden kaldırılan alana dair iddiayı sil**
 
 `expect(screen.getByLabelText("Yetkili token")).toBeInTheDocument()` satırını testten kaldır — bu alan artık DOM'da yok. Testin geri kalanı (route entegrasyonu, olay listesi, onayla düğmesinin varlığı) değişmeden kalır.
 
-- [ ] **Adım 2: Tam frontend test süitini ve production build'i çalıştır**
+- [x] **Adım 2: Tam frontend test süitini ve production build'i çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm test 2>&1 | tail -50 && npm run build 2>&1 | tail -30`
 Beklenen: tüm testler BAŞARILI, build BAŞARILI
 
-- [ ] **Adım 3: Commit**
+- [x] **Adım 3: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -404,15 +404,15 @@ git commit -m "test: drop the removed access-token assertion from the alarm cent
 
 **Dosyalar:** yok (yalnız doğrulama).
 
-- [ ] **Adım 1: Docker Compose ile hub'ı yeniden derleyip ayağa kaldır**
+- [x] **Adım 1: Docker Compose ile hub'ı yeniden derleyip ayağa kaldır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && docker compose down -v >/dev/null 2>&1; BAZUSOP_PORT=8090 BAZUSOP_BOOTSTRAP_SECRET=verify-bootstrap BAZUSOP_TOTP_ENCRYPTION_KEY=verify-totp-key BAZUSOP_SERVICE_ACCOUNT_PEPPER=verify-pepper docker compose up --build -d 2>&1 | tail -30`
 
-- [ ] **Adım 2: Sağlık kontrolünü bekle**
+- [x] **Adım 2: Sağlık kontrolünü bekle**
 
 Çalıştır: `for i in $(seq 1 20); do curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8090/api/v1/health | grep -q 200 && echo healthy && break; sleep 1; done`
 
-- [ ] **Adım 3: Bootstrap ol, giriş yap, gerçek bir iş oluştur — tarayıcı benzeri bir akışla (curl + Python), eski token alanı hiç kullanmadan**
+- [x] **Adım 3: Bootstrap ol, giriş yap, gerçek bir iş oluştur — tarayıcı benzeri bir akışla (curl + Python), eski token alanı hiç kullanmadan**
 
 ```bash
 python3 -c "
@@ -460,14 +460,14 @@ print('alert rule created with session auth:', rule_payload['id'])
 
 Beklenen: "request without CSRF header correctly rejected: 403" ve ardından "alert rule created with session auth: ..." satırlarını basar.
 
-- [ ] **Adım 4: Temizlik**
+- [x] **Adım 4: Temizlik**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
 docker compose down -v
 ```
 
-- [ ] **Adım 5: Go ve frontend testlerini son kez birlikte çalıştır**
+- [x] **Adım 5: Go ve frontend testlerini son kez birlikte çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go build ./... && go vet ./... && gofmt -l . && GOCACHE=/tmp/bazusop-go-cache go test ./... 2>&1 | tail -30`
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm test 2>&1 | tail -40 && npm run build 2>&1 | tail -20`
