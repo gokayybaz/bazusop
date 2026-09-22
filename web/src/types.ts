@@ -105,3 +105,6 @@ export type CloudInstance = { account_id: string; account_name: string; provider
 export type ActivityEvent = { organization_id: string; site_id: string; source: "job" | "alert" | "identity" | "site_role" | "service_account"; reference_id: string; agent_id: string; type: string; actor: string; message: string; occurred_at: string }
 
 export type AuditTrailEvent = { event_id: string; occurred_at: string; correlation_id: string; actor_type: "agent" | "human" | "service_account" | "legacy_token" | "anonymous"; actor_id: string; session_or_token_id: string; organization_id: string; site_id: string; action: string; permission: string; resource_type: string; resource_id: string; outcome: "success" | "failure"; error_code: string; source_ip: string; user_agent: string; change_summary: string }
+
+export type UserSiteRole = { site_id: string; role: string }
+export type ManagedUser = { id: string; email: string; role: string; disabled_at?: string; totp_confirmed_at?: string; site_roles: UserSiteRole[] }
