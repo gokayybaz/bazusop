@@ -73,7 +73,7 @@ func TestRequirePermissionDeniesASessionLackingThePermission(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	viewer, err := identityService.ConsumeInvite(t.Context(), token, "a brand new password")
+	viewer, _, err := identityService.ConsumeInvite(t.Context(), token, "a brand new password")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -84,7 +84,7 @@ func inviteConsumeAndAssign(t *testing.T, identityService *identity.Service, aut
 	if err != nil {
 		t.Fatal(err)
 	}
-	user, err := identityService.ConsumeInvite(t.Context(), token, "a brand new password")
+	user, _, err := identityService.ConsumeInvite(t.Context(), token, "a brand new password")
 	if err != nil {
 		t.Fatal(err)
 	}

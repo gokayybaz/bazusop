@@ -1,11 +1,14 @@
 package server_test
 
 import (
+	"encoding/base32"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gokayybaz/bazusop/internal/audittrail"
 	"github.com/gokayybaz/bazusop/internal/authorization"
@@ -264,5 +267,75 @@ func TestWhoAmIResponseNeverIncludesPasswordOrTOTPSecret(t *testing.T) {
 		if strings.Contains(body, forbidden) {
 			t.Fatalf("whoami response leaked a secret field/value (%q): %s", forbidden, body)
 		}
+	}
+}
+
+func secretFromProvisioningURI(t *testing.T, provisioningURI string) []byte {
+	t.Helper()
+	parsed, err := url.Parse(provisioningURI)
+	if err != nil {
+		t.Fatalf("parse provisioning URI: %v", err)
+	}
+	secret, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(parsed.Query().Get("secret"))
+	if err != nil {
+		t.Fatalf("decode provisioning URI secret: %v", err)
+	}
+	return secret
+}
+
+func TestInviteConsumeReturnsAProvisioningURIARealClientCanUseToConfirmAndLogIn(t *testing.T) {
+	t.Parallel()
+	handler := newIdentityHandler(t, "correct-secret")
+	cookies := bootstrapAndLogin(t, handler, "correct-secret", "admin@example.com", "correct horse battery staple")
+
+	inviteRequest := httptest.NewRequest(http.MethodPost, "/api/v1/users/invites", encodeJSON(t, map[string]string{"email": "new-user@example.com"}))
+	for _, cookie := range cookies {
+		inviteRequest.AddCookie(cookie)
+	}
+	inviteRequest.Header.Set("X-CSRF-Token", csrfTokenFromCookies(cookies))
+	inviteResponse := httptest.NewRecorder()
+	handler.ServeHTTP(inviteResponse, inviteRequest)
+	var invitePayload struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(inviteResponse.Body).Decode(&invitePayload); err != nil || invitePayload.Token == "" {
+		t.Fatalf("expected a non-empty invite token, got %#v, %v", invitePayload, err)
+	}
+
+	consumeResponse := httptest.NewRecorder()
+	handler.ServeHTTP(consumeResponse, httptest.NewRequest(http.MethodPost, "/api/v1/invites/"+invitePayload.Token+"/consume", encodeJSON(t, map[string]string{"password": "a brand new password"})))
+	if consumeResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from invite consumption, got %d: %s", consumeResponse.Code, consumeResponse.Body.String())
+	}
+	var consumedUser struct {
+		ID              string `json:"id"`
+		ProvisioningURI string `json:"provisioning_uri"`
+	}
+	if err := json.NewDecoder(consumeResponse.Body).Decode(&consumedUser); err != nil || consumedUser.ID == "" || consumedUser.ProvisioningURI == "" {
+		t.Fatalf("expected a user id and a non-empty provisioning URI, got %#v, %v", consumedUser, err)
+	}
+
+	secret := secretFromProvisioningURI(t, consumedUser.ProvisioningURI)
+	code := identity.GenerateTOTPCode(secret, time.Now().UTC())
+
+	confirmResponse := httptest.NewRecorder()
+	handler.ServeHTTP(confirmResponse, httptest.NewRequest(http.MethodPost, "/api/v1/users/"+consumedUser.ID+"/confirm-totp", encodeJSON(t, map[string]string{"code": code})))
+	if confirmResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 confirming TOTP with a code derived only from the provisioning URI, got %d: %s", confirmResponse.Code, confirmResponse.Body.String())
+	}
+	var confirmPayload struct {
+		ProvisioningURI string   `json:"provisioning_uri"`
+		RecoveryCodes   []string `json:"recovery_codes"`
+	}
+	if err := json.NewDecoder(confirmResponse.Body).Decode(&confirmPayload); err != nil || len(confirmPayload.RecoveryCodes) != 10 || confirmPayload.ProvisioningURI == "" {
+		t.Fatalf("expected 10 recovery codes and a non-empty provisioning URI, got %#v, %v", confirmPayload, err)
+	}
+
+	loginResponse := httptest.NewRecorder()
+	handler.ServeHTTP(loginResponse, httptest.NewRequest(http.MethodPost, "/api/v1/sessions", encodeJSON(t, map[string]string{
+		"email": "new-user@example.com", "password": "a brand new password", "totp_code": identity.GenerateTOTPCode(secret, time.Now().UTC()),
+	})))
+	if loginResponse.Code != http.StatusCreated {
+		t.Fatalf("expected the newly onboarded user to log in with their own authenticator app, got %d: %s", loginResponse.Code, loginResponse.Body.String())
 	}
 }

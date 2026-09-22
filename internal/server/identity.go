@@ -117,7 +117,7 @@ func handleConsumeInvite(service *identity.Service, limiter *ratelimit.Limiter) 
 		if err := decodeJSON(response, request, &body); err != nil {
 			return
 		}
-		user, err := service.ConsumeInvite(request.Context(), request.PathValue("token"), body.Password)
+		user, enrollment, err := service.ConsumeInvite(request.Context(), request.PathValue("token"), body.Password)
 		if errors.Is(err, identity.ErrInviteNotFound) {
 			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
@@ -135,8 +135,9 @@ func handleConsumeInvite(service *identity.Service, limiter *ratelimit.Limiter) 
 			return
 		}
 		writeJSON(response, http.StatusCreated, struct {
-			ID string `json:"id"`
-		}{user.ID})
+			ID              string `json:"id"`
+			ProvisioningURI string `json:"provisioning_uri"`
+		}{user.ID, enrollment.ProvisioningURI})
 	}
 }
 
@@ -166,7 +167,8 @@ func handleConfirmTOTP(service *identity.Service, limiter *ratelimit.Limiter) ht
 			return
 		}
 		writeJSON(response, http.StatusOK, struct {
-			RecoveryCodes []string `json:"recovery_codes"`
-		}{enrollment.RecoveryCodes})
+			ProvisioningURI string   `json:"provisioning_uri"`
+			RecoveryCodes   []string `json:"recovery_codes"`
+		}{enrollment.ProvisioningURI, enrollment.RecoveryCodes})
 	}
 }
