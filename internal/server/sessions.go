@@ -120,8 +120,9 @@ func handleWhoAmI(sessionService *sessions.Service, identityService *identity.Se
 			UserID    string `json:"user_id"`
 			Email     string `json:"email"`
 			Role      string `json:"role"`
+			CSRFToken string `json:"csrf_token"`
 			ExpiresAt string `json:"expires_at"`
-		}{user.ID, user.Email, string(user.Role), session.AbsoluteExpiresAt.Format(timeLayout)})
+		}{user.ID, user.Email, string(user.Role), session.CSRFToken, session.AbsoluteExpiresAt.Format(timeLayout)})
 	}
 }
 
