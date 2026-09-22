@@ -86,13 +86,13 @@ type TOTPEnrollment struct {
 }
 
 var (
-	ErrAlreadyBootstrapped    = errors.New("hub is already bootstrapped")
-	ErrInvalidBootstrapSecret = errors.New("invalid bootstrap secret")
-	ErrInviteNotFound         = errors.New("invite not found")
-	ErrInviteExpired          = errors.New("invite expired or already consumed")
-	ErrInvalidCredentials     = errors.New("invalid credentials")
-	ErrTOTPAlreadyConfirmed   = errors.New("TOTP already confirmed")
-	ErrInvalidTOTPCode        = errors.New("invalid TOTP code")
+	ErrAlreadyBootstrapped     = errors.New("hub is already bootstrapped")
+	ErrInvalidBootstrapSecret  = errors.New("invalid bootstrap secret")
+	ErrInviteNotFound          = errors.New("invite not found")
+	ErrInviteExpired           = errors.New("invite expired or already consumed")
+	ErrInvalidCredentials      = errors.New("invalid credentials")
+	ErrTOTPAlreadyConfirmed    = errors.New("TOTP already confirmed")
+	ErrInvalidTOTPCode         = errors.New("invalid TOTP code")
 	ErrInvalidInviteRole       = errors.New("invalid invite role/site-grant combination")
 	ErrOIDCNotConfigured       = errors.New("organization has no OIDC configuration")
 	ErrInviteWrongIdentityType = errors.New("invite identity type does not match this login method")
