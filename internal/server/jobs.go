@@ -13,16 +13,15 @@ import (
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
-func WithJobs(service *jobs.Service, operatorToken string) Option {
+func WithJobs(service *jobs.Service) Option {
 	return func(options *handlerOptions) {
 		options.jobService = service
-		options.operatorToken = operatorToken
 	}
 }
 
-func handleCreateJob(service *jobs.Service, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleCreateJob(service *jobs.Service, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if _, ok := requirePermission(response, request, sessionService, serviceAccountService, authzService, authorization.PermissionCreateJobs, scope.SiteID, tokens, roleOperator); !ok {
+		if _, ok := requirePermission(response, request, sessionService, serviceAccountService, authzService, authorization.PermissionCreateJobs, scope.SiteID); !ok {
 			return
 		}
 		var createRequest jobs.CreateRequest

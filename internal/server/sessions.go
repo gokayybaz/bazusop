@@ -4,6 +4,7 @@ import (
 	"crypto/subtle"
 	"net/http"
 
+	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/identity"
 	"github.com/gokayybaz/bazusop/internal/sessions"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
@@ -137,9 +138,9 @@ func handleLogout(sessionService *sessions.Service) http.HandlerFunc {
 	}
 }
 
-func handleRevokeUserSessions(sessionService *sessions.Service, tokens accessTokens) http.HandlerFunc {
+func handleRevokeUserSessions(sessionService *sessions.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeRole(response, request, tokens, roleAdmin) {
+		if _, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID); !ok {
 			return
 		}
 		if err := sessionService.RevokeAllForUser(request.Context(), request.PathValue("userID")); err != nil {
@@ -150,9 +151,9 @@ func handleRevokeUserSessions(sessionService *sessions.Service, tokens accessTok
 	}
 }
 
-func handleRevokeAllSessions(sessionService *sessions.Service, tokens accessTokens) http.HandlerFunc {
+func handleRevokeAllSessions(sessionService *sessions.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if !authorizeRole(response, request, tokens, roleAdmin) {
+		if _, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID); !ok {
 			return
 		}
 		if err := sessionService.RevokeAllForOrganization(request.Context(), tenancy.DefaultOrganizationID); err != nil {

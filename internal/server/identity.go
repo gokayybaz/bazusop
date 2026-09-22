@@ -49,9 +49,9 @@ func handleBootstrap(service *identity.Service, bootstrapSecret string) http.Han
 	}
 }
 
-func handleCreateInvite(service *identity.Service, sessionService *sessions.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleCreateInvite(service *identity.Service, sessionService *sessions.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		actorUserID, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID, tokens, roleAdmin)
+		actorUserID, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID)
 		if !ok {
 			return
 		}

@@ -12,16 +12,15 @@ import (
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
-func WithAlerts(service *alerting.Service, operatorToken string) Option {
+func WithAlerts(service *alerting.Service) Option {
 	return func(options *handlerOptions) {
 		options.alertService = service
-		options.operatorToken = operatorToken
 	}
 }
 
-func handleCreateAlertRule(service *alerting.Service, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleCreateAlertRule(service *alerting.Service, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if _, ok := requirePermission(response, request, sessionService, serviceAccountService, authzService, authorization.PermissionManageAlerts, scope.SiteID, tokens, roleAdmin); !ok {
+		if _, ok := requirePermission(response, request, sessionService, serviceAccountService, authzService, authorization.PermissionManageAlerts, scope.SiteID); !ok {
 			return
 		}
 		var value alerting.RuleRequest
@@ -54,9 +53,9 @@ func handleListAlertRules(service *alerting.Service, scope tenancy.Scope) http.H
 	}
 }
 
-func handleCreateMaintenance(service *alerting.Service, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleCreateMaintenance(service *alerting.Service, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if _, ok := requirePermission(response, request, sessionService, serviceAccountService, authzService, authorization.PermissionManageAlerts, scope.SiteID, tokens, roleAdmin); !ok {
+		if _, ok := requirePermission(response, request, sessionService, serviceAccountService, authzService, authorization.PermissionManageAlerts, scope.SiteID); !ok {
 			return
 		}
 		var value alerting.MaintenanceRequest
@@ -140,9 +139,9 @@ func handleAlertEvents(service *alerting.Service, scope tenancy.Scope) http.Hand
 	}
 }
 
-func handleAcknowledgeIncident(service *alerting.Service, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleAcknowledgeIncident(service *alerting.Service, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if _, ok := requirePermission(response, request, sessionService, serviceAccountService, authzService, authorization.PermissionAcknowledgeIncidents, scope.SiteID, tokens, roleOperator); !ok {
+		if _, ok := requirePermission(response, request, sessionService, serviceAccountService, authzService, authorization.PermissionAcknowledgeIncidents, scope.SiteID); !ok {
 			return
 		}
 		var body struct {

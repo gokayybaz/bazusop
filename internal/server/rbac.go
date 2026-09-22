@@ -14,15 +14,13 @@ func WithAuthorization(service *authorization.Service) Option {
 	return func(options *handlerOptions) { options.authorizationService = service }
 }
 
-// requirePermission tries the session-cookie path first: a valid session
-// must also satisfy the real permission matrix, and a session that fails
-// this check gets a clean 403 — it never falls through to the legacy
-// bearer path (an authenticated-but-unauthorized human should not be
-// silently let in via a stray Authorization header). Only when no session
-// cookie is present at all does this fall back to the pre-existing
-// operator/admin bearer token bridge, preserving every current bearer-token
-// integration unchanged until spike 11.7 removes it.
-func requirePermission(response http.ResponseWriter, request *http.Request, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, permission authorization.Permission, siteID string, tokens accessTokens, legacyRole accessRole) (string, bool) {
+// requirePermission authenticates the caller as either a human session or a
+// service account and checks the real permission matrix — the only two
+// ways to authenticate a mutation as of spike 11.7, which removed the
+// legacy operator/admin bearer-token bridge entirely (see the design
+// spec's "Servis hesapları" section). Neither present, or either present
+// but invalid or lacking the permission, is rejected.
+func requirePermission(response http.ResponseWriter, request *http.Request, sessionService *sessions.Service, serviceAccountService *serviceaccounts.Service, authzService *authorization.Service, permission authorization.Permission, siteID string) (string, bool) {
 	if sessionService != nil {
 		if cookie, err := request.Cookie(sessionCookieName); err == nil && cookie.Value != "" {
 			session, err := sessionService.Validate(request.Context(), cookie.Value)
@@ -57,10 +55,8 @@ func requirePermission(response http.ResponseWriter, request *http.Request, sess
 			return account.ID, true
 		}
 	}
-	if !authorizeRole(response, request, tokens, legacyRole) {
-		return "", false
-	}
-	return "", true
+	http.Error(response, http.StatusText(http.StatusUnauthorized), http.StatusUnauthorized)
+	return "", false
 }
 
 func bearerToken(request *http.Request) (string, bool) {
@@ -72,9 +68,9 @@ func bearerToken(request *http.Request) (string, bool) {
 	return strings.TrimPrefix(header, prefix), true
 }
 
-func handleAssignSiteRole(sessionService *sessions.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleAssignSiteRole(sessionService *sessions.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if _, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID, tokens, roleAdmin); !ok {
+		if _, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID); !ok {
 			return
 		}
 		var body struct {
@@ -92,9 +88,9 @@ func handleAssignSiteRole(sessionService *sessions.Service, authzService *author
 	}
 }
 
-func handleRevokeSiteRole(sessionService *sessions.Service, authzService *authorization.Service, tokens accessTokens, scope tenancy.Scope) http.HandlerFunc {
+func handleRevokeSiteRole(sessionService *sessions.Service, authzService *authorization.Service, scope tenancy.Scope) http.HandlerFunc {
 	return func(response http.ResponseWriter, request *http.Request) {
-		if _, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID, tokens, roleAdmin); !ok {
+		if _, ok := requirePermission(response, request, sessionService, nil, authzService, authorization.PermissionManageUsers, scope.SiteID); !ok {
 			return
 		}
 		if err := authzService.RevokeRole(request.Context(), request.PathValue("userID"), request.PathValue("siteID")); err != nil {

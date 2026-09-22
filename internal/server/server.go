@@ -33,8 +33,6 @@ type handlerOptions struct {
 	serviceInventory       *serviceinventory.Manager
 	logService             *logstream.Service
 	jobService             *jobs.Service
-	operatorToken          string
-	adminToken             string
 	alertService           *alerting.Service
 	cloudInventory         *cloudinventory.Service
 	auditService           *audit.Service
@@ -109,8 +107,7 @@ func NewHandler(options ...Option) http.Handler {
 		}
 	}
 	if configuration.jobService != nil {
-		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		registerAudited(mux, "/api/v1/instances/{agentID}/jobs", http.MethodPost, "jobs", []string{"agentID"}, configuration.auditTrail, configuration.scope, handleCreateJob(configuration.jobService, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/instances/{agentID}/jobs", http.MethodPost, "jobs", []string{"agentID"}, configuration.auditTrail, configuration.scope, handleCreateJob(configuration.jobService, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, configuration.scope))
 		registerAudited(mux, "/api/v1/instances/{agentID}/jobs", http.MethodGet, "jobs", []string{"agentID"}, configuration.auditTrail, configuration.scope, handleListJobs(configuration.jobService, configuration.scope))
 		registerAudited(mux, "/api/v1/instances/{agentID}/jobs/{jobID}/events", http.MethodGet, "job_events", []string{"agentID", "jobID"}, configuration.auditTrail, configuration.scope, handleJobEvents(configuration.jobService, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
@@ -119,29 +116,26 @@ func NewHandler(options ...Option) http.Handler {
 		}
 	}
 	if configuration.alertService != nil {
-		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
 		registerAudited(mux, "/api/v1/alert-rules", http.MethodGet, "alert_rules", nil, configuration.auditTrail, configuration.scope, handleListAlertRules(configuration.alertService, configuration.scope))
-		registerAudited(mux, "/api/v1/alert-rules", http.MethodPost, "alert_rules", nil, configuration.auditTrail, configuration.scope, handleCreateAlertRule(configuration.alertService, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/alert-rules", http.MethodPost, "alert_rules", nil, configuration.auditTrail, configuration.scope, handleCreateAlertRule(configuration.alertService, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, configuration.scope))
 		registerAudited(mux, "/api/v1/maintenance-windows", http.MethodGet, "maintenance_windows", nil, configuration.auditTrail, configuration.scope, handleListMaintenance(configuration.alertService, configuration.scope))
-		registerAudited(mux, "/api/v1/maintenance-windows", http.MethodPost, "maintenance_windows", nil, configuration.auditTrail, configuration.scope, handleCreateMaintenance(configuration.alertService, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/maintenance-windows", http.MethodPost, "maintenance_windows", nil, configuration.auditTrail, configuration.scope, handleCreateMaintenance(configuration.alertService, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, configuration.scope))
 		registerAudited(mux, "/api/v1/incidents", http.MethodGet, "incidents", nil, configuration.auditTrail, configuration.scope, handleListIncidents(configuration.alertService, configuration.scope))
 		registerAudited(mux, "/api/v1/incidents/{incidentID}/events", http.MethodGet, "incident_events", []string{"incidentID"}, configuration.auditTrail, configuration.scope, handleAlertEvents(configuration.alertService, configuration.scope))
-		registerAudited(mux, "/api/v1/incidents/{incidentID}/acknowledge", http.MethodPost, "incidents", []string{"incidentID"}, configuration.auditTrail, configuration.scope, handleAcknowledgeIncident(configuration.alertService, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/incidents/{incidentID}/acknowledge", http.MethodPost, "incidents", []string{"incidentID"}, configuration.auditTrail, configuration.scope, handleAcknowledgeIncident(configuration.alertService, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, configuration.scope))
 	}
 	if configuration.cloudInventory != nil {
-		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
 		registerAudited(mux, "/api/v1/cloud/accounts", http.MethodGet, "cloud_accounts", nil, configuration.auditTrail, configuration.scope, handleListCloudAccounts(configuration.cloudInventory, configuration.scope))
-		registerAudited(mux, "/api/v1/cloud/accounts", http.MethodPost, "cloud_accounts", nil, configuration.auditTrail, configuration.scope, handleCreateCloudAccount(configuration.cloudInventory, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/cloud/accounts", http.MethodPost, "cloud_accounts", nil, configuration.auditTrail, configuration.scope, handleCreateCloudAccount(configuration.cloudInventory, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, configuration.scope))
 		registerAudited(mux, "/api/v1/cloud/instances", http.MethodGet, "cloud_instances", nil, configuration.auditTrail, configuration.scope, handleListCloudInstances(configuration.cloudInventory, configuration.scope))
-		registerAudited(mux, "/api/v1/cloud/accounts/{accountID}/instances", http.MethodPut, "cloud_instances", []string{"accountID"}, configuration.auditTrail, configuration.scope, handleReconcileCloudInstances(configuration.cloudInventory, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/cloud/accounts/{accountID}/instances", http.MethodPut, "cloud_instances", []string{"accountID"}, configuration.auditTrail, configuration.scope, handleReconcileCloudInstances(configuration.cloudInventory, configuration.sessionService, configuration.serviceAccountService, configuration.authorizationService, configuration.scope))
 	}
 	if configuration.auditService != nil {
 		registerAudited(mux, "/api/v1/audit/events", http.MethodGet, "audit_timeline", nil, configuration.auditTrail, configuration.scope, handleListAuditEvents(configuration.auditService, configuration.scope))
 	}
 	if configuration.identityService != nil {
 		registerAudited(mux, "/api/v1/bootstrap", http.MethodPost, "bootstrap", nil, configuration.auditTrail, configuration.scope, handleBootstrap(configuration.identityService, configuration.bootstrapSecret))
-		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		registerAudited(mux, "/api/v1/users/invites", http.MethodPost, "invites", nil, configuration.auditTrail, configuration.scope, handleCreateInvite(configuration.identityService, configuration.sessionService, configuration.authorizationService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/users/invites", http.MethodPost, "invites", nil, configuration.auditTrail, configuration.scope, handleCreateInvite(configuration.identityService, configuration.sessionService, configuration.authorizationService, configuration.scope))
 		registerAudited(mux, "/api/v1/invites/{token}/consume", http.MethodPost, "invites", []string{"token"}, configuration.auditTrail, configuration.scope, handleConsumeInvite(configuration.identityService))
 		registerAudited(mux, "/api/v1/users/{userID}/confirm-totp", http.MethodPost, "users", []string{"userID"}, configuration.auditTrail, configuration.scope, handleConfirmTOTP(configuration.identityService))
 	}
@@ -149,22 +143,19 @@ func NewHandler(options ...Option) http.Handler {
 		registerAudited(mux, "/api/v1/sessions", http.MethodPost, "sessions", nil, configuration.auditTrail, configuration.scope, handleLogin(configuration.sessionIdentityService, configuration.sessionService))
 		registerAudited(mux, "/api/v1/session", http.MethodGet, "sessions", nil, configuration.auditTrail, configuration.scope, handleWhoAmI(configuration.sessionService, configuration.sessionIdentityService))
 		registerAudited(mux, "/api/v1/sessions", http.MethodDelete, "sessions", nil, configuration.auditTrail, configuration.scope, handleLogout(configuration.sessionService))
-		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		registerAudited(mux, "/api/v1/users/{userID}/sessions", http.MethodDelete, "sessions", []string{"userID"}, configuration.auditTrail, configuration.scope, handleRevokeUserSessions(configuration.sessionService, tokens))
-		registerAudited(mux, "/api/v1/sessions/all", http.MethodDelete, "sessions", nil, configuration.auditTrail, configuration.scope, handleRevokeAllSessions(configuration.sessionService, tokens))
+		registerAudited(mux, "/api/v1/users/{userID}/sessions", http.MethodDelete, "sessions", []string{"userID"}, configuration.auditTrail, configuration.scope, handleRevokeUserSessions(configuration.sessionService, configuration.authorizationService, configuration.scope))
+		registerAudited(mux, "/api/v1/sessions/all", http.MethodDelete, "sessions", nil, configuration.auditTrail, configuration.scope, handleRevokeAllSessions(configuration.sessionService, configuration.authorizationService, configuration.scope))
 	}
 	if configuration.authorizationService != nil {
-		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		registerAudited(mux, "/api/v1/sites/{siteID}/memberships", http.MethodPost, "site_memberships", []string{"siteID"}, configuration.auditTrail, configuration.scope, handleAssignSiteRole(configuration.sessionService, configuration.authorizationService, tokens, configuration.scope))
-		registerAudited(mux, "/api/v1/sites/{siteID}/memberships/{userID}", http.MethodDelete, "site_memberships", []string{"siteID", "userID"}, configuration.auditTrail, configuration.scope, handleRevokeSiteRole(configuration.sessionService, configuration.authorizationService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/sites/{siteID}/memberships", http.MethodPost, "site_memberships", []string{"siteID"}, configuration.auditTrail, configuration.scope, handleAssignSiteRole(configuration.sessionService, configuration.authorizationService, configuration.scope))
+		registerAudited(mux, "/api/v1/sites/{siteID}/memberships/{userID}", http.MethodDelete, "site_memberships", []string{"siteID", "userID"}, configuration.auditTrail, configuration.scope, handleRevokeSiteRole(configuration.sessionService, configuration.authorizationService, configuration.scope))
 	}
 	if configuration.serviceAccountService != nil {
-		tokens := accessTokens{operator: configuration.operatorToken, admin: configuration.adminToken}
-		registerAudited(mux, "/api/v1/sites/{siteID}/service-accounts", http.MethodPost, "service_accounts", []string{"siteID"}, configuration.auditTrail, configuration.scope, handleCreateServiceAccount(configuration.serviceAccountService, configuration.sessionService, configuration.authorizationService, tokens, configuration.scope))
-		registerAudited(mux, "/api/v1/sites/{siteID}/service-accounts", http.MethodGet, "service_accounts", []string{"siteID"}, configuration.auditTrail, configuration.scope, handleListServiceAccounts(configuration.serviceAccountService, configuration.sessionService, configuration.authorizationService, tokens, configuration.scope))
-		registerAudited(mux, "/api/v1/service-accounts/{accountID}/rotate", http.MethodPost, "service_accounts", []string{"accountID"}, configuration.auditTrail, configuration.scope, handleRotateServiceAccountToken(configuration.serviceAccountService, configuration.sessionService, configuration.authorizationService, tokens, configuration.scope))
-		registerAudited(mux, "/api/v1/service-accounts/tokens/{tokenID}", http.MethodDelete, "service_accounts", []string{"tokenID"}, configuration.auditTrail, configuration.scope, handleRevokeServiceAccountToken(configuration.serviceAccountService, configuration.sessionService, configuration.authorizationService, tokens, configuration.scope))
-		registerAudited(mux, "/api/v1/service-accounts/{accountID}", http.MethodDelete, "service_accounts", []string{"accountID"}, configuration.auditTrail, configuration.scope, handleDisableServiceAccount(configuration.serviceAccountService, configuration.sessionService, configuration.authorizationService, tokens, configuration.scope))
+		registerAudited(mux, "/api/v1/sites/{siteID}/service-accounts", http.MethodPost, "service_accounts", []string{"siteID"}, configuration.auditTrail, configuration.scope, handleCreateServiceAccount(configuration.serviceAccountService, configuration.sessionService, configuration.authorizationService, configuration.scope))
+		registerAudited(mux, "/api/v1/sites/{siteID}/service-accounts", http.MethodGet, "service_accounts", []string{"siteID"}, configuration.auditTrail, configuration.scope, handleListServiceAccounts(configuration.serviceAccountService, configuration.sessionService, configuration.authorizationService, configuration.scope))
+		registerAudited(mux, "/api/v1/service-accounts/{accountID}/rotate", http.MethodPost, "service_accounts", []string{"accountID"}, configuration.auditTrail, configuration.scope, handleRotateServiceAccountToken(configuration.serviceAccountService, configuration.sessionService, configuration.authorizationService, configuration.scope))
+		registerAudited(mux, "/api/v1/service-accounts/tokens/{tokenID}", http.MethodDelete, "service_accounts", []string{"tokenID"}, configuration.auditTrail, configuration.scope, handleRevokeServiceAccountToken(configuration.serviceAccountService, configuration.sessionService, configuration.authorizationService, configuration.scope))
+		registerAudited(mux, "/api/v1/service-accounts/{accountID}", http.MethodDelete, "service_accounts", []string{"accountID"}, configuration.auditTrail, configuration.scope, handleDisableServiceAccount(configuration.serviceAccountService, configuration.sessionService, configuration.authorizationService, configuration.scope))
 	}
 	mux.HandleFunc("/api/", func(response http.ResponseWriter, _ *http.Request) {
 		http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
