@@ -57,9 +57,10 @@ func handleCreateInvite(service *identity.Service, sessionService *sessions.Serv
 			return
 		}
 		var body struct {
-			Email   string   `json:"email"`
-			Role    string   `json:"role"`
-			SiteIDs []string `json:"site_ids"`
+			Email        string   `json:"email"`
+			Role         string   `json:"role"`
+			SiteIDs      []string `json:"site_ids"`
+			IdentityType string   `json:"identity_type"`
 		}
 		if err := decodeJSON(response, request, &body); err != nil {
 			return
@@ -76,7 +77,11 @@ func handleCreateInvite(service *identity.Service, sessionService *sessions.Serv
 				grants = append(grants, identity.SiteRoleGrant{SiteID: siteID, Role: body.Role})
 			}
 		}
-		invite, token, err := service.CreateInvite(request.Context(), createdBy, tenancy.DefaultOrganizationID, body.Email, role, grants)
+		identityType := identity.IdentityTypeLocal
+		if body.IdentityType == string(identity.IdentityTypeOIDC) {
+			identityType = identity.IdentityTypeOIDC
+		}
+		invite, token, err := service.CreateInvite(request.Context(), createdBy, tenancy.DefaultOrganizationID, body.Email, role, grants, identityType)
 		if errors.Is(err, identity.ErrInvalidInviteRole) {
 			http.Error(response, http.StatusText(http.StatusBadRequest), http.StatusBadRequest)
 			return

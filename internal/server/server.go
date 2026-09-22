@@ -141,6 +141,10 @@ func NewHandler(options ...Option) http.Handler {
 		registerAudited(mux, "/api/v1/users/invites", http.MethodPost, "invites", nil, configuration.auditTrail, configuration.scope, handleCreateInvite(configuration.identityService, configuration.sessionService, configuration.authorizationService, configuration.activityService, configuration.scope))
 		registerAudited(mux, "/api/v1/invites/{token}/consume", http.MethodPost, "invites", []string{"token"}, configuration.auditTrail, configuration.scope, handleConsumeInvite(configuration.identityService))
 		registerAudited(mux, "/api/v1/users/{userID}/confirm-totp", http.MethodPost, "users", []string{"userID"}, configuration.auditTrail, configuration.scope, handleConfirmTOTP(configuration.identityService))
+		registerAudited(mux, "/api/v1/organization/oidc", http.MethodPut, "oidc_configuration", nil, configuration.auditTrail, configuration.scope, handleSetOIDCConfiguration(configuration.identityService, configuration.sessionService, configuration.authorizationService, configuration.scope))
+		registerAudited(mux, "/api/v1/organization/oidc", http.MethodGet, "oidc_configuration", nil, configuration.auditTrail, configuration.scope, handleGetOIDCConfiguration(configuration.identityService, configuration.sessionService, configuration.authorizationService, configuration.scope))
+		registerAudited(mux, "/api/v1/oidc/login", http.MethodGet, "oidc_login", nil, configuration.auditTrail, configuration.scope, handleOIDCLogin(configuration.identityService, configuration.scope))
+		registerAudited(mux, "/api/v1/oidc/callback", http.MethodGet, "oidc_login", nil, configuration.auditTrail, configuration.scope, handleOIDCCallback(configuration.identityService, configuration.sessionService, configuration.activityService, configuration.scope))
 	}
 	if configuration.sessionService != nil {
 		registerAudited(mux, "/api/v1/sessions", http.MethodPost, "sessions", nil, configuration.auditTrail, configuration.scope, handleLogin(configuration.sessionIdentityService, configuration.sessionService))
