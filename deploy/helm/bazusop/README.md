@@ -7,13 +7,15 @@ kubectl create namespace bazusop
 kubectl -n bazusop create secret generic bazusop-secrets \
   --from-literal=database-url='postgres://user:password@postgres.example/bazusop' \
   --from-literal=enrollment-token='rastgele-tek-kullanimlik-guclu-bir-secret' \
-  --from-literal=operator-token='rastgele-guclu-bir-operator-secret' \
-  --from-literal=admin-token='ayri-rastgele-guclu-bir-yonetici-secret'
+  --from-literal=bootstrap-secret='rastgele-tek-kullanimlik-guclu-bir-secret-2' \
+  --from-literal=totp-encryption-key='rastgele-guclu-bir-sifreleme-anahtari' \
+  --from-literal=service-account-pepper='rastgele-guclu-bir-pepper'
 helm upgrade --install bazusop . --namespace bazusop
 ```
 
-`admin-token` yeni kurulumlarda önerilir. Anahtar bulunmazsa geriye uyumluluk için
-operator token yönetici yetkisini de taşır.
+`bootstrap-secret`, `totp-encryption-key` ve `service-account-pepper` isteğe
+bağlıdır, ama üçü de tanımlanmazsa mutasyon içeren hiçbir API isteği kimlik
+doğrulanamaz — bkz. [../../../docs/MIGRATION_v0.4.md](../../../docs/MIGRATION_v0.4.md).
 
 Doğrudan hub TLS'i ve agent mTLS'i için bir TLS Secret oluşturup mount'u
 etkinleştirin:

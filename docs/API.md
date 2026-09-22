@@ -11,12 +11,16 @@ döner.
   amacıyla açıktır.
 - Renewal, inventory ve telemetry yazma uçları hub CA’sının doğruladığı mTLS
   client sertifikasını zorunlu tutar.
-- İş oluşturma ve olay onaylama `Authorization: Bearer <operator-token>` ister;
-  admin token bu işlemlerde de geçerlidir.
-- Alarm kuralı, bakım penceresi ve bulut bağlantısı mutasyonları admin token ister.
-  Geçerli operator token bu uçlarda `403`, bilinmeyen token `401` döner.
-- Admin token tanımlanmamış eski kurulumlarda operator token iki rolü de taşır.
-  Hiçbir yetkili token yapılandırılmamışsa mutasyon uçları `503` döner.
+- Mutasyon içeren tüm uçlar (iş oluşturma, olay onaylama, alarm kuralı, bakım
+  penceresi, bulut bağlantısı, kullanıcı/servis hesabı yönetimi vb.) ya geçerli
+  bir insan oturumu (çerez tabanlı) ya da geçerli bir servis hesabı token'ı
+  (`Authorization: Bearer bazusop_sat_...`) ister — spike 11.7 eski
+  operator/admin bearer köprüsünü kaldırdı (bkz.
+  [MIGRATION_v0.4.md](MIGRATION_v0.4.md)).
+- Yetkilendirme gerçek RBAC izin matrisine göre yapılır: her uç belirli bir
+  `Permission` ister, çağıranın site rolü (viewer/operator/site-admin) veya
+  platform yöneticisi olması bu izni karşılamalıdır. Kimlik doğrulanamazsa
+  `401`, doğrulanır ama izin yetersizse `403` döner.
 - İş teslim alma ve olay raporlama uçları mTLS agent kimliğini zorunlu tutar.
 - Agent kimliği sertifikadaki `spiffe://bazusop/agent/{agent_id}` URI SAN
   değerinden alınır; istek gövdesinden agent ID kabul edilmez.

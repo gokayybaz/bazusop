@@ -118,14 +118,17 @@ başarısız.
    tüketmeye çalışırsa yalnız biri başarılı olur; diğerleri `401` alır, bu
    beklenen davranıştır.
 
-### 7. Politika/bakım/bulut mutasyonu 401/403/503 dönüyor
+### 7. Politika/bakım/bulut mutasyonu 401/403 dönüyor
 
-1. `503` → hub'da ne operator ne admin token yapılandırılmış; yetkili
-   mutasyonlar güvenli biçimde kapalı. İlgili secret'ı tanımla.
-2. `401` → `Authorization: Bearer ...` değeri bilinmiyor; token'ı kontrol et.
-3. `403` → operatör token'ıyla yönetici işlemi (alarm kuralı, bakım
-   penceresi, bulut hesabı) deneniyor; admin token kullan. Admin, operator
-   yetkilerini de kapsar.
+1. `401` → geçerli bir oturum çerezi veya servis hesabı token'ı
+   (`Authorization: Bearer bazusop_sat_...`) verilmemiş, ya da verilen kimlik
+   geçersiz/süresi dolmuş. `BAZUSOP_BOOTSTRAP_SECRET`/`BAZUSOP_TOTP_ENCRYPTION_KEY`
+   yapılandırılmamışsa hub'da hiçbir mutasyon kimlik doğrulanamaz — bkz.
+   [MIGRATION_v0.4.md](MIGRATION_v0.4.md).
+2. `403` → çağıranın rolü bu izni karşılamıyor (ör. bir operator rolüyle
+   alarm kuralı/bakım penceresi/bulut hesabı yönetimi denendi — bunlar
+   `PermissionManageAlerts`/`PermissionManageCloudAccounts` ister, yalnız
+   site-admin rolü veya platform yöneticisi karşılar).
 
 ### 8. Kötü bir release yayıldı — geri alma
 
@@ -161,11 +164,12 @@ başarısız.
 ## Bakım penceresi açma
 
 Planlı bir kesinti veya yeniden başlatma öncesi ilgili alarmların
-bastırılması için admin token'ıyla bakım penceresi oluştur:
+bastırılması için, site-admin rollü bir servis hesabı token'ıyla (bkz.
+[MIGRATION_v0.4.md](MIGRATION_v0.4.md)) bakım penceresi oluştur:
 
 ```bash
 curl -X POST https://hub.example.com/api/v1/maintenance-windows \
-  -H "Authorization: Bearer $BAZUSOP_ADMIN_TOKEN" -H "Content-Type: application/json" \
+  -H "Authorization: Bearer $BAZUSOP_SERVICE_ACCOUNT_TOKEN" -H "Content-Type: application/json" \
   -d '{"name":"Planlı bakım","agent_id":"<opsiyonel-tek-agent>","starts_at":"2026-09-20T02:00:00Z","ends_at":"2026-09-20T04:00:00Z","created_by":"gokay"}'
 ```
 
@@ -175,14 +179,17 @@ olan bir olayı otomatik kapatmaz — gerekiyorsa elle onayla.
 
 ## Token rotasyonu
 
-1. Yeni token değerini üret (yüksek entropili, mevcut token'dan farklı).
-2. Secret/env değerini güncelle, hub'ları rolling restart et.
-3. Eski token'la yapılan istekler restart sonrası reddedilir; her rol için
-   yeni token'la kontrollü bir test isteği (ör. bir olayı onaylamak için
-   operator, bir alarm kuralı oluşturmak için admin) yap.
-4. Enrollment token rotasyonu ayrıca tüketilmemiş eski token'ı otomatik iptal
-   eder (bkz. §6.2); operator/admin token rotasyonu mevcut imzalı işleri
-   etkilemez.
+1. **Enrollment token:** yeni değeri üret, `BAZUSOP_ENROLLMENT_TOKEN`
+   secret'ını güncelle, hub'ları rolling restart et — bu ayrıca tüketilmemiş
+   eski token'ı otomatik iptal eder (bkz. §6.2).
+2. **Servis hesabı token'ı:** `POST /api/v1/service-accounts/{accountID}/rotate`
+   ile rotate et; yanıt yeni tek kullanımlık token'ı döndürür ve önceki token'ı
+   anında iptal eder. Mevcut imzalı işleri etkilemez.
+3. **Bootstrap secret / TOTP şifreleme anahtarı / servis hesabı pepper'ı:**
+   bunların rotasyonu ilgili secret'ı güncelleyip hub'ları rolling restart
+   etmeyi gerektirir; TOTP şifreleme anahtarı veya pepper değişirse mevcut
+   TOTP kayıtları/servis hesabı token'ları geçersiz kalır — yeniden kurulum
+   gerekir.
 
 ## Yük/regresyon doğrulaması
 
