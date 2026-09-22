@@ -34,7 +34,7 @@
 **Arayüzler:**
 - Üretir: `identity.Store.UsersForOrganization(ctx, organizationID) ([]User, error)`, `identity.Service.UsersForOrganization(ctx, organizationID) ([]User, error)` — Görev 2'de HTTP katmanı tüketir.
 
-- [ ] **Adım 1: `internal/identity/identity.go`'daki `Store` arayüzüne yeni metodu ekle**
+- [x] **Adım 1: `internal/identity/identity.go`'daki `Store` arayüzüne yeni metodu ekle**
 
 `Store` arayüzüne (mevcut `OIDCConfigurationByOrganization` satırından hemen sonra) ekle:
 
@@ -50,7 +50,7 @@ func (service *Service) UsersForOrganization(ctx context.Context, organizationID
 }
 ```
 
-- [ ] **Adım 2: `internal/identity/memorystore.go`'ya `UsersForOrganization`'ı ekle**
+- [x] **Adım 2: `internal/identity/memorystore.go`'ya `UsersForOrganization`'ı ekle**
 
 Dosyanın başına `"sort"` import'unu ekle (`"context"`, `"sync"`, `"time"` ile birlikte, alfabetik sırayla). Dosyanın sonuna ekle:
 
@@ -69,7 +69,7 @@ func (store *MemoryStore) UsersForOrganization(_ context.Context, organizationID
 }
 ```
 
-- [ ] **Adım 3: `internal/storage/postgres/identity.go`'ya `UsersForOrganization`'ı ekle**
+- [x] **Adım 3: `internal/storage/postgres/identity.go`'ya `UsersForOrganization`'ı ekle**
 
 `OIDCConfigurationByOrganization`'dan hemen sonra ekle:
 
@@ -99,12 +99,12 @@ func (store *Store) UsersForOrganization(ctx context.Context, organizationID str
 
 (`scanUser` zaten `pgx.Row` alıyor — `pgx.Rows`'un `Scan` metodu aynı imzayı taşıdığından `rows`'u doğrudan geçirmek güvenli; dosyada zaten bu deseni takip eden başka kod yok ama pgx v5'te standart bir kullanımdır.)
 
-- [ ] **Adım 4: Build'i doğrula**
+- [x] **Adım 4: Build'i doğrula**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go build ./internal/identity/... ./internal/storage/postgres/... 2>&1 | head -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 5: `internal/identity/identity_test.go`'ya yeni bir test ekle**
+- [x] **Adım 5: `internal/identity/identity_test.go`'ya yeni bir test ekle**
 
 Dosyanın sonuna ekle:
 
@@ -142,12 +142,12 @@ func TestUsersForOrganizationReturnsOnlyThatOrganizationsUsersSortedByEmail(t *t
 
 (Bu test `service`/`otherOrgService`'in ayrı `identity.Service`/`MemoryStore` örnekleri olduğunu doğrular — `newTestService()` her çağrıda yeni bir `MemoryStore` üretir; `otherOrgService`'in kullanıcısı `service.UsersForOrganization("org_default")` sonucuna hiç karışmaz çünkü tamamen ayrı bir store'da yaşıyor. Bu, gerçek bir Postgres'te "organization_id filtrelemesi" testinin memory-store karşılığıdır.)
 
-- [ ] **Adım 6: Testi çalıştır**
+- [x] **Adım 6: Testi çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && GOCACHE=/tmp/bazusop-go-cache go test ./internal/identity/... -run 'TestUsersForOrganization' -v 2>&1 | tail -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 7: `internal/storage/postgres/identity_integration_test.go`'a bir doğrulama ekle**
+- [x] **Adım 7: `internal/storage/postgres/identity_integration_test.go`'a bir doğrulama ekle**
 
 `TestPostgresIdentityBootstrapInviteAndRecoveryCodeLifecycle`'daki `consumedInvite` kontrolünden hemen sonra, `SaveRecoveryCodes` çağrısından önce ekle:
 
@@ -164,7 +164,7 @@ Beklenen: BAŞARILI
 	}
 ```
 
-- [ ] **Adım 8: Testleri çalıştır**
+- [x] **Adım 8: Testleri çalıştır**
 
 Postgres gerektirir. Çalıştır:
 
@@ -179,12 +179,12 @@ docker rm -f bazusop-test-pg-1340 >/dev/null 2>&1
 
 Beklenen: BAŞARILI
 
-- [ ] **Adım 9: Tam paket testlerini çalıştır (Postgres olmadan, memory-store testleri için)**
+- [x] **Adım 9: Tam paket testlerini çalıştır (Postgres olmadan, memory-store testleri için)**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go vet ./internal/identity/... ./internal/storage/postgres/... && gofmt -l internal/identity/*.go internal/storage/postgres/*.go && GOCACHE=/tmp/bazusop-go-cache go test ./internal/identity/... 2>&1 | tail -10`
 Beklenen: vet/gofmt çıktısı yok; `ok`
 
-- [ ] **Adım 10: Commit**
+- [x] **Adım 10: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -200,7 +200,7 @@ git commit -m "feat: add identity.Service.UsersForOrganization for the upcoming 
 **Arayüzler:**
 - Üretir: `GET /api/v1/users` → `{"users": [{"id","email","role","disabled_at"?,"totp_confirmed_at"?,"site_roles": [{"site_id","role"}]}]}`. `PermissionManageUsers` gerektirir (yalnız platform yöneticisi).
 
-- [ ] **Adım 1: `internal/server/identity.go`'ya `handleListUsers`'ı ekle**
+- [x] **Adım 1: `internal/server/identity.go`'ya `handleListUsers`'ı ekle**
 
 Dosyanın sonuna ekle:
 
@@ -256,7 +256,7 @@ func handleListUsers(identityService *identity.Service, authzService *authorizat
 }
 ```
 
-- [ ] **Adım 2: `internal/server/server.go`'ya route'u ekle**
+- [x] **Adım 2: `internal/server/server.go`'ya route'u ekle**
 
 `registerAudited(mux, "/api/v1/users/invites", ...)` satırından hemen önce ekle:
 
@@ -264,12 +264,12 @@ func handleListUsers(identityService *identity.Service, authzService *authorizat
 		registerAudited(mux, "/api/v1/users", http.MethodGet, "users", nil, configuration.auditTrail, configuration.scope, handleListUsers(configuration.identityService, configuration.authorizationService, configuration.sessionService, configuration.scope))
 ```
 
-- [ ] **Adım 3: Build'i doğrula**
+- [x] **Adım 3: Build'i doğrula**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go build ./... 2>&1 | head -30 && echo BUILD_OK`
 Beklenen: `BUILD_OK`
 
-- [ ] **Adım 4: `internal/server/identity_test.go`'ya yeni bir test ekle**
+- [x] **Adım 4: `internal/server/identity_test.go`'ya yeni bir test ekle**
 
 Dosyanın sonuna ekle:
 
@@ -356,17 +356,17 @@ func TestListUsersRequiresPlatformAdminAndReturnsSiteRoles(t *testing.T) {
 }
 ```
 
-- [ ] **Adım 5: Testi çalıştır**
+- [x] **Adım 5: Testi çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestListUsers' -v 2>&1 | tail -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 6: Tam paket testlerini çalıştır**
+- [x] **Adım 6: Tam paket testlerini çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go vet ./internal/server/... && gofmt -l internal/server/*.go && GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... 2>&1 | tail -10`
 Beklenen: vet/gofmt çıktısı yok; `ok`
 
-- [ ] **Adım 7: Commit**
+- [x] **Adım 7: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -384,7 +384,7 @@ git commit -m "feat: add GET /api/v1/users, platform-admin only, with each user'
 - Tüketir: `useSession` (`../lib/session`).
 - Üretir: `SettingsUsersTab` — Görev 4'te `SettingsPage`'in "Kullanıcılar" sekmesine bağlanır.
 
-- [ ] **Adım 1: `web/src/types.ts`'e yeni tipleri ekle**
+- [x] **Adım 1: `web/src/types.ts`'e yeni tipleri ekle**
 
 Dosyanın sonuna ekle:
 
@@ -393,7 +393,7 @@ export type UserSiteRole = { site_id: string; role: string }
 export type ManagedUser = { id: string; email: string; role: string; disabled_at?: string; totp_confirmed_at?: string; site_roles: UserSiteRole[] }
 ```
 
-- [ ] **Adım 2: `web/src/pages/settings-users.tsx`'i yaz**
+- [x] **Adım 2: `web/src/pages/settings-users.tsx`'i yaz**
 
 ```tsx
 import { type FormEvent, useEffect, useState } from "react"
@@ -635,12 +635,12 @@ export function SettingsUsersTab() {
 }
 ```
 
-- [ ] **Adım 3: Tip kontrolü**
+- [x] **Adım 3: Tip kontrolü**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx tsc -b --noEmit 2>&1 | tail -40`
 Beklenen: hata yok
 
-- [ ] **Adım 4: `web/src/pages/settings-users.test.tsx`'i yaz**
+- [x] **Adım 4: `web/src/pages/settings-users.test.tsx`'i yaz**
 
 ```tsx
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
@@ -763,12 +763,12 @@ describe("SettingsUsersTab", () => {
 })
 ```
 
-- [ ] **Adım 5: Testleri çalıştır**
+- [x] **Adım 5: Testleri çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx vitest run settings-users.test 2>&1 | tail -100`
 Beklenen: 4 test BAŞARILI
 
-- [ ] **Adım 6: Commit**
+- [x] **Adım 6: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -785,7 +785,7 @@ git commit -m "feat: add the SettingsUsersTab component (user list, invite, site
 **Arayüzler:**
 - Tüketir: `SettingsUsersTab` (`./settings-users`).
 
-- [ ] **Adım 1: `web/src/pages/settings.tsx`'i güncelle**
+- [x] **Adım 1: `web/src/pages/settings.tsx`'i güncelle**
 
 ```tsx
 import { useEffect, useState } from "react"
@@ -821,7 +821,7 @@ export function SettingsPage() {
 }
 ```
 
-- [ ] **Adım 2: `web/src/styles.css`'e sekme stillerini ekle**
+- [x] **Adım 2: `web/src/styles.css`'e sekme stillerini ekle**
 
 Dosyanın sonuna ekle:
 
@@ -843,7 +843,7 @@ Dosyanın sonuna ekle:
 
 **Yazarken düzeltme:** `.settings-tab.active`'te `box-shadow` kullanıldı, `border` DEĞİL — `design-system.test.ts`'in "no colored leading borders" kuralı yalnız `border-left`'i yasaklıyor (alt çizgi/box-shadow etkisi bu kuralın kapsamı dışında ve zaten dosyada `.metric-card:hover { box-shadow: var(--shadow); }` gibi örnekleri var), ama `border-left`'ten tamamen kaçınmak için baştan `box-shadow` tercih edildi — 13.2'de yaşanan aynı hatayı burada tekrarlamamak için.
 
-- [ ] **Adım 3: `web/src/pages/settings.test.tsx`'i yaz**
+- [x] **Adım 3: `web/src/pages/settings.test.tsx`'i yaz**
 
 ```tsx
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
@@ -884,17 +884,17 @@ describe("SettingsPage", () => {
 })
 ```
 
-- [ ] **Adım 4: Testleri çalıştır**
+- [x] **Adım 4: Testleri çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npx vitest run settings.test 2>&1 | tail -60`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 5: Tam frontend test süitini ve production build'i çalıştır (mevcut `app.test.tsx`'in "opens application pages directly from their URL" testi hiç değişmeden geçmeli)**
+- [x] **Adım 5: Tam frontend test süitini ve production build'i çalıştır (mevcut `app.test.tsx`'in "opens application pages directly from their URL" testi hiç değişmeden geçmeli)**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web && npm test 2>&1 | tail -60 && npm run build 2>&1 | tail -30`
 Beklenen: tüm testler BAŞARILI, build BAŞARILI
 
-- [ ] **Adım 6: Commit**
+- [x] **Adım 6: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -906,15 +906,15 @@ git commit -m "feat: add a Kullanıcılar tab to Settings, wired to SettingsUser
 
 **Dosyalar:** yok (yalnız doğrulama).
 
-- [ ] **Adım 1: Docker Compose ile hub'ı yeniden derleyip ayağa kaldır**
+- [x] **Adım 1: Docker Compose ile hub'ı yeniden derleyip ayağa kaldır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && docker compose down -v >/dev/null 2>&1; BAZUSOP_PORT=8090 BAZUSOP_BOOTSTRAP_SECRET=verify-bootstrap BAZUSOP_TOTP_ENCRYPTION_KEY=verify-totp-key BAZUSOP_SERVICE_ACCOUNT_PEPPER=verify-pepper docker compose up --build -d 2>&1 | tail -30`
 
-- [ ] **Adım 2: Sağlık kontrolünü bekle**
+- [x] **Adım 2: Sağlık kontrolünü bekle**
 
 Çalıştır: `for i in $(seq 1 20); do curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8090/api/v1/health | grep -q 200 && echo healthy && break; sleep 1; done`
 
-- [ ] **Adım 3: Tek bir Python betiğiyle bootstrap → giriş → kullanıcı listesini çek → davet oluştur/kabul et → tekrar listele → site rolü ata/kaldır → tekrar listele — hepsi gerçek bir HTTP istemcisiyle**
+- [x] **Adım 3: Tek bir Python betiğiyle bootstrap → giriş → kullanıcı listesini çek → davet oluştur/kabul et → tekrar listele → site rolü ata/kaldır → tekrar listele — hepsi gerçek bir HTTP istemcisiyle**
 
 ```bash
 python3 -c "
@@ -962,28 +962,30 @@ print('users after invite:', len(users_after_invite['users']))
 operator_entry = next(u for u in users_after_invite['users'] if u['email'] == 'operator@example.com')
 print('operator site roles after consume:', operator_entry['site_roles'])
 
-call('POST', '/api/v1/sites/site-b/memberships', {'user_id': operator_id, 'role': 'viewer'}, {'X-CSRF-Token': csrf})
+call('POST', '/api/v1/sites/site_default/memberships', {'user_id': operator_id, 'role': 'viewer'}, {'X-CSRF-Token': csrf})
 users_after_assign = call('GET', '/api/v1/users')
 operator_entry = next(u for u in users_after_assign['users'] if u['email'] == 'operator@example.com')
-print('operator site roles after assigning site-b:', operator_entry['site_roles'])
+print('operator site roles after reassigning site_default to viewer:', operator_entry['site_roles'])
 
-call('DELETE', '/api/v1/sites/site-b/memberships/' + operator_id, None, {'X-CSRF-Token': csrf})
+call('DELETE', '/api/v1/sites/site_default/memberships/' + operator_id, None, {'X-CSRF-Token': csrf})
 users_after_revoke = call('GET', '/api/v1/users')
 operator_entry = next(u for u in users_after_revoke['users'] if u['email'] == 'operator@example.com')
-print('operator site roles after revoking site-b:', operator_entry['site_roles'])
+print('operator site roles after revoking site_default:', operator_entry['site_roles'])
 "
 ```
 
-Beklenen çıktı sırasıyla: "users before invite: 1", "users after invite: 2", "operator site roles after consume: [{'site_id': 'site_default', 'role': 'operator'}]", "...after assigning site-b: [{'site_id': 'site_default', ...}, {'site_id': 'site-b', 'role': 'viewer'}]", "...after revoking site-b: [{'site_id': 'site_default', 'role': 'operator'}]".
+**Yazarken düzeltme:** İlk taslak, atama/kaldırma adımlarını göstermek için uydurma bir "site-b" ID'si kullanıyordu. Ancak `site_memberships.site_id`, `sites(id)`'e referans veren bir FOREIGN KEY kısıtlaması taşıyor (`021_authorization.sql`) — sistem hâlâ tek-site mimarisini izlediğinden (11.5'in kararı) yalnızca `site_default` gerçekten var; var olmayan bir site ID'sine rol atamaya çalışmak `500` ile başarısız olur. Betik bunun yerine `site_default` üzerinde rolü `operator`'dan `viewer`'a yeniden atayarak (backend'in `AssignRole`'ündeki `ON CONFLICT (user_id, site_id) DO UPDATE`'i kanıtlayarak) ve ardından tamamen kaldırarak aynı atama/kaldırma akışını gerçek, var olan bir siteyle kanıtlıyor. (Bu, yalnız mock `fetch` kullanan Görev 3'ün `settings-users.test.tsx`'indeki "site-b" senaryosunu etkilemez — o test gerçek bir veritabanına dokunmuyor, FK kısıtlaması orada geçerli değil.)
 
-- [ ] **Adım 4: Temizlik**
+Beklenen çıktı sırasıyla: "users before invite: 1", "users after invite: 2", "operator site roles after consume: [{'site_id': 'site_default', 'role': 'operator'}]", "...after reassigning site_default to viewer: [{'site_id': 'site_default', 'role': 'viewer'}]", "...after revoking site_default: []".
+
+- [x] **Adım 4: Temizlik**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
 docker compose down -v
 ```
 
-- [ ] **Adım 5: Go ve frontend testlerini son kez birlikte çalıştır (gerçek Postgres ile)**
+- [x] **Adım 5: Go ve frontend testlerini son kez birlikte çalıştır (gerçek Postgres ile)**
 
 ```bash
 docker rm -f bazusop-test-pg-1340b >/dev/null 2>&1
