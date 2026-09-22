@@ -225,8 +225,9 @@ kalıcı tablodan okunur. Bellek store'u kullanılan geliştirme modu süreç i�
 
 ### `POST /api/v1/instances/{agent_id}/jobs`
 
-Operatör veya yönetici bearer token'ı gerekir. İzin verilen aksiyonlar yalnız
-`service.restart` ve `host.reboot` değerleridir.
+`PermissionCreateJobs` (operator veya site-admin rolü ya da platform
+yöneticisi) ister. İzin verilen aksiyonlar yalnız `service.restart` ve
+`host.reboot` değerleridir.
 
 ```json
 {
@@ -281,8 +282,9 @@ idempotent kabul edilir ve mevcut iş durumuyla `200` döner.
 
 ### `GET|POST /api/v1/alert-rules`
 
-Listeleme `{ "rules": [...] }` zarfıyla herkese açıktır; oluşturma yönetici bearer
-token'ı ister. `metric` kuralları `cpu`, `memory` veya `disk` ve `1–100` eşiği;
+Listeleme `{ "rules": [...] }` zarfıyla herkese açıktır; oluşturma
+`PermissionManageAlerts` (site-admin rolü veya platform yöneticisi) ister.
+`metric` kuralları `cpu`, `memory` veya `disk` ve `1–100` eşiği;
 `reachability` kuralları `60–86400` saniyelik `stale_after_seconds` değeri kabul
 eder. Önem `warning` veya `critical` olur.
 
@@ -292,7 +294,8 @@ eder. Önem `warning` veya `critical` olur.
 
 ### `GET|POST /api/v1/maintenance-windows`
 
-Listeleme `{ "windows": [...] }` döner; oluşturma yönetici bearer token'ı ister.
+Listeleme `{ "windows": [...] }` döner; oluşturma `PermissionManageAlerts`
+(site-admin rolü veya platform yöneticisi) ister.
 `agent_id` boşsa pencere tüm agent'ları, doluysa yalnız ilgili agent'ı bastırır.
 Başlangıç dahil, bitiş hariç zaman aralığında yeni olay açılmaz.
 
@@ -308,7 +311,8 @@ En yeni olayları `{ "incidents": [...] }` zarfında döndürür. `limit` değer
 
 ### `POST /api/v1/incidents/{incident_id}/acknowledge`
 
-Operatör veya yönetici bearer token'ı ve `{ "actor": "gokay" }` gövdesi ister. Yalnız açık olay
+`PermissionAcknowledgeIncidents` (operator veya site-admin rolü ya da
+platform yöneticisi) ve `{ "actor": "gokay" }` gövdesi ister. Yalnız açık olay
 onaylanabilir; terminal/önceden onaylı olay `409`, bilinmeyen olay `404` döner.
 
 ### `GET /api/v1/incidents/{incident_id}/events`
@@ -316,21 +320,36 @@ onaylanabilir; terminal/önceden onaylı olay `409`, bilinmeyen olay `404` döne
 Olayın `opened`, `acknowledged`, `resolved` yaşam döngüsünü zaman sırasıyla
 `{ "events": [...] }` zarfında verir. Bilinmeyen olay `404` döner.
 
-### `GET /api/v1/audit/events`
+### `GET /api/v1/activity/events`
 
-İş (`approved`, `claimed`, `output`, `succeeded`, `failed`) ve alarm
-(`opened`, `acknowledged`, `resolved`) olaylarını ortak `source` alanıyla
-(`job` veya `alert`) ayrıştırılmış, en yeniden eskiye sıralı tek bir
+`PermissionViewActivity` (viewer, operator veya site-admin rolü ya da
+platform yöneticisi) ister. İş (`approved`, `claimed`, `output`, `succeeded`,
+`failed`), alarm (`opened`, `acknowledged`, `resolved`), kimlik
+(`invite_created`), site rolü (`assigned`, `revoked`) ve servis hesabı
+(`created`, `token_rotated`, `token_revoked`, `disabled`) olaylarını ortak
+`source` alanıyla (`job`, `alert`, `identity`, `site_role` veya
+`service_account`) ayrıştırılmış, en yeniden eskiye sıralı tek bir
 `{ "events": [...] }` zarfında verir. `limit` değeri `1–500`, varsayılan
-`100` olur. Her olay kendi üst kaydına (`reference_id`: job veya incident
-kimliği) ve hedef `agent_id`'ye işaret eder; tam iş veya alarm geçmişi için
+`100` olur. Her olay kendi üst kaydına (`reference_id`) ve — iş/alarm
+olaylarında — hedef `agent_id`'ye işaret eder; tam iş veya alarm geçmişi için
 ilgili tekil uç noktalar (`/jobs/{job_id}/events`,
 `/incidents/{incident_id}/events`) kullanılmaya devam eder.
 
+### `GET /api/v1/audit/events`
+
+`PermissionViewAuditEvents` (operator veya site-admin rolü ya da platform
+yöneticisi — viewer bu izni karşılamaz) ister. Başarılı ve başarısız her API
+isteğini `{ "events": [...] }` zarfında, en yeniden eskiye sıralı döner.
+`limit` (`1–500`, varsayılan `100`), `actor_type`, `resource_type`, `outcome`
+(`success`/`failure`), `since`/`until` (RFC3339) sorgu parametreleriyle
+filtrelenebilir. Geçersiz `since`/`until` veya aralık dışı `limit` `400`
+döner.
+
 ### `GET|POST /api/v1/cloud/accounts`
 
-Listeleme `{ "accounts": [...] }` zarfıyla salt-okunurdur. Oluşturma yönetici
-bearer token'ı ister; provider `aws`, `azure` veya `gcp` olmalıdır.
+Listeleme `{ "accounts": [...] }` zarfıyla salt-okunurdur. Oluşturma
+`PermissionManageCloudAccounts` (site-admin rolü veya platform yöneticisi)
+ister; provider `aws`, `azure` veya `gcp` olmalıdır.
 
 ```json
 {"name":"Üretim AWS","provider":"aws","external_id":"123456789012"}
@@ -343,7 +362,8 @@ benzersizdir.
 ### `PUT /api/v1/cloud/accounts/{account_id}/instances`
 
 Connector'ın bir hesap için gördüğü son tam snapshot'ı atomik olarak değiştirir
-ve yönetici bearer token'ı ister. Bir snapshot en fazla 10.000 instance içerir.
+ve `PermissionManageCloudAccounts` (site-admin rolü veya platform yöneticisi)
+ister. Bir snapshot en fazla 10.000 instance içerir.
 
 ```json
 {
