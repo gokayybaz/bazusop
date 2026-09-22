@@ -1,6 +1,7 @@
 package server_test
 
 import (
+	"context"
 	"encoding/base32"
 	"encoding/json"
 	"net/http"
@@ -15,12 +16,26 @@ import (
 	"github.com/gokayybaz/bazusop/internal/identity"
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/sessions"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func newIdentityHandler(t *testing.T, bootstrapSecret string) http.Handler {
 	t.Helper()
-	identityService := identity.NewService(identity.NewMemoryStore(), "test-totp-encryption-key")
-	authzService, err := authorization.NewService(authorization.NewMemoryStore(), identityService.IsPlatformAdmin)
+	// authzService is forward-declared and captured by the site-role-grantor
+	// closure below, mirroring cmd/bazusop-hub/main.go's wiring — the
+	// closure is only ever invoked during a live request, by which point
+	// authzService has already been assigned.
+	var authzService *authorization.Service
+	identityService := identity.NewService(identity.NewMemoryStore(), "test-totp-encryption-key", identity.WithSiteRoleGrantor(func(ctx context.Context, userID string, grants []identity.SiteRoleGrant) error {
+		for _, grant := range grants {
+			if err := authzService.AssignRole(ctx, userID, tenancy.DefaultOrganizationID, grant.SiteID, authorization.SiteRole(grant.Role)); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+	var err error
+	authzService, err = authorization.NewService(authorization.NewMemoryStore(), identityService.IsPlatformAdmin)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -337,5 +352,86 @@ func TestInviteConsumeReturnsAProvisioningURIARealClientCanUseToConfirmAndLogIn(
 	})))
 	if loginResponse.Code != http.StatusCreated {
 		t.Fatalf("expected the newly onboarded user to log in with their own authenticator app, got %d: %s", loginResponse.Code, loginResponse.Body.String())
+	}
+}
+
+func TestListUsersRequiresPlatformAdminAndReturnsSiteRoles(t *testing.T) {
+	t.Parallel()
+	handler := newIdentityHandler(t, "correct-secret")
+	cookies := bootstrapAndLogin(t, handler, "correct-secret", "admin@example.com", "correct horse battery staple")
+	csrfToken := csrfTokenFromCookies(cookies)
+
+	inviteRequest := httptest.NewRequest(http.MethodPost, "/api/v1/users/invites", encodeJSON(t, map[string]any{
+		"email": "operator@example.com", "role": "operator", "site_ids": []string{"site_default"},
+	}))
+	for _, cookie := range cookies {
+		inviteRequest.AddCookie(cookie)
+	}
+	inviteRequest.Header.Set("X-CSRF-Token", csrfToken)
+	inviteResponse := httptest.NewRecorder()
+	handler.ServeHTTP(inviteResponse, inviteRequest)
+	var invitePayload struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(inviteResponse.Body).Decode(&invitePayload); err != nil || invitePayload.Token == "" {
+		t.Fatalf("expected a non-empty invite token, got %#v, %v", invitePayload, err)
+	}
+	consumeResponse := httptest.NewRecorder()
+	handler.ServeHTTP(consumeResponse, httptest.NewRequest(http.MethodPost, "/api/v1/invites/"+invitePayload.Token+"/consume", encodeJSON(t, map[string]string{"password": "a brand new password"})))
+	if consumeResponse.Code != http.StatusCreated {
+		t.Fatalf("expected 201 from invite consumption, got %d: %s", consumeResponse.Code, consumeResponse.Body.String())
+	}
+
+	listWithoutAuth := httptest.NewRecorder()
+	handler.ServeHTTP(listWithoutAuth, httptest.NewRequest(http.MethodGet, "/api/v1/users", nil))
+	if listWithoutAuth.Code != http.StatusUnauthorized {
+		t.Fatalf("expected 401 for listing users without a session, got %d", listWithoutAuth.Code)
+	}
+
+	listRequest := httptest.NewRequest(http.MethodGet, "/api/v1/users", nil)
+	for _, cookie := range cookies {
+		listRequest.AddCookie(cookie)
+	}
+	listResponse := httptest.NewRecorder()
+	handler.ServeHTTP(listResponse, listRequest)
+	if listResponse.Code != http.StatusOK {
+		t.Fatalf("expected 200 listing users, got %d: %s", listResponse.Code, listResponse.Body.String())
+	}
+	var payload struct {
+		Users []struct {
+			ID        string `json:"id"`
+			Email     string `json:"email"`
+			Role      string `json:"role"`
+			SiteRoles []struct {
+				SiteID string `json:"site_id"`
+				Role   string `json:"role"`
+			} `json:"site_roles"`
+		} `json:"users"`
+	}
+	if err := json.NewDecoder(listResponse.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode users: %v", err)
+	}
+	if len(payload.Users) != 2 {
+		t.Fatalf("expected 2 users (admin + operator), got %#v", payload.Users)
+	}
+	var operatorEntry *struct {
+		ID        string `json:"id"`
+		Email     string `json:"email"`
+		Role      string `json:"role"`
+		SiteRoles []struct {
+			SiteID string `json:"site_id"`
+			Role   string `json:"role"`
+		} `json:"site_roles"`
+	}
+	for index := range payload.Users {
+		if payload.Users[index].Email == "operator@example.com" {
+			operatorEntry = &payload.Users[index]
+		}
+	}
+	if operatorEntry == nil {
+		t.Fatalf("expected an operator@example.com entry, got %#v", payload.Users)
+	}
+	if len(operatorEntry.SiteRoles) != 1 || operatorEntry.SiteRoles[0].SiteID != "site_default" || operatorEntry.SiteRoles[0].Role != "operator" {
+		t.Fatalf("expected the operator to have a site_default/operator site role, got %#v", operatorEntry.SiteRoles)
 	}
 }

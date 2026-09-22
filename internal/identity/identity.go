@@ -115,6 +115,7 @@ type Store interface {
 	ConsumeRecoveryCode(ctx context.Context, userID, codeHash string) (bool, error)
 	SaveOIDCConfiguration(ctx context.Context, config OIDCConfiguration) error
 	OIDCConfigurationByOrganization(ctx context.Context, organizationID string) (OIDCConfiguration, error)
+	UsersForOrganization(ctx context.Context, organizationID string) ([]User, error)
 }
 
 type Service struct {
@@ -345,6 +346,10 @@ func (service *Service) VerifyCredentialsWithRecoveryCode(ctx context.Context, o
 
 func (service *Service) UserByID(ctx context.Context, id string) (User, error) {
 	return service.store.UserByID(ctx, id)
+}
+
+func (service *Service) UsersForOrganization(ctx context.Context, organizationID string) ([]User, error) {
+	return service.store.UsersForOrganization(ctx, organizationID)
 }
 
 // IsUserActive reports whether id exists and is not disabled. An unknown

@@ -87,6 +87,17 @@ func TestPostgresIdentityBootstrapInviteAndRecoveryCodeLifecycle(t *testing.T) {
 		t.Fatalf("expected the invite to be marked consumed, got %#v %v", consumedInvite, err)
 	}
 
+	orgUsers, err := store.UsersForOrganization(ctx, orgID)
+	if err != nil {
+		t.Fatalf("users for organization: %v", err)
+	}
+	if len(orgUsers) != 2 {
+		t.Fatalf("expected exactly 2 users (admin + newUser) in %s, got %#v", orgID, orgUsers)
+	}
+	if orgUsers[0].Email != "admin@example.com" || orgUsers[1].Email != "new-admin@example.com" {
+		t.Fatalf("expected users sorted by email, got %#v", orgUsers)
+	}
+
 	if err := store.SaveRecoveryCodes(ctx, newUser.ID, []string{"hash-a", "hash-b"}); err != nil {
 		t.Fatalf("save recovery codes: %v", err)
 	}
