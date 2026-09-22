@@ -1,4 +1,3 @@
-// @ts-expect-error Node's built-in module is provided by the Vitest runtime.
 import { existsSync, readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 

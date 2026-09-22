@@ -2,7 +2,9 @@ package identity_test
 
 import (
 	"context"
+	"encoding/base32"
 	"errors"
+	"net/url"
 	"testing"
 	"time"
 
@@ -48,15 +50,18 @@ func TestInviteLifecycleCreateConsumeConfirmTOTP(t *testing.T) {
 		t.Fatalf("unexpected invite: %#v (token=%q)", invite, token)
 	}
 
-	user, err := service.ConsumeInvite(t.Context(), token, "a brand new password")
+	user, consumeEnrollment, err := service.ConsumeInvite(t.Context(), token, "a brand new password")
 	if err != nil {
 		t.Fatalf("consume invite: %v", err)
 	}
 	if user.Email != "new-admin@example.com" || user.TOTPConfirmedAt != nil {
 		t.Fatalf("expected an unconfirmed new user, got %#v", user)
 	}
+	if consumeEnrollment.ProvisioningURI == "" {
+		t.Fatal("expected ConsumeInvite to return a non-empty provisioning URI")
+	}
 
-	if _, err := service.ConsumeInvite(t.Context(), token, "trying again"); err == nil {
+	if _, _, err := service.ConsumeInvite(t.Context(), token, "trying again"); err == nil {
 		t.Fatal("expected a second consumption of the same token to fail")
 	}
 
@@ -65,8 +70,8 @@ func TestInviteLifecycleCreateConsumeConfirmTOTP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("confirm TOTP: %v", err)
 	}
-	if len(enrollment.RecoveryCodes) != 10 {
-		t.Fatalf("expected 10 recovery codes, got %#v", enrollment)
+	if len(enrollment.RecoveryCodes) != 10 || enrollment.ProvisioningURI == "" {
+		t.Fatalf("expected 10 recovery codes and a non-empty provisioning URI, got %#v", enrollment)
 	}
 
 	if _, err := service.ConfirmTOTP(t.Context(), user.ID, func([]byte) string { return "000000" }, now); !errors.Is(err, identity.ErrTOTPAlreadyConfirmed) {
@@ -213,7 +218,7 @@ func TestConsumeInviteWithSiteRoleGrantsInvokesTheGrantor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create invite: %v", err)
 	}
-	user, err := service.ConsumeInvite(t.Context(), token, "a brand new password")
+	user, _, err := service.ConsumeInvite(t.Context(), token, "a brand new password")
 	if err != nil {
 		t.Fatalf("consume invite: %v", err)
 	}
@@ -284,7 +289,7 @@ func TestConsumeInviteRejectsAnOIDCTypeInvite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create invite: %v", err)
 	}
-	if _, err := service.ConsumeInvite(t.Context(), token, "a password"); !errors.Is(err, identity.ErrInviteWrongIdentityType) {
+	if _, _, err := service.ConsumeInvite(t.Context(), token, "a password"); !errors.Is(err, identity.ErrInviteWrongIdentityType) {
 		t.Fatalf("expected ErrInviteWrongIdentityType, got %v", err)
 	}
 }
@@ -322,5 +327,40 @@ func TestOIDCConfigurationByOrganizationReturnsErrOIDCNotConfigured(t *testing.T
 	service := newTestService()
 	if _, err := service.OIDCConfiguration(t.Context(), "org_default"); !errors.Is(err, identity.ErrOIDCNotConfigured) {
 		t.Fatalf("expected ErrOIDCNotConfigured, got %v", err)
+	}
+}
+
+func TestConsumeInviteReturnsAProvisioningURIThatAnIndependentClientCanUse(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	if _, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-user@example.com", identity.RolePlatformAdmin, nil, identity.IdentityTypeLocal)
+	if err != nil {
+		t.Fatalf("create invite: %v", err)
+	}
+
+	user, enrollment, err := service.ConsumeInvite(t.Context(), token, "a brand new password")
+	if err != nil {
+		t.Fatalf("consume invite: %v", err)
+	}
+
+	// Simulate a real authenticator app: parse the secret out of the
+	// provisioning URI exactly as a QR scanner would, with no access to
+	// any Go-internal state — this is the actual bug being fixed.
+	parsed, err := url.Parse(enrollment.ProvisioningURI)
+	if err != nil {
+		t.Fatalf("parse provisioning URI: %v", err)
+	}
+	secret, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(parsed.Query().Get("secret"))
+	if err != nil {
+		t.Fatalf("decode provisioning URI secret: %v", err)
+	}
+
+	now := time.Now().UTC()
+	independentlyComputedCode := identity.GenerateTOTPCode(secret, now)
+	if _, err := service.ConfirmTOTP(t.Context(), user.ID, func([]byte) string { return independentlyComputedCode }, now); err != nil {
+		t.Fatalf("expected a code computed only from the provisioning URI's secret to be accepted, got %v", err)
 	}
 }
