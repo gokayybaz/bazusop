@@ -80,7 +80,7 @@ func newOperatorAndSiteAdminSessions(t *testing.T) (handler http.Handler, siteAd
 
 func inviteConsumeAndAssign(t *testing.T, identityService *identity.Service, authzService *authorization.Service, email string, role authorization.SiteRole) identity.User {
 	t.Helper()
-	_, token, err := identityService.CreateInvite(t.Context(), "admin", tenancy.DefaultOrganizationID, email, "", []identity.SiteRoleGrant{{SiteID: tenancy.DefaultSiteID, Role: string(role)}})
+	_, token, err := identityService.CreateInvite(t.Context(), "admin", tenancy.DefaultOrganizationID, email, "", []identity.SiteRoleGrant{{SiteID: tenancy.DefaultSiteID, Role: string(role)}}, identity.IdentityTypeLocal)
 	if err != nil {
 		t.Fatal(err)
 	}

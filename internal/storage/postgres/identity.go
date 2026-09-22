@@ -58,11 +58,15 @@ type identityDatabase interface {
 }
 
 func insertUser(ctx context.Context, database identityDatabase, user identity.User) error {
+	var passwordHash *string
+	if user.PasswordHash != "" {
+		passwordHash = &user.PasswordHash
+	}
 	_, err := database.Exec(ctx, `
-		INSERT INTO users (id, organization_id, email, role, password_hash, totp_secret_encrypted, totp_confirmed_at, created_at, disabled_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
-		user.ID, user.OrganizationID, user.Email, string(user.Role), user.PasswordHash,
-		user.TOTPSecretEncrypted, user.TOTPConfirmedAt, user.CreatedAt, user.DisabledAt)
+		INSERT INTO users (id, organization_id, email, role, password_hash, totp_secret_encrypted, totp_confirmed_at, created_at, disabled_at, oidc_issuer, oidc_subject)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+		user.ID, user.OrganizationID, user.Email, string(user.Role), passwordHash,
+		user.TOTPSecretEncrypted, user.TOTPConfirmedAt, user.CreatedAt, user.DisabledAt, user.OIDCIssuer, user.OIDCSubject)
 	if err != nil {
 		return fmt.Errorf("insert user: %w", err)
 	}
@@ -71,26 +75,37 @@ func insertUser(ctx context.Context, database identityDatabase, user identity.Us
 
 func (store *Store) UserByEmail(ctx context.Context, organizationID, email string) (identity.User, error) {
 	return scanUser(store.pool.QueryRow(ctx, `
-		SELECT id, organization_id, email, role, password_hash, totp_secret_encrypted, totp_confirmed_at, created_at, disabled_at
+		SELECT id, organization_id, email, role, password_hash, totp_secret_encrypted, totp_confirmed_at, created_at, disabled_at, oidc_issuer, oidc_subject
 		FROM users WHERE organization_id=$1 AND email=$2`, organizationID, email))
 }
 
 func (store *Store) UserByID(ctx context.Context, id string) (identity.User, error) {
 	return scanUser(store.pool.QueryRow(ctx, `
-		SELECT id, organization_id, email, role, password_hash, totp_secret_encrypted, totp_confirmed_at, created_at, disabled_at
+		SELECT id, organization_id, email, role, password_hash, totp_secret_encrypted, totp_confirmed_at, created_at, disabled_at, oidc_issuer, oidc_subject
 		FROM users WHERE id=$1`, id))
+}
+
+func (store *Store) UserByOIDCIdentity(ctx context.Context, organizationID, issuer, subject string) (identity.User, error) {
+	return scanUser(store.pool.QueryRow(ctx, `
+		SELECT id, organization_id, email, role, password_hash, totp_secret_encrypted, totp_confirmed_at, created_at, disabled_at, oidc_issuer, oidc_subject
+		FROM users WHERE organization_id=$1 AND oidc_issuer=$2 AND oidc_subject=$3 AND oidc_subject <> ''`, organizationID, issuer, subject))
 }
 
 func scanUser(row pgx.Row) (identity.User, error) {
 	var user identity.User
 	var role string
-	if err := row.Scan(&user.ID, &user.OrganizationID, &user.Email, &role, &user.PasswordHash,
-		&user.TOTPSecretEncrypted, &user.TOTPConfirmedAt, &user.CreatedAt, &user.DisabledAt); errors.Is(err, pgx.ErrNoRows) {
+	var passwordHash *string
+	if err := row.Scan(&user.ID, &user.OrganizationID, &user.Email, &role, &passwordHash,
+		&user.TOTPSecretEncrypted, &user.TOTPConfirmedAt, &user.CreatedAt, &user.DisabledAt,
+		&user.OIDCIssuer, &user.OIDCSubject); errors.Is(err, pgx.ErrNoRows) {
 		return identity.User{}, identity.ErrInvalidCredentials
 	} else if err != nil {
 		return identity.User{}, fmt.Errorf("scan user: %w", err)
 	}
 	user.Role = identity.Role(role)
+	if passwordHash != nil {
+		user.PasswordHash = *passwordHash
+	}
 	return user, nil
 }
 
@@ -111,9 +126,9 @@ func (store *Store) SaveInvite(ctx context.Context, invite identity.Invite, toke
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 	_, err = tx.Exec(ctx, `
-		INSERT INTO invites (id, token_hash, organization_id, email, role, created_by, expires_at, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`,
-		invite.ID, tokenHash, invite.OrganizationID, invite.Email, string(invite.Role), invite.CreatedBy, invite.ExpiresAt, invite.CreatedAt)
+		INSERT INTO invites (id, token_hash, organization_id, email, role, identity_type, created_by, expires_at, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+		invite.ID, tokenHash, invite.OrganizationID, invite.Email, string(invite.Role), string(invite.IdentityType), invite.CreatedBy, invite.ExpiresAt, invite.CreatedAt)
 	if err != nil {
 		return fmt.Errorf("save invite: %w", err)
 	}
@@ -130,11 +145,11 @@ func (store *Store) SaveInvite(ctx context.Context, invite identity.Invite, toke
 
 func (store *Store) InviteByTokenHash(ctx context.Context, tokenHash string) (identity.Invite, error) {
 	var invite identity.Invite
-	var role string
+	var role, identityType string
 	err := store.pool.QueryRow(ctx, `
-		SELECT id, organization_id, email, role, created_by, expires_at, consumed_at, revoked_at, created_at
+		SELECT id, organization_id, email, role, identity_type, created_by, expires_at, consumed_at, revoked_at, created_at
 		FROM invites WHERE token_hash=$1`, tokenHash).Scan(
-		&invite.ID, &invite.OrganizationID, &invite.Email, &role, &invite.CreatedBy,
+		&invite.ID, &invite.OrganizationID, &invite.Email, &role, &identityType, &invite.CreatedBy,
 		&invite.ExpiresAt, &invite.ConsumedAt, &invite.RevokedAt, &invite.CreatedAt)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return identity.Invite{}, identity.ErrInviteNotFound
@@ -142,7 +157,46 @@ func (store *Store) InviteByTokenHash(ctx context.Context, tokenHash string) (id
 	if err != nil {
 		return identity.Invite{}, fmt.Errorf("query invite: %w", err)
 	}
-	invite.Role = identity.Role(role)
+	invite.Role, invite.IdentityType = identity.Role(role), identity.IdentityType(identityType)
+
+	rows, err := store.pool.Query(ctx, `SELECT site_id, role FROM invite_site_roles WHERE invite_id=$1`, invite.ID)
+	if err != nil {
+		return identity.Invite{}, fmt.Errorf("query invite site roles: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var grant identity.SiteRoleGrant
+		if err := rows.Scan(&grant.SiteID, &grant.Role); err != nil {
+			return identity.Invite{}, fmt.Errorf("scan invite site role: %w", err)
+		}
+		invite.SiteRoleGrants = append(invite.SiteRoleGrants, grant)
+	}
+	if err := rows.Err(); err != nil {
+		return identity.Invite{}, fmt.Errorf("iterate invite site roles: %w", err)
+	}
+	return invite, nil
+}
+
+// InviteByEmail returns the most recently created invite for email,
+// regardless of status — spike 11.9's OIDC first-login path applies the
+// same expiry/consumed/revoked/identity-type checks ConsumeInvite already
+// applies for local invites, at the service layer, not here.
+func (store *Store) InviteByEmail(ctx context.Context, organizationID, email string) (identity.Invite, error) {
+	var invite identity.Invite
+	var role, identityType string
+	err := store.pool.QueryRow(ctx, `
+		SELECT id, organization_id, email, role, identity_type, created_by, expires_at, consumed_at, revoked_at, created_at
+		FROM invites WHERE organization_id=$1 AND email=$2
+		ORDER BY created_at DESC LIMIT 1`, organizationID, email).Scan(
+		&invite.ID, &invite.OrganizationID, &invite.Email, &role, &identityType, &invite.CreatedBy,
+		&invite.ExpiresAt, &invite.ConsumedAt, &invite.RevokedAt, &invite.CreatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return identity.Invite{}, identity.ErrInviteNotFound
+	}
+	if err != nil {
+		return identity.Invite{}, fmt.Errorf("query invite by email: %w", err)
+	}
+	invite.Role, invite.IdentityType = identity.Role(role), identity.IdentityType(identityType)
 
 	rows, err := store.pool.Query(ctx, `SELECT site_id, role FROM invite_site_roles WHERE invite_id=$1`, invite.ID)
 	if err != nil {
@@ -168,6 +222,19 @@ func (store *Store) ConsumeInvite(ctx context.Context, tokenHash string, consume
 		WHERE token_hash=$1 AND consumed_at IS NULL`, tokenHash, at, consumedByUserID)
 	if err != nil {
 		return fmt.Errorf("consume invite: %w", err)
+	}
+	if result.RowsAffected() != 1 {
+		return identity.ErrInviteExpired
+	}
+	return nil
+}
+
+func (store *Store) ConsumeInviteByID(ctx context.Context, inviteID string, consumedByUserID string, at time.Time) error {
+	result, err := store.pool.Exec(ctx, `
+		UPDATE invites SET consumed_at=$2, consumed_by_user_id=$3
+		WHERE id=$1 AND consumed_at IS NULL`, inviteID, at, consumedByUserID)
+	if err != nil {
+		return fmt.Errorf("consume invite by id: %w", err)
 	}
 	if result.RowsAffected() != 1 {
 		return identity.ErrInviteExpired
@@ -212,4 +279,36 @@ func newRecoveryCodeID() (string, error) {
 		return "", fmt.Errorf("generate recovery code id: %w", err)
 	}
 	return hex.EncodeToString(value), nil
+}
+
+func (store *Store) SaveOIDCConfiguration(ctx context.Context, config identity.OIDCConfiguration) error {
+	_, err := store.pool.Exec(ctx, `
+		INSERT INTO oidc_configurations (organization_id, discovery_url, issuer, client_id, client_secret_encrypted, redirect_url, updated_at, updated_by)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT (organization_id) DO UPDATE SET
+			discovery_url=EXCLUDED.discovery_url, issuer=EXCLUDED.issuer, client_id=EXCLUDED.client_id,
+			client_secret_encrypted=EXCLUDED.client_secret_encrypted, redirect_url=EXCLUDED.redirect_url,
+			updated_at=EXCLUDED.updated_at, updated_by=EXCLUDED.updated_by`,
+		config.OrganizationID, config.DiscoveryURL, config.Issuer, config.ClientID, config.ClientSecretEncrypted,
+		config.RedirectURL, config.UpdatedAt, config.UpdatedBy)
+	if err != nil {
+		return fmt.Errorf("save oidc configuration: %w", err)
+	}
+	return nil
+}
+
+func (store *Store) OIDCConfigurationByOrganization(ctx context.Context, organizationID string) (identity.OIDCConfiguration, error) {
+	var config identity.OIDCConfiguration
+	err := store.pool.QueryRow(ctx, `
+		SELECT organization_id, discovery_url, issuer, client_id, client_secret_encrypted, redirect_url, updated_at, updated_by
+		FROM oidc_configurations WHERE organization_id=$1`, organizationID).Scan(
+		&config.OrganizationID, &config.DiscoveryURL, &config.Issuer, &config.ClientID, &config.ClientSecretEncrypted,
+		&config.RedirectURL, &config.UpdatedAt, &config.UpdatedBy)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return identity.OIDCConfiguration{}, identity.ErrOIDCNotConfigured
+	}
+	if err != nil {
+		return identity.OIDCConfiguration{}, fmt.Errorf("query oidc configuration: %w", err)
+	}
+	return config, nil
 }

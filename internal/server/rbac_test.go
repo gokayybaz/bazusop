@@ -68,7 +68,7 @@ func TestRequirePermissionDeniesASessionLackingThePermission(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, token, err := identityService.CreateInvite(t.Context(), "admin", tenancy.DefaultOrganizationID, "viewer@example.com", "", []identity.SiteRoleGrant{{SiteID: "site_default", Role: "viewer"}})
+	_, token, err := identityService.CreateInvite(t.Context(), "admin", tenancy.DefaultOrganizationID, "viewer@example.com", "", []identity.SiteRoleGrant{{SiteID: "site_default", Role: "viewer"}}, identity.IdentityTypeLocal)
 	if err != nil {
 		t.Fatal(err)
 	}

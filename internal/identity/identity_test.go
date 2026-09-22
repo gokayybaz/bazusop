@@ -40,7 +40,7 @@ func TestInviteLifecycleCreateConsumeConfirmTOTP(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	invite, token, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-admin@example.com", identity.RolePlatformAdmin, nil)
+	invite, token, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-admin@example.com", identity.RolePlatformAdmin, nil, identity.IdentityTypeLocal)
 	if err != nil {
 		t.Fatalf("create invite: %v", err)
 	}
@@ -178,7 +178,7 @@ func TestCreateInviteRejectsSiteRoleGrantsForAPlatformAdminInvite(t *testing.T) 
 	if _, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple"); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-admin@example.com", identity.RolePlatformAdmin, []identity.SiteRoleGrant{{SiteID: "site_default", Role: "site-admin"}})
+	_, _, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-admin@example.com", identity.RolePlatformAdmin, []identity.SiteRoleGrant{{SiteID: "site_default", Role: "site-admin"}}, identity.IdentityTypeLocal)
 	if !errors.Is(err, identity.ErrInvalidInviteRole) {
 		t.Fatalf("expected ErrInvalidInviteRole, got %v", err)
 	}
@@ -190,7 +190,7 @@ func TestCreateInviteRejectsASiteRoleInviteWithNoGrants(t *testing.T) {
 	if _, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple"); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-operator@example.com", "", nil)
+	_, _, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-operator@example.com", "", nil, identity.IdentityTypeLocal)
 	if !errors.Is(err, identity.ErrInvalidInviteRole) {
 		t.Fatalf("expected ErrInvalidInviteRole, got %v", err)
 	}
@@ -209,7 +209,7 @@ func TestConsumeInviteWithSiteRoleGrantsInvokesTheGrantor(t *testing.T) {
 		t.Fatal(err)
 	}
 	grants := []identity.SiteRoleGrant{{SiteID: "site_default", Role: "operator"}}
-	_, token, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-operator@example.com", "", grants)
+	_, token, err := service.CreateInvite(t.Context(), "admin", "org_default", "new-operator@example.com", "", grants, identity.IdentityTypeLocal)
 	if err != nil {
 		t.Fatalf("create invite: %v", err)
 	}
@@ -222,5 +222,105 @@ func TestConsumeInviteWithSiteRoleGrantsInvokesTheGrantor(t *testing.T) {
 	}
 	if grantedUserID != user.ID || len(grantedGrants) != 1 || grantedGrants[0] != grants[0] {
 		t.Fatalf("expected the grantor to be invoked with the new user and grants, got %q %#v", grantedUserID, grantedGrants)
+	}
+}
+
+func TestLoginOrLinkOIDCUserCreatesUserFromPendingInvite(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	if _, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.CreateInvite(t.Context(), "admin", "org_default", "sso-user@example.com", identity.RolePlatformAdmin, nil, identity.IdentityTypeOIDC); err != nil {
+		t.Fatalf("create invite: %v", err)
+	}
+
+	user, err := service.LoginOrLinkOIDCUser(t.Context(), "org_default", "https://idp.example.com", "subject-123", "sso-user@example.com")
+	if err != nil {
+		t.Fatalf("login or link: %v", err)
+	}
+	if user.Email != "sso-user@example.com" || user.OIDCIssuer != "https://idp.example.com" || user.OIDCSubject != "subject-123" {
+		t.Fatalf("unexpected linked user: %#v", user)
+	}
+	if user.PasswordHash != "" {
+		t.Fatalf("expected no password hash for an OIDC user, got %q", user.PasswordHash)
+	}
+
+	again, err := service.LoginOrLinkOIDCUser(t.Context(), "org_default", "https://idp.example.com", "subject-123", "sso-user@example.com")
+	if err != nil || again.ID != user.ID {
+		t.Fatalf("expected the second login to return the same linked user, got %#v %v", again, err)
+	}
+}
+
+func TestLoginOrLinkOIDCUserRejectsWithoutAPendingInvite(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	if _, err := service.LoginOrLinkOIDCUser(t.Context(), "org_default", "https://idp.example.com", "subject-999", "unknown@example.com"); !errors.Is(err, identity.ErrInviteNotFound) {
+		t.Fatalf("expected ErrInviteNotFound, got %v", err)
+	}
+}
+
+func TestLoginOrLinkOIDCUserRejectsALocalTypeInvite(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	if _, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := service.CreateInvite(t.Context(), "admin", "org_default", "local-user@example.com", identity.RolePlatformAdmin, nil, identity.IdentityTypeLocal); err != nil {
+		t.Fatalf("create invite: %v", err)
+	}
+	if _, err := service.LoginOrLinkOIDCUser(t.Context(), "org_default", "https://idp.example.com", "subject-1", "local-user@example.com"); !errors.Is(err, identity.ErrInviteWrongIdentityType) {
+		t.Fatalf("expected ErrInviteWrongIdentityType, got %v", err)
+	}
+}
+
+func TestConsumeInviteRejectsAnOIDCTypeInvite(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	if _, _, err := service.Bootstrap(t.Context(), "org_default", "admin@example.com", "correct horse battery staple"); err != nil {
+		t.Fatal(err)
+	}
+	_, token, err := service.CreateInvite(t.Context(), "admin", "org_default", "sso-user@example.com", identity.RolePlatformAdmin, nil, identity.IdentityTypeOIDC)
+	if err != nil {
+		t.Fatalf("create invite: %v", err)
+	}
+	if _, err := service.ConsumeInvite(t.Context(), token, "a password"); !errors.Is(err, identity.ErrInviteWrongIdentityType) {
+		t.Fatalf("expected ErrInviteWrongIdentityType, got %v", err)
+	}
+}
+
+func TestSetAndReadOIDCConfigurationRedactsTheClientSecret(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	saved, err := service.SetOIDCConfiguration(t.Context(), "org_default", "https://idp.example.com/.well-known/openid-configuration", "https://idp.example.com", "client-id", "super-secret", "https://hub.example.com/api/v1/oidc/callback", "admin")
+	if err != nil {
+		t.Fatalf("set oidc configuration: %v", err)
+	}
+	if saved.ClientSecretEncrypted == nil {
+		t.Fatal("expected SetOIDCConfiguration's return value to carry the encrypted secret internally")
+	}
+
+	read, err := service.OIDCConfiguration(t.Context(), "org_default")
+	if err != nil {
+		t.Fatalf("read oidc configuration: %v", err)
+	}
+	if read.ClientSecretEncrypted != nil {
+		t.Fatalf("expected the redacted read path to omit the client secret, got %#v", read.ClientSecretEncrypted)
+	}
+	if read.DiscoveryURL != "https://idp.example.com/.well-known/openid-configuration" || read.ClientID != "client-id" {
+		t.Fatalf("unexpected configuration: %#v", read)
+	}
+
+	_, secret, err := service.OIDCConfigurationWithSecret(t.Context(), "org_default")
+	if err != nil || secret != "super-secret" {
+		t.Fatalf("expected the internal read path to decrypt the client secret, got %q %v", secret, err)
+	}
+}
+
+func TestOIDCConfigurationByOrganizationReturnsErrOIDCNotConfigured(t *testing.T) {
+	t.Parallel()
+	service := newTestService()
+	if _, err := service.OIDCConfiguration(t.Context(), "org_default"); !errors.Is(err, identity.ErrOIDCNotConfigured) {
+		t.Fatalf("expected ErrOIDCNotConfigured, got %v", err)
 	}
 }
