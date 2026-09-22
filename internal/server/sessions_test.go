@@ -101,6 +101,15 @@ func TestLoginWhoAmILogoutEndToEnd(t *testing.T) {
 	if whoAmIResponse.Code != http.StatusOK {
 		t.Fatalf("expected 200 from whoami with a valid session cookie, got %d: %s", whoAmIResponse.Code, whoAmIResponse.Body.String())
 	}
+	var whoAmIPayload struct {
+		CSRFToken string `json:"csrf_token"`
+	}
+	if err := json.NewDecoder(whoAmIResponse.Body).Decode(&whoAmIPayload); err != nil || whoAmIPayload.CSRFToken == "" {
+		t.Fatalf("expected whoami to return a non-empty csrf_token, got %#v, %v", whoAmIPayload, err)
+	}
+	if whoAmIPayload.CSRFToken != loginPayload.CSRFToken {
+		t.Fatalf("expected whoami's csrf_token to match the one issued at login, got %q vs %q", whoAmIPayload.CSRFToken, loginPayload.CSRFToken)
+	}
 
 	logoutWithoutCSRF := httptest.NewRequest(http.MethodDelete, "/api/v1/sessions", nil)
 	for _, cookie := range cookies {
