@@ -8,10 +8,14 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
+	"github.com/gokayybaz/bazusop/internal/identity"
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/jobs"
 	"github.com/gokayybaz/bazusop/internal/server"
+	"github.com/gokayybaz/bazusop/internal/serviceaccounts"
+	"github.com/gokayybaz/bazusop/internal/sessions"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
@@ -36,18 +40,60 @@ func TestApprovedJobFlowsToAuthenticatedAgent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("create authority: %v", err)
 	}
-	identity, err := authority.Enroll(enrollment.Request{BootstrapToken: "bootstrap-secret", Name: "edge-01", OperatingSystem: "linux", CSRPEM: serverCSR(t, "edge-01")})
+	agentIdentity, err := authority.Enroll(enrollment.Request{BootstrapToken: "bootstrap-secret", Name: "edge-01", OperatingSystem: "linux", CSRPEM: serverCSR(t, "edge-01")})
 	if err != nil {
 		t.Fatalf("enroll identity: %v", err)
 	}
-	jobService := newServerJobService(t, tenancy.Agent{ID: identity.AgentID, OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID})
-	handler := server.NewHandler(server.WithEnrollment(authority), server.WithJobs(jobService, "operator-secret"))
+	jobService := newServerJobService(t, tenancy.Agent{ID: agentIdentity.AgentID, OrganizationID: tenancy.DefaultOrganizationID, SiteID: tenancy.DefaultSiteID})
+
+	identityService := identity.NewService(identity.NewMemoryStore(), "test-totp-encryption-key")
+	authzService, err := authorization.NewService(authorization.NewMemoryStore(), identityService.IsPlatformAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionService, err := sessions.NewService(sessions.NewMemoryStore(), identityService.IsUserActive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceAccountService, err := serviceaccounts.NewService(serviceaccounts.NewMemoryStore(), "test-pepper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.NewHandler(
+		server.WithEnrollment(authority), server.WithJobs(jobService),
+		server.WithIdentity(identityService, "bootstrap-secret"),
+		server.WithSessions(sessionService, identityService),
+		server.WithAuthorization(authzService),
+		server.WithServiceAccounts(serviceAccountService),
+	)
+
+	admin, _, err := identityService.Bootstrap(t.Context(), tenancy.DefaultOrganizationID, "admin@example.com", "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, adminToken, _, err := sessionService.Create(t.Context(), admin.ID, admin.OrganizationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createAccount := httptest.NewRequest(http.MethodPost, "/api/v1/sites/"+tenancy.DefaultSiteID+"/service-accounts", encodeJSON(t, map[string]any{"name": "ci-bot", "role": "operator"}))
+	createAccount.AddCookie(&http.Cookie{Name: "bazusop_session", Value: adminToken})
+	accountResponse := httptest.NewRecorder()
+	handler.ServeHTTP(accountResponse, createAccount)
+	if accountResponse.Code != http.StatusCreated {
+		t.Fatalf("create service account: %d %s", accountResponse.Code, accountResponse.Body.String())
+	}
+	var account struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(accountResponse.Body).Decode(&account); err != nil {
+		t.Fatalf("decode service account: %v", err)
+	}
 
 	createResponse := httptest.NewRecorder()
-	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/instances/"+identity.AgentID+"/jobs", encodeJSON(t, jobs.CreateRequest{
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/instances/"+agentIdentity.AgentID+"/jobs", encodeJSON(t, jobs.CreateRequest{
 		Action: jobs.ActionServiceRestart, Target: "nginx.service", ApprovedBy: "gokay", Reason: "config rollout",
 	}))
-	createRequest.Header.Set("Authorization", "Bearer operator-secret")
+	createRequest.Header.Set("Authorization", "Bearer "+account.Token)
 	handler.ServeHTTP(createResponse, createRequest)
 	if createResponse.Code != http.StatusCreated {
 		t.Fatalf("expected 201, got %d: %s", createResponse.Code, createResponse.Body.String())
@@ -58,7 +104,7 @@ func TestApprovedJobFlowsToAuthenticatedAgent(t *testing.T) {
 	}
 
 	claim := httptest.NewRequest(http.MethodGet, "/api/v1/agents/jobs/next", nil)
-	claim.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{serverCertificate(t, identity.CertificatePEM)}}
+	claim.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{serverCertificate(t, agentIdentity.CertificatePEM)}}
 	claimResponse := httptest.NewRecorder()
 	handler.ServeHTTP(claimResponse, claim)
 	if claimResponse.Code != http.StatusOK {
@@ -74,18 +120,18 @@ func TestApprovedJobFlowsToAuthenticatedAgent(t *testing.T) {
 	}
 
 	auditResponse := httptest.NewRecorder()
-	handler.ServeHTTP(auditResponse, httptest.NewRequest(http.MethodGet, "/api/v1/instances/"+identity.AgentID+"/jobs/"+created.ID+"/events", nil))
+	handler.ServeHTTP(auditResponse, httptest.NewRequest(http.MethodGet, "/api/v1/instances/"+agentIdentity.AgentID+"/jobs/"+created.ID+"/events", nil))
 	if auditResponse.Code != http.StatusOK {
 		t.Fatalf("expected 200, got %d: %s", auditResponse.Code, auditResponse.Body.String())
 	}
-	var audit struct {
+	var auditPayload struct {
 		Events []jobs.Event `json:"events"`
 	}
-	if err := json.NewDecoder(auditResponse.Body).Decode(&audit); err != nil {
+	if err := json.NewDecoder(auditResponse.Body).Decode(&auditPayload); err != nil {
 		t.Fatalf("decode audit: %v", err)
 	}
-	if len(audit.Events) != 3 || audit.Events[2].Type != jobs.EventSucceeded {
-		t.Fatalf("unexpected audit: %#v", audit.Events)
+	if len(auditPayload.Events) != 3 || auditPayload.Events[2].Type != jobs.EventSucceeded {
+		t.Fatalf("unexpected audit: %#v", auditPayload.Events)
 	}
 }
 
@@ -96,7 +142,7 @@ func TestJobClaimRequiresAgentIdentity(t *testing.T) {
 		t.Fatalf("create authority: %v", err)
 	}
 	jobService := newServerJobService(t)
-	handler := server.NewHandler(server.WithEnrollment(authority), server.WithJobs(jobService, "operator-secret"))
+	handler := server.NewHandler(server.WithEnrollment(authority), server.WithJobs(jobService))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/v1/agents/jobs/next", nil))
 	if response.Code != http.StatusUnauthorized {
@@ -104,10 +150,10 @@ func TestJobClaimRequiresAgentIdentity(t *testing.T) {
 	}
 }
 
-func TestJobCreationRequiresOperatorToken(t *testing.T) {
+func TestJobCreationRequiresAuthentication(t *testing.T) {
 	t.Parallel()
 	jobService := newServerJobService(t)
-	handler := server.NewHandler(server.WithJobs(jobService, "operator-secret"))
+	handler := server.NewHandler(server.WithJobs(jobService))
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/instances/agent-01/jobs", encodeJSON(t, jobs.CreateRequest{
 		Action: jobs.ActionHostReboot, ApprovedBy: "gokay", Reason: "kernel rollout",
 	}))
@@ -115,19 +161,5 @@ func TestJobCreationRequiresOperatorToken(t *testing.T) {
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("expected 401, got %d", response.Code)
-	}
-}
-
-func TestJobCreationIsUnavailableWithoutConfiguredOperatorToken(t *testing.T) {
-	t.Parallel()
-	jobService := newServerJobService(t)
-	handler := server.NewHandler(server.WithJobs(jobService, ""))
-	request := httptest.NewRequest(http.MethodPost, "/api/v1/instances/agent-01/jobs", encodeJSON(t, jobs.CreateRequest{
-		Action: jobs.ActionHostReboot, ApprovedBy: "gokay", Reason: "kernel rollout",
-	}))
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, request)
-	if response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("expected 503, got %d", response.Code)
 	}
 }

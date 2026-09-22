@@ -37,7 +37,7 @@ func TestClientEnrollsAndReportsAgentSnapshotOverMTLS(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := server.NewHandler(server.WithEnrollment(authority), server.WithInventory(inventoryService), server.WithTelemetry(telemetryService), server.WithServiceInventory(serviceInventory), server.WithLogs(logs), server.WithJobs(jobService, "operator-secret"))
+	handler := server.NewHandler(server.WithEnrollment(authority), server.WithInventory(inventoryService), server.WithTelemetry(telemetryService), server.WithServiceInventory(serviceInventory), server.WithLogs(logs), server.WithJobs(jobService))
 
 	directory := t.TempDir()
 	configuration := Config{

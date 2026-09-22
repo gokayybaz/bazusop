@@ -53,9 +53,8 @@ func newOperatorAndSiteAdminSessions(t *testing.T) (handler http.Handler, siteAd
 		server.WithIdentity(identityService, "bootstrap-secret"),
 		server.WithSessions(sessionService, identityService),
 		server.WithAuthorization(authzService),
-		server.WithJobs(jobService, "operator-token"),
-		server.WithAlerts(alertService, "operator-token"),
-		server.WithAdminToken("admin-token"),
+		server.WithJobs(jobService),
+		server.WithAlerts(alertService),
 		server.WithAuditTrail(audittrail.NewService(audittrail.NewMemoryStore())),
 	)
 

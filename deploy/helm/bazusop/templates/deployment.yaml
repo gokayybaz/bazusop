@@ -64,16 +64,23 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secrets.existingSecret }}
                   key: {{ .Values.secrets.enrollmentTokenKey }}
-            - name: BAZUSOP_OPERATOR_TOKEN
+            - name: BAZUSOP_BOOTSTRAP_SECRET
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.existingSecret }}
-                  key: {{ .Values.secrets.operatorTokenKey }}
-            - name: BAZUSOP_ADMIN_TOKEN
+                  key: {{ .Values.secrets.bootstrapSecretKey }}
+                  optional: true
+            - name: BAZUSOP_TOTP_ENCRYPTION_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secrets.existingSecret }}
-                  key: {{ .Values.secrets.adminTokenKey }}
+                  key: {{ .Values.secrets.totpEncryptionKeyKey }}
+                  optional: true
+            - name: BAZUSOP_SERVICE_ACCOUNT_PEPPER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.existingSecret }}
+                  key: {{ .Values.secrets.serviceAccountPepperKey }}
                   optional: true
             - name: BAZUSOP_TIMESCALE_ENABLED
               value: {{ .Values.timescale.enabled | quote }}

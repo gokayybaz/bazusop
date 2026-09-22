@@ -17,7 +17,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
-func newServiceAccountHandler(t *testing.T, adminToken string) (http.Handler, []*http.Cookie) {
+func newServiceAccountHandler(t *testing.T) (http.Handler, []*http.Cookie) {
 	t.Helper()
 	identityService := identity.NewService(identity.NewMemoryStore(), "test-totp-encryption-key")
 	authzService, err := authorization.NewService(authorization.NewMemoryStore(), identityService.IsPlatformAdmin)
@@ -47,8 +47,7 @@ func newServiceAccountHandler(t *testing.T, adminToken string) (http.Handler, []
 		server.WithSessions(sessionService, identityService),
 		server.WithAuthorization(authzService),
 		server.WithServiceAccounts(serviceAccountService),
-		server.WithJobs(jobService, "operator-token"),
-		server.WithAdminToken(adminToken),
+		server.WithJobs(jobService),
 		server.WithAuditTrail(audittrail.NewService(audittrail.NewMemoryStore())),
 	)
 
@@ -65,7 +64,7 @@ func newServiceAccountHandler(t *testing.T, adminToken string) (http.Handler, []
 
 func TestServiceAccountTokenAuthenticatesAndCreatesAJob(t *testing.T) {
 	t.Parallel()
-	handler, adminCookies := newServiceAccountHandler(t, "admin-token")
+	handler, adminCookies := newServiceAccountHandler(t)
 
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/sites/site_default/service-accounts", encodeJSON(t, map[string]any{
 		"name": "ci-bot", "role": "operator",
@@ -99,7 +98,7 @@ func TestServiceAccountTokenAuthenticatesAndCreatesAJob(t *testing.T) {
 
 func TestRevokedServiceAccountTokenIsRejected(t *testing.T) {
 	t.Parallel()
-	handler, adminCookies := newServiceAccountHandler(t, "admin-token")
+	handler, adminCookies := newServiceAccountHandler(t)
 
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/sites/site_default/service-accounts", encodeJSON(t, map[string]any{
 		"name": "ci-bot", "role": "operator",
@@ -142,7 +141,7 @@ func TestRevokedServiceAccountTokenIsRejected(t *testing.T) {
 
 func TestServiceAccountTokenCannotManageOtherServiceAccounts(t *testing.T) {
 	t.Parallel()
-	handler, adminCookies := newServiceAccountHandler(t, "admin-token")
+	handler, adminCookies := newServiceAccountHandler(t)
 
 	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/sites/site_default/service-accounts", encodeJSON(t, map[string]any{
 		"name": "ci-bot", "role": "site-admin",

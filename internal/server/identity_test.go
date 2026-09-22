@@ -7,23 +7,63 @@ import (
 	"testing"
 
 	"github.com/gokayybaz/bazusop/internal/audittrail"
+	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/identity"
 	"github.com/gokayybaz/bazusop/internal/server"
+	"github.com/gokayybaz/bazusop/internal/sessions"
 )
 
-func newIdentityHandler(t *testing.T, bootstrapSecret, adminToken string) http.Handler {
+func newIdentityHandler(t *testing.T, bootstrapSecret string) http.Handler {
 	t.Helper()
-	service := identity.NewService(identity.NewMemoryStore(), "test-totp-encryption-key")
+	identityService := identity.NewService(identity.NewMemoryStore(), "test-totp-encryption-key")
+	authzService, err := authorization.NewService(authorization.NewMemoryStore(), identityService.IsPlatformAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionService, err := sessions.NewService(sessions.NewMemoryStore(), identityService.IsUserActive)
+	if err != nil {
+		t.Fatal(err)
+	}
 	return server.NewHandler(
-		server.WithIdentity(service, bootstrapSecret),
-		server.WithAdminToken(adminToken),
+		server.WithIdentity(identityService, bootstrapSecret),
+		server.WithSessions(sessionService, identityService),
+		server.WithAuthorization(authzService),
 		server.WithAuditTrail(audittrail.NewService(audittrail.NewMemoryStore())),
 	)
 }
 
+// bootstrapAndLogin bootstraps the first platform-admin over HTTP and logs
+// them in with the first recovery code, returning the session cookies —
+// the only way to authenticate a mutation now that spike 11.7 removed the
+// legacy bearer bridge.
+func bootstrapAndLogin(t *testing.T, handler http.Handler, bootstrapSecret, email, password string) []*http.Cookie {
+	t.Helper()
+	bootstrapResponse := httptest.NewRecorder()
+	handler.ServeHTTP(bootstrapResponse, httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
+		"secret": bootstrapSecret, "email": email, "password": password,
+	})))
+	if bootstrapResponse.Code != http.StatusCreated {
+		t.Fatalf("bootstrap failed: %d %s", bootstrapResponse.Code, bootstrapResponse.Body.String())
+	}
+	var bootstrapPayload struct {
+		RecoveryCodes []string `json:"recovery_codes"`
+	}
+	if err := json.NewDecoder(bootstrapResponse.Body).Decode(&bootstrapPayload); err != nil || len(bootstrapPayload.RecoveryCodes) == 0 {
+		t.Fatalf("expected recovery codes from bootstrap: %v", err)
+	}
+	loginResponse := httptest.NewRecorder()
+	handler.ServeHTTP(loginResponse, httptest.NewRequest(http.MethodPost, "/api/v1/sessions", encodeJSON(t, map[string]string{
+		"email": email, "password": password, "recovery_code": bootstrapPayload.RecoveryCodes[0],
+	})))
+	if loginResponse.Code != http.StatusCreated {
+		t.Fatalf("login failed: %d %s", loginResponse.Code, loginResponse.Body.String())
+	}
+	return loginResponse.Result().Cookies()
+}
+
 func TestBootstrapRequiresTheConfiguredSecret(t *testing.T) {
 	t.Parallel()
-	handler := newIdentityHandler(t, "correct-secret", "admin-token")
+	handler := newIdentityHandler(t, "correct-secret")
 
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
 		"secret": "wrong-secret", "email": "admin@example.com", "password": "correct horse battery staple",
@@ -37,24 +77,9 @@ func TestBootstrapRequiresTheConfiguredSecret(t *testing.T) {
 
 func TestBootstrapInviteConsumeAndConfirmTOTPEndToEnd(t *testing.T) {
 	t.Parallel()
-	handler := newIdentityHandler(t, "correct-secret", "admin-token")
-
-	bootstrapResponse := httptest.NewRecorder()
-	handler.ServeHTTP(bootstrapResponse, httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
-		"secret": "correct-secret", "email": "admin@example.com", "password": "correct horse battery staple",
-	})))
-	if bootstrapResponse.Code != http.StatusCreated {
-		t.Fatalf("expected 201 from bootstrap, got %d: %s", bootstrapResponse.Code, bootstrapResponse.Body.String())
-	}
-	var bootstrapPayload struct {
-		ProvisioningURI string `json:"provisioning_uri"`
-	}
-	if err := json.NewDecoder(bootstrapResponse.Body).Decode(&bootstrapPayload); err != nil {
-		t.Fatalf("decode bootstrap response: %v", err)
-	}
-	if bootstrapPayload.ProvisioningURI == "" {
-		t.Fatal("expected a non-empty provisioning URI")
-	}
+	handler := newIdentityHandler(t, "correct-secret")
+	email, password := "admin@example.com", "correct horse battery staple"
+	cookies := bootstrapAndLogin(t, handler, "correct-secret", email, password)
 
 	secondBootstrap := httptest.NewRecorder()
 	handler.ServeHTTP(secondBootstrap, httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
@@ -67,11 +92,13 @@ func TestBootstrapInviteConsumeAndConfirmTOTPEndToEnd(t *testing.T) {
 	inviteWithoutAuth := httptest.NewRecorder()
 	handler.ServeHTTP(inviteWithoutAuth, httptest.NewRequest(http.MethodPost, "/api/v1/users/invites", encodeJSON(t, map[string]string{"email": "new-admin@example.com"})))
 	if inviteWithoutAuth.Code != http.StatusUnauthorized {
-		t.Fatalf("expected 401 for invite creation without a token, got %d", inviteWithoutAuth.Code)
+		t.Fatalf("expected 401 for invite creation without a session, got %d", inviteWithoutAuth.Code)
 	}
 
 	inviteRequest := httptest.NewRequest(http.MethodPost, "/api/v1/users/invites", encodeJSON(t, map[string]string{"email": "new-admin@example.com"}))
-	inviteRequest.Header.Set("Authorization", "Bearer admin-token")
+	for _, cookie := range cookies {
+		inviteRequest.AddCookie(cookie)
+	}
 	inviteResponse := httptest.NewRecorder()
 	handler.ServeHTTP(inviteResponse, inviteRequest)
 	if inviteResponse.Code != http.StatusCreated {
@@ -105,16 +132,15 @@ func TestBootstrapInviteConsumeAndConfirmTOTPEndToEnd(t *testing.T) {
 
 func TestCreateInviteWithASiteRoleGrantsMembershipOnConsumption(t *testing.T) {
 	t.Parallel()
-	handler := newIdentityHandler(t, "correct-secret", "admin-token")
-
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
-		"secret": "correct-secret", "email": "admin@example.com", "password": "correct horse battery staple",
-	})))
+	handler := newIdentityHandler(t, "correct-secret")
+	cookies := bootstrapAndLogin(t, handler, "correct-secret", "admin@example.com", "correct horse battery staple")
 
 	inviteRequest := httptest.NewRequest(http.MethodPost, "/api/v1/users/invites", encodeJSON(t, map[string]any{
 		"email": "operator@example.com", "role": "operator", "site_ids": []string{"site_default"},
 	}))
-	inviteRequest.Header.Set("Authorization", "Bearer admin-token")
+	for _, cookie := range cookies {
+		inviteRequest.AddCookie(cookie)
+	}
 	inviteResponse := httptest.NewRecorder()
 	handler.ServeHTTP(inviteResponse, inviteRequest)
 	if inviteResponse.Code != http.StatusCreated {
@@ -124,16 +150,15 @@ func TestCreateInviteWithASiteRoleGrantsMembershipOnConsumption(t *testing.T) {
 
 func TestCreateInviteRejectsAnInvalidRole(t *testing.T) {
 	t.Parallel()
-	handler := newIdentityHandler(t, "correct-secret", "admin-token")
-
-	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
-		"secret": "correct-secret", "email": "admin@example.com", "password": "correct horse battery staple",
-	})))
+	handler := newIdentityHandler(t, "correct-secret")
+	cookies := bootstrapAndLogin(t, handler, "correct-secret", "admin@example.com", "correct horse battery staple")
 
 	request := httptest.NewRequest(http.MethodPost, "/api/v1/users/invites", encodeJSON(t, map[string]any{
 		"email": "broken@example.com", "role": "operator",
 	}))
-	request.Header.Set("Authorization", "Bearer admin-token")
+	for _, cookie := range cookies {
+		request.AddCookie(cookie)
+	}
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusBadRequest {

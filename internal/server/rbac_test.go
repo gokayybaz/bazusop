@@ -13,7 +13,7 @@ import (
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
-func newRBACHandler(t *testing.T, adminToken, operatorToken string) (http.Handler, *identity.Service, *authorization.Service, *sessions.Service) {
+func newRBACHandler(t *testing.T) (http.Handler, *identity.Service, *authorization.Service, *sessions.Service) {
 	t.Helper()
 	identityService := identity.NewService(identity.NewMemoryStore(), "test-totp-encryption-key")
 	authzService, err := authorization.NewService(authorization.NewMemoryStore(), identityService.IsPlatformAdmin)
@@ -28,7 +28,6 @@ func newRBACHandler(t *testing.T, adminToken, operatorToken string) (http.Handle
 		server.WithIdentity(identityService, "bootstrap-secret"),
 		server.WithSessions(sessionService, identityService),
 		server.WithAuthorization(authzService),
-		server.WithAdminToken(adminToken),
 		server.WithAuditTrail(audittrail.NewService(audittrail.NewMemoryStore())),
 	)
 	return handler, identityService, authzService, sessionService
@@ -36,7 +35,7 @@ func newRBACHandler(t *testing.T, adminToken, operatorToken string) (http.Handle
 
 func TestRequirePermissionAllowsAPlatformAdminSession(t *testing.T) {
 	t.Parallel()
-	handler, identityService, authzService, sessionService := newRBACHandler(t, "admin-token", "operator-token")
+	handler, identityService, authzService, sessionService := newRBACHandler(t)
 
 	admin, _, err := identityService.Bootstrap(t.Context(), tenancy.DefaultOrganizationID, "admin@example.com", "correct horse battery staple")
 	if err != nil {
@@ -63,7 +62,7 @@ func TestRequirePermissionAllowsAPlatformAdminSession(t *testing.T) {
 
 func TestRequirePermissionDeniesASessionLackingThePermission(t *testing.T) {
 	t.Parallel()
-	handler, identityService, authzService, sessionService := newRBACHandler(t, "admin-token", "operator-token")
+	handler, identityService, authzService, sessionService := newRBACHandler(t)
 
 	if _, _, err := identityService.Bootstrap(t.Context(), tenancy.DefaultOrganizationID, "admin@example.com", "correct horse battery staple"); err != nil {
 		t.Fatal(err)

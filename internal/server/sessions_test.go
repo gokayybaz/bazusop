@@ -7,14 +7,19 @@ import (
 	"testing"
 
 	"github.com/gokayybaz/bazusop/internal/audittrail"
+	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/identity"
 	"github.com/gokayybaz/bazusop/internal/server"
 	"github.com/gokayybaz/bazusop/internal/sessions"
 )
 
-func newSessionHandler(t *testing.T, adminToken string) (http.Handler, *identity.Service) {
+func newSessionHandler(t *testing.T) (http.Handler, *identity.Service) {
 	t.Helper()
 	identityService := identity.NewService(identity.NewMemoryStore(), "test-totp-encryption-key")
+	authzService, err := authorization.NewService(authorization.NewMemoryStore(), identityService.IsPlatformAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
 	sessionService, err := sessions.NewService(sessions.NewMemoryStore(), identityService.IsUserActive)
 	if err != nil {
 		t.Fatal(err)
@@ -22,7 +27,7 @@ func newSessionHandler(t *testing.T, adminToken string) (http.Handler, *identity
 	handler := server.NewHandler(
 		server.WithIdentity(identityService, "bootstrap-secret"),
 		server.WithSessions(sessionService, identityService),
-		server.WithAdminToken(adminToken),
+		server.WithAuthorization(authzService),
 		server.WithAuditTrail(audittrail.NewService(audittrail.NewMemoryStore())),
 	)
 	return handler, identityService
@@ -30,7 +35,7 @@ func newSessionHandler(t *testing.T, adminToken string) (http.Handler, *identity
 
 func TestLoginRequiresAValidTOTPCode(t *testing.T) {
 	t.Parallel()
-	handler, _ := newSessionHandler(t, "admin-token")
+	handler, _ := newSessionHandler(t)
 	email, password := "admin@example.com", "correct horse battery staple"
 	bootstrapResponse := httptest.NewRecorder()
 	handler.ServeHTTP(bootstrapResponse, httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
@@ -51,7 +56,7 @@ func TestLoginRequiresAValidTOTPCode(t *testing.T) {
 
 func TestLoginWhoAmILogoutEndToEnd(t *testing.T) {
 	t.Parallel()
-	handler, _ := newSessionHandler(t, "admin-token")
+	handler, _ := newSessionHandler(t)
 
 	email, password := "admin@example.com", "correct horse battery staple"
 	bootstrapResponse := httptest.NewRecorder()
@@ -131,7 +136,7 @@ func TestLoginWhoAmILogoutEndToEnd(t *testing.T) {
 
 func TestAdminCanRevokeAllSessionsForAUser(t *testing.T) {
 	t.Parallel()
-	handler, _ := newSessionHandler(t, "admin-token")
+	handler, _ := newSessionHandler(t)
 	email, password := "admin@example.com", "correct horse battery staple"
 	bootstrapResponse := httptest.NewRecorder()
 	handler.ServeHTTP(bootstrapResponse, httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
@@ -153,7 +158,9 @@ func TestAdminCanRevokeAllSessionsForAUser(t *testing.T) {
 	cookies := loginResponse.Result().Cookies()
 
 	revokeRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/users/"+loginPayload.UserID+"/sessions", nil)
-	revokeRequest.Header.Set("Authorization", "Bearer admin-token")
+	for _, cookie := range cookies {
+		revokeRequest.AddCookie(cookie)
+	}
 	revokeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(revokeResponse, revokeRequest)
 	if revokeResponse.Code != http.StatusNoContent {
@@ -173,7 +180,7 @@ func TestAdminCanRevokeAllSessionsForAUser(t *testing.T) {
 
 func TestAdminCanRevokeAllSessionsOrgWide(t *testing.T) {
 	t.Parallel()
-	handler, _ := newSessionHandler(t, "admin-token")
+	handler, _ := newSessionHandler(t)
 	email, password := "admin@example.com", "correct horse battery staple"
 	bootstrapResponse := httptest.NewRecorder()
 	handler.ServeHTTP(bootstrapResponse, httptest.NewRequest(http.MethodPost, "/api/v1/bootstrap", encodeJSON(t, map[string]string{
@@ -197,7 +204,9 @@ func TestAdminCanRevokeAllSessionsOrgWide(t *testing.T) {
 	}
 
 	revokeRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/sessions/all", nil)
-	revokeRequest.Header.Set("Authorization", "Bearer admin-token")
+	for _, cookie := range cookies {
+		revokeRequest.AddCookie(cookie)
+	}
 	revokeResponse := httptest.NewRecorder()
 	handler.ServeHTTP(revokeResponse, revokeRequest)
 	if revokeResponse.Code != http.StatusNoContent {

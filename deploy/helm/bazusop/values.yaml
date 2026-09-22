@@ -40,8 +40,9 @@ secrets:
   existingSecret: bazusop-secrets
   databaseURLKey: database-url
   enrollmentTokenKey: enrollment-token
-  operatorTokenKey: operator-token
-  adminTokenKey: admin-token
+  bootstrapSecretKey: bootstrap-secret
+  totpEncryptionKeyKey: totp-encryption-key
+  serviceAccountPepperKey: service-account-pepper
 
 timescale:
   enabled: false

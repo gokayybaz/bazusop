@@ -6,9 +6,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/gokayybaz/bazusop/internal/authorization"
 	"github.com/gokayybaz/bazusop/internal/cloudinventory"
+	"github.com/gokayybaz/bazusop/internal/identity"
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/server"
+	"github.com/gokayybaz/bazusop/internal/serviceaccounts"
+	"github.com/gokayybaz/bazusop/internal/sessions"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
@@ -20,22 +24,64 @@ func TestCloudDiscoveryAPIReconcilesProviderInventory(t *testing.T) {
 		t.Fatalf("seed host: %v", err)
 	}
 	cloud := cloudinventory.NewService(cloudinventory.NewMemoryStore(), hosts)
-	handler := server.NewHandler(server.WithCloudInventory(cloud, "operator-secret"))
+
+	identityService := identity.NewService(identity.NewMemoryStore(), "test-totp-encryption-key")
+	authzService, err := authorization.NewService(authorization.NewMemoryStore(), identityService.IsPlatformAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionService, err := sessions.NewService(sessions.NewMemoryStore(), identityService.IsUserActive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceAccountService, err := serviceaccounts.NewService(serviceaccounts.NewMemoryStore(), "test-pepper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.NewHandler(
+		server.WithCloudInventory(cloud),
+		server.WithIdentity(identityService, "bootstrap-secret"),
+		server.WithSessions(sessionService, identityService),
+		server.WithAuthorization(authzService),
+		server.WithServiceAccounts(serviceAccountService),
+	)
+
+	admin, _, err := identityService.Bootstrap(ctx, tenancy.DefaultOrganizationID, "admin@example.com", "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, adminToken, _, err := sessionService.Create(ctx, admin.ID, admin.OrganizationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createAccount := httptest.NewRequest(http.MethodPost, "/api/v1/sites/site_default/service-accounts", encodeJSON(t, map[string]any{"name": "cloud-bot", "role": "site-admin"}))
+	createAccount.AddCookie(&http.Cookie{Name: "bazusop_session", Value: adminToken})
+	accountResponse := httptest.NewRecorder()
+	handler.ServeHTTP(accountResponse, createAccount)
+	if accountResponse.Code != http.StatusCreated {
+		t.Fatalf("create service account: %d %s", accountResponse.Code, accountResponse.Body.String())
+	}
+	var account struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(accountResponse.Body).Decode(&account); err != nil {
+		t.Fatalf("decode service account: %v", err)
+	}
 
 	create := httptest.NewRequest(http.MethodPost, "/api/v1/cloud/accounts", encodeJSON(t, cloudinventory.AccountRequest{Name: "Üretim AWS", Provider: cloudinventory.ProviderAWS, ExternalID: "123456789012"}))
-	create.Header.Set("Authorization", "Bearer operator-secret")
+	create.Header.Set("Authorization", "Bearer "+account.Token)
 	created := httptest.NewRecorder()
 	handler.ServeHTTP(created, create)
 	if created.Code != http.StatusCreated {
 		t.Fatalf("create account status = %d: %s", created.Code, created.Body.String())
 	}
-	var account cloudinventory.Account
-	if err := json.NewDecoder(created.Body).Decode(&account); err != nil {
+	var cloudAccount cloudinventory.Account
+	if err := json.NewDecoder(created.Body).Decode(&cloudAccount); err != nil {
 		t.Fatalf("decode account: %v", err)
 	}
 
-	syncRequest := httptest.NewRequest(http.MethodPut, "/api/v1/cloud/accounts/"+account.ID+"/instances", encodeJSON(t, map[string]any{"instances": []cloudinventory.DiscoveredInstance{{ProviderInstanceID: "i-0123", Name: "edge-01", Region: "eu-central-1", State: "running", OSFamily: "linux", AgentIDHint: "agent-01"}}}))
-	syncRequest.Header.Set("Authorization", "Bearer operator-secret")
+	syncRequest := httptest.NewRequest(http.MethodPut, "/api/v1/cloud/accounts/"+cloudAccount.ID+"/instances", encodeJSON(t, map[string]any{"instances": []cloudinventory.DiscoveredInstance{{ProviderInstanceID: "i-0123", Name: "edge-01", Region: "eu-central-1", State: "running", OSFamily: "linux", AgentIDHint: "agent-01"}}}))
+	syncRequest.Header.Set("Authorization", "Bearer "+account.Token)
 	synced := httptest.NewRecorder()
 	handler.ServeHTTP(synced, syncRequest)
 	if synced.Code != http.StatusOK {
@@ -55,10 +101,10 @@ func TestCloudDiscoveryAPIReconcilesProviderInventory(t *testing.T) {
 	}
 }
 
-func TestCloudDiscoveryMutationsRequireOperatorToken(t *testing.T) {
+func TestCloudDiscoveryMutationsRequireAuthentication(t *testing.T) {
 	t.Parallel()
 	cloud := cloudinventory.NewService(cloudinventory.NewMemoryStore(), inventory.NewService(inventory.NewMemoryStore()))
-	handler := server.NewHandler(server.WithCloudInventory(cloud, "operator-secret"))
+	handler := server.NewHandler(server.WithCloudInventory(cloud))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/cloud/accounts", encodeJSON(t, cloudinventory.AccountRequest{})))
 	if response.Code != http.StatusUnauthorized {

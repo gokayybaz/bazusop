@@ -10,9 +10,14 @@ import (
 	"time"
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
+	"github.com/gokayybaz/bazusop/internal/authorization"
+	"github.com/gokayybaz/bazusop/internal/identity"
 	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/server"
+	"github.com/gokayybaz/bazusop/internal/serviceaccounts"
+	"github.com/gokayybaz/bazusop/internal/sessions"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
+	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
 
 func newAlertService(t *testing.T) *alerting.Service {
@@ -27,12 +32,54 @@ func newAlertService(t *testing.T) *alerting.Service {
 
 func TestMetricRuleCreatesAndAcknowledgesIncident(t *testing.T) {
 	t.Parallel()
-	authority, identity := enrolledIdentity(t)
+	authority, agentIdentity := enrolledIdentity(t)
 	alerts := newAlertService(t)
-	handler := server.NewHandler(server.WithEnrollment(authority), server.WithTelemetry(telemetry.NewService(telemetry.NewMemoryStore())), server.WithAlerts(alerts, "operator-secret"))
+
+	identityService := identity.NewService(identity.NewMemoryStore(), "test-totp-encryption-key")
+	authzService, err := authorization.NewService(authorization.NewMemoryStore(), identityService.IsPlatformAdmin)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessionService, err := sessions.NewService(sessions.NewMemoryStore(), identityService.IsUserActive)
+	if err != nil {
+		t.Fatal(err)
+	}
+	serviceAccountService, err := serviceaccounts.NewService(serviceaccounts.NewMemoryStore(), "test-pepper")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := server.NewHandler(
+		server.WithEnrollment(authority), server.WithTelemetry(telemetry.NewService(telemetry.NewMemoryStore())), server.WithAlerts(alerts),
+		server.WithIdentity(identityService, "bootstrap-secret"),
+		server.WithSessions(sessionService, identityService),
+		server.WithAuthorization(authzService),
+		server.WithServiceAccounts(serviceAccountService),
+	)
+
+	admin, _, err := identityService.Bootstrap(t.Context(), tenancy.DefaultOrganizationID, "admin@example.com", "correct horse battery staple")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, adminToken, _, err := sessionService.Create(t.Context(), admin.ID, admin.OrganizationID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	createAccount := httptest.NewRequest(http.MethodPost, "/api/v1/sites/"+tenancy.DefaultSiteID+"/service-accounts", encodeJSON(t, map[string]any{"name": "ops-bot", "role": "site-admin"}))
+	createAccount.AddCookie(&http.Cookie{Name: "bazusop_session", Value: adminToken})
+	accountResponse := httptest.NewRecorder()
+	handler.ServeHTTP(accountResponse, createAccount)
+	if accountResponse.Code != http.StatusCreated {
+		t.Fatalf("create service account: %d %s", accountResponse.Code, accountResponse.Body.String())
+	}
+	var account struct {
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(accountResponse.Body).Decode(&account); err != nil {
+		t.Fatalf("decode service account: %v", err)
+	}
 
 	createRule := httptest.NewRequest(http.MethodPost, "/api/v1/alert-rules", encodeJSON(t, alerting.RuleRequest{Name: "Yüksek CPU", Kind: alerting.KindMetric, Metric: alerting.MetricCPU, Threshold: 90, Severity: alerting.SeverityCritical, Enabled: true}))
-	createRule.Header.Set("Authorization", "Bearer operator-secret")
+	createRule.Header.Set("Authorization", "Bearer "+account.Token)
 	ruleResponse := httptest.NewRecorder()
 	handler.ServeHTTP(ruleResponse, createRule)
 	if ruleResponse.Code != http.StatusCreated {
@@ -41,7 +88,7 @@ func TestMetricRuleCreatesAndAcknowledgesIncident(t *testing.T) {
 
 	recordedAt := time.Now().UTC()
 	report := httptest.NewRequest(http.MethodPost, "/api/v1/agents/telemetry", encodeJSON(t, telemetry.Sample{RecordedAt: recordedAt, CPUPercent: 97, MemoryPercent: 50, DiskPercent: 40}))
-	report.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{serverCertificate(t, identity.CertificatePEM)}}
+	report.TLS = &tls.ConnectionState{PeerCertificates: []*x509.Certificate{serverCertificate(t, agentIdentity.CertificatePEM)}}
 	reportResponse := httptest.NewRecorder()
 	handler.ServeHTTP(reportResponse, report)
 	if reportResponse.Code != http.StatusNoContent {
@@ -68,7 +115,7 @@ func TestMetricRuleCreatesAndAcknowledgesIncident(t *testing.T) {
 	}
 
 	ack := httptest.NewRequest(http.MethodPost, "/api/v1/incidents/"+payload.Incidents[0].ID+"/acknowledge", encodeJSON(t, map[string]string{"actor": "gokay"}))
-	ack.Header.Set("Authorization", "Bearer operator-secret")
+	ack.Header.Set("Authorization", "Bearer "+account.Token)
 	ackResponse := httptest.NewRecorder()
 	handler.ServeHTTP(ackResponse, ack)
 	if ackResponse.Code != http.StatusOK {
@@ -76,9 +123,9 @@ func TestMetricRuleCreatesAndAcknowledgesIncident(t *testing.T) {
 	}
 }
 
-func TestAlertMutationsRequireOperatorToken(t *testing.T) {
+func TestAlertMutationsRequireAuthentication(t *testing.T) {
 	t.Parallel()
-	handler := server.NewHandler(server.WithAlerts(newAlertService(t), "operator-secret"))
+	handler := server.NewHandler(server.WithAlerts(newAlertService(t)))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/v1/alert-rules", encodeJSON(t, alerting.RuleRequest{})))
 	if response.Code != http.StatusUnauthorized {
