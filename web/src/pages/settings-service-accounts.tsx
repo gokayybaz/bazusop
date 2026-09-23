@@ -118,7 +118,7 @@ export function SettingsServiceAccountsTab() {
           <h3>{revealedToken.name} için token</h3>
           <p className="auth-warning">Bu token yalnız bir kez gösterilir. Güvenli bir yere kaydedin.</p>
           <code>{revealedToken.token}</code>
-          <button onClick={() => void navigator.clipboard?.copyText(revealedToken.token)} type="button">
+          <button onClick={() => void navigator.clipboard?.writeText(revealedToken.token)} type="button">
             Kopyala
           </button>
         </Card>
