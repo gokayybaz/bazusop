@@ -288,3 +288,87 @@ func TestListServiceAccountsResponseNeverIncludesTheToken(t *testing.T) {
 		t.Fatalf("expected the list response to never include the raw token, got %s", listResponse.Body.String())
 	}
 }
+
+func TestListServiceAccountsIncludesTheActiveTokenSummary(t *testing.T) {
+	t.Parallel()
+	handler, adminCookies, _ := newServiceAccountHandler(t)
+	csrfToken := csrfTokenFromCookies(adminCookies)
+
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/v1/sites/site_default/service-accounts", encodeJSON(t, map[string]any{
+		"name": "ci-bot", "role": "operator",
+	}))
+	for _, cookie := range adminCookies {
+		createRequest.AddCookie(cookie)
+	}
+	createRequest.Header.Set("X-CSRF-Token", csrfToken)
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, createRequest)
+	var created struct {
+		ID    string `json:"id"`
+		Token string `json:"token"`
+	}
+	if err := json.NewDecoder(createResponse.Body).Decode(&created); err != nil || created.Token == "" {
+		t.Fatalf("expected a one-time token from creation, got %v", err)
+	}
+	tokenID, _, ok := serviceaccounts.ParseToken(created.Token)
+	if !ok {
+		t.Fatal("expected a parseable token")
+	}
+
+	type accountPayload struct {
+		ID          string `json:"id"`
+		Name        string `json:"name"`
+		Role        string `json:"role"`
+		CreatedAt   string `json:"created_at"`
+		ActiveToken *struct {
+			ID        string `json:"id"`
+			ExpiresAt string `json:"expires_at"`
+		} `json:"active_token"`
+	}
+
+	listBeforeRequest := httptest.NewRequest(http.MethodGet, "/api/v1/sites/site_default/service-accounts", nil)
+	for _, cookie := range adminCookies {
+		listBeforeRequest.AddCookie(cookie)
+	}
+	listBefore := httptest.NewRecorder()
+	handler.ServeHTTP(listBefore, listBeforeRequest)
+	var beforePayload struct {
+		ServiceAccounts []accountPayload `json:"service_accounts"`
+	}
+	if err := json.NewDecoder(listBefore.Body).Decode(&beforePayload); err != nil {
+		t.Fatalf("decode list: %v", err)
+	}
+	if len(beforePayload.ServiceAccounts) != 1 || beforePayload.ServiceAccounts[0].ActiveToken == nil || beforePayload.ServiceAccounts[0].ActiveToken.ID != tokenID {
+		t.Fatalf("expected the created account's active token to be reported, got %#v", beforePayload.ServiceAccounts)
+	}
+	if beforePayload.ServiceAccounts[0].Name != "ci-bot" || beforePayload.ServiceAccounts[0].Role != "operator" || beforePayload.ServiceAccounts[0].CreatedAt == "" {
+		t.Fatalf("expected name/role/created_at to be populated, got %#v", beforePayload.ServiceAccounts[0])
+	}
+
+	revokeRequest := httptest.NewRequest(http.MethodDelete, "/api/v1/service-accounts/tokens/"+tokenID, nil)
+	for _, cookie := range adminCookies {
+		revokeRequest.AddCookie(cookie)
+	}
+	revokeRequest.Header.Set("X-CSRF-Token", csrfToken)
+	revokeResponse := httptest.NewRecorder()
+	handler.ServeHTTP(revokeResponse, revokeRequest)
+	if revokeResponse.Code != http.StatusNoContent {
+		t.Fatalf("expected 204 revoking the token, got %d: %s", revokeResponse.Code, revokeResponse.Body.String())
+	}
+
+	listAfterRequest := httptest.NewRequest(http.MethodGet, "/api/v1/sites/site_default/service-accounts", nil)
+	for _, cookie := range adminCookies {
+		listAfterRequest.AddCookie(cookie)
+	}
+	listAfter := httptest.NewRecorder()
+	handler.ServeHTTP(listAfter, listAfterRequest)
+	var afterPayload struct {
+		ServiceAccounts []accountPayload `json:"service_accounts"`
+	}
+	if err := json.NewDecoder(listAfter.Body).Decode(&afterPayload); err != nil {
+		t.Fatalf("decode list after revoke: %v", err)
+	}
+	if len(afterPayload.ServiceAccounts) != 1 || afterPayload.ServiceAccounts[0].ActiveToken != nil {
+		t.Fatalf("expected no active token after revoke, got %#v", afterPayload.ServiceAccounts)
+	}
+}

@@ -67,14 +67,49 @@ func handleListServiceAccounts(service *serviceaccounts.Service, sessionService 
 			http.Error(response, http.StatusText(http.StatusNotFound), http.StatusNotFound)
 			return
 		}
-		accounts, err := service.ListForSite(request.Context(), request.PathValue("siteID"))
+		summaries, err := service.ListForSite(request.Context(), request.PathValue("siteID"))
 		if err != nil {
 			http.Error(response, http.StatusText(http.StatusInternalServerError), http.StatusInternalServerError)
 			return
 		}
+		type activeTokenPayload struct {
+			ID         string  `json:"id"`
+			ExpiresAt  string  `json:"expires_at"`
+			LastUsedAt *string `json:"last_used_at,omitempty"`
+		}
+		type accountPayload struct {
+			ID          string              `json:"id"`
+			Name        string              `json:"name"`
+			Role        string              `json:"role"`
+			CreatedAt   string              `json:"created_at"`
+			DisabledAt  *string             `json:"disabled_at,omitempty"`
+			ActiveToken *activeTokenPayload `json:"active_token"`
+		}
+		payload := make([]accountPayload, 0, len(summaries))
+		for _, summary := range summaries {
+			entry := accountPayload{
+				ID:        summary.ID,
+				Name:      summary.Name,
+				Role:      string(summary.Role),
+				CreatedAt: summary.CreatedAt.Format(timeLayout),
+			}
+			if summary.DisabledAt != nil {
+				formatted := summary.DisabledAt.Format(timeLayout)
+				entry.DisabledAt = &formatted
+			}
+			if summary.ActiveToken != nil {
+				tokenPayload := &activeTokenPayload{ID: summary.ActiveToken.ID, ExpiresAt: summary.ActiveToken.ExpiresAt.Format(timeLayout)}
+				if summary.ActiveToken.LastUsedAt != nil {
+					formatted := summary.ActiveToken.LastUsedAt.Format(timeLayout)
+					tokenPayload.LastUsedAt = &formatted
+				}
+				entry.ActiveToken = tokenPayload
+			}
+			payload = append(payload, entry)
+		}
 		writeJSON(response, http.StatusOK, struct {
-			ServiceAccounts []serviceaccounts.ServiceAccount `json:"service_accounts"`
-		}{accounts})
+			ServiceAccounts []accountPayload `json:"service_accounts"`
+		}{payload})
 	}
 }
 
