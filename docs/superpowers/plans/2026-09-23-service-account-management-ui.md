@@ -36,7 +36,7 @@
 **Arayüzler:**
 - Üretir: `serviceaccounts.AccountSummary` (gömülü `ServiceAccount` + `ActiveToken *Token`), `Store.ActiveTokensForSite(ctx, siteID) (map[string]Token, error)`, `Service.ListForSite(ctx, siteID) ([]AccountSummary, error)` (imza değişikliği — Görev 2'de HTTP katmanı tüketir).
 
-- [ ] **Adım 1: `internal/serviceaccounts/serviceaccounts.go`'a `AccountSummary` tipini ve `Store` arayüzüne yeni metodu ekle**
+- [x] **Adım 1: `internal/serviceaccounts/serviceaccounts.go`'a `AccountSummary` tipini ve `Store` arayüzüne yeni metodu ekle**
 
 `Token` tipinden hemen sonra ekle:
 
@@ -82,7 +82,7 @@ func (service *Service) ListForSite(ctx context.Context, siteID string) ([]Accou
 }
 ```
 
-- [ ] **Adım 2: `internal/serviceaccounts/memorystore.go`'ya `ActiveTokensForSite`'ı ekle**
+- [x] **Adım 2: `internal/serviceaccounts/memorystore.go`'ya `ActiveTokensForSite`'ı ekle**
 
 `AccountsForSite` metodundan hemen sonra ekle:
 
@@ -110,7 +110,7 @@ func (store *MemoryStore) ActiveTokensForSite(_ context.Context, siteID string) 
 
 (Yalnız iptal edilmemiş token'lar arasından, hesap başına en son oluşturulanı seçiyor — normal akışta bir hesabın aynı anda en fazla bir aktif token'ı olur [`RotateToken`/`DisableAccount` yeni bir tane oluşturmadan önce eskilerini iptal ediyor], `CreatedAt.After` karşılaştırması yalnız bir güvenlik payı.)
 
-- [ ] **Adım 3: `internal/storage/postgres/serviceaccounts.go`'a `ActiveTokensForSite`'ı ekle**
+- [x] **Adım 3: `internal/storage/postgres/serviceaccounts.go`'a `ActiveTokensForSite`'ı ekle**
 
 `AccountsForSite`'tan hemen sonra ekle:
 
@@ -148,12 +148,12 @@ func (store *Store) ActiveTokensForSite(ctx context.Context, siteID string) (map
 
 (`DISTINCT ON (t.service_account_id)` + `ORDER BY t.service_account_id, t.created_at DESC`, PostgreSQL'e özgü — her hesap için en son oluşturulan iptal edilmemiş token'ı tek satıra indirger; memory store'daki elle-yazılmış eşdeğeri budur.)
 
-- [ ] **Adım 4: Build'i doğrula**
+- [x] **Adım 4: Build'i doğrula**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go build ./internal/serviceaccounts/... ./internal/storage/postgres/... 2>&1 | head -30`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 5: `internal/serviceaccounts/serviceaccounts_test.go`'daki mevcut `TestListForSiteReturnsOnlyThatSitesAccounts` testinin hâlâ geçtiğini doğrula, sonra yeni bir test ekle**
+- [x] **Adım 5: `internal/serviceaccounts/serviceaccounts_test.go`'daki mevcut `TestListForSiteReturnsOnlyThatSitesAccounts` testinin hâlâ geçtiğini doğrula, sonra yeni bir test ekle**
 
 `AccountSummary`'nin `ServiceAccount`'ı gömmesi sayesinde `accounts[0].Name` erişimi hiç değişmeden çalışır — bu testte kod değişikliği gerekmiyor.
 
@@ -195,12 +195,12 @@ func TestListForSiteIncludesTheActiveTokenAndOmitsARevokedOne(t *testing.T) {
 }
 ```
 
-- [ ] **Adım 6: Testi çalıştır**
+- [x] **Adım 6: Testi çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && GOCACHE=/tmp/bazusop-go-cache go test ./internal/serviceaccounts/... -run 'TestListForSite' -v 2>&1 | tail -40`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 7: `internal/storage/postgres/serviceaccounts_integration_test.go`'a bir doğrulama ekle**
+- [x] **Adım 7: `internal/storage/postgres/serviceaccounts_integration_test.go`'a bir doğrulama ekle**
 
 `secondToken` oluşturulduktan hemen sonra (`if err := store.CreateToken(ctx, secondToken, "hash-2"); err != nil { t.Fatalf(...) }` bloğundan sonra), `RevokeActiveTokensForAccount` çağrısından önce ekle:
 
@@ -223,7 +223,7 @@ Beklenen: BAŞARILI
 	}
 ```
 
-- [ ] **Adım 8: Testleri çalıştır (Postgres gerektirir)**
+- [x] **Adım 8: Testleri çalıştır (Postgres gerektirir)**
 
 ```bash
 docker rm -f bazusop-test-pg-1350 >/dev/null 2>&1
@@ -236,12 +236,12 @@ docker rm -f bazusop-test-pg-1350 >/dev/null 2>&1
 
 Beklenen: BAŞARILI
 
-- [ ] **Adım 9: Tam paket testlerini çalıştır (Postgres olmadan, memory-store testleri için)**
+- [x] **Adım 9: Tam paket testlerini çalıştır (Postgres olmadan, memory-store testleri için)**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go vet ./internal/serviceaccounts/... ./internal/storage/postgres/... && gofmt -l internal/serviceaccounts/*.go internal/storage/postgres/*.go && GOCACHE=/tmp/bazusop-go-cache go test ./internal/serviceaccounts/... 2>&1 | tail -10`
 Beklenen: vet/gofmt çıktısı yok; `ok`
 
-- [ ] **Adım 10: Commit**
+- [x] **Adım 10: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -257,7 +257,7 @@ git commit -m "feat: add serviceaccounts.Service.ListForSite active-token summar
 **Arayüzler:**
 - Üretir: `GET /api/v1/sites/{siteID}/service-accounts` → `{"service_accounts": [{"id","name","role","created_at","disabled_at"?,"active_token": {"id","expires_at","last_used_at"?} | null}]}`. Route zaten var (`internal/server/server.go`, değişmiyor); yalnız `handleListServiceAccounts`'ın gövdesi değişiyor.
 
-- [ ] **Adım 1: `internal/server/serviceaccounts.go`'daki `handleListServiceAccounts`'ı değiştir**
+- [x] **Adım 1: `internal/server/serviceaccounts.go`'daki `handleListServiceAccounts`'ı değiştir**
 
 Mevcut fonksiyonun tamamını (`func handleListServiceAccounts(...) http.HandlerFunc { ... }`) şununla değiştir:
 
@@ -320,12 +320,12 @@ func handleListServiceAccounts(service *serviceaccounts.Service, sessionService 
 
 (`summary.ID`/`summary.Name`/`summary.Role`/`summary.CreatedAt`/`summary.DisabledAt`, `AccountSummary`'nin gömdüğü `ServiceAccount`'tan gelir — Görev 1'deki gömme sayesinde doğrudan erişilebilir. `timeLayout`, `internal/server/sessions.go`'da zaten tanımlı, aynı pakette olduğundan ekstra import gerekmiyor.)
 
-- [ ] **Adım 2: Build'i doğrula**
+- [x] **Adım 2: Build'i doğrula**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go build ./... 2>&1 | head -30 && echo BUILD_OK`
 Beklenen: `BUILD_OK`
 
-- [ ] **Adım 3: `internal/server/serviceaccounts_test.go`'a yeni bir test ekle**
+- [x] **Adım 3: `internal/server/serviceaccounts_test.go`'a yeni bir test ekle**
 
 `TestListServiceAccountsResponseNeverIncludesTheToken` testinden hemen sonra ekle:
 
@@ -415,17 +415,17 @@ func TestListServiceAccountsIncludesTheActiveTokenSummary(t *testing.T) {
 }
 ```
 
-- [ ] **Adım 4: Testi çalıştır**
+- [x] **Adım 4: Testi çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... -run 'TestListServiceAccounts' -v 2>&1 | tail -40`
 Beklenen: BAŞARILI
 
-- [ ] **Adım 5: Tam paket testlerini çalıştır**
+- [x] **Adım 5: Tam paket testlerini çalıştır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && go vet ./internal/server/... && gofmt -l internal/server/*.go && GOCACHE=/tmp/bazusop-go-cache go test ./internal/server/... 2>&1 | tail -10`
 Beklenen: vet/gofmt çıktısı yok; `ok`
 
-- [ ] **Adım 6: Commit**
+- [x] **Adım 6: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -443,7 +443,7 @@ git commit -m "feat: report each service account's active token summary from the
 - Tüketir: `useSession()` → `{ apiFetch }` (`web/src/lib/session.tsx`), `Badge`/`Card` (`web/src/components/ui/`), `EmptyFeature` (`web/src/components/empty-feature.tsx`).
 - Üretir: `SettingsServiceAccountsTab` bileşeni — Görev 4'te `SettingsPage` tüketir.
 
-- [ ] **Adım 1: `web/src/types.ts`'e yeni tipleri ekle**
+- [x] **Adım 1: `web/src/types.ts`'e yeni tipleri ekle**
 
 Dosyanın sonuna (`ManagedUser`'dan hemen sonra) ekle:
 
@@ -452,7 +452,7 @@ export type ServiceAccountToken = { id: string; expires_at: string; last_used_at
 export type ServiceAccount = { id: string; name: string; role: string; created_at: string; disabled_at?: string; active_token: ServiceAccountToken | null }
 ```
 
-- [ ] **Adım 2: `web/src/pages/settings-service-accounts.tsx`'i oluştur**
+- [x] **Adım 2: `web/src/pages/settings-service-accounts.tsx`'i oluştur**
 
 ```tsx
 import { type FormEvent, useEffect, useState } from "react"
@@ -677,7 +677,7 @@ export function SettingsServiceAccountsTab() {
 }
 ```
 
-- [ ] **Adım 3: `web/src/styles.css`'e yeni sınıfları ekle**
+- [x] **Adım 3: `web/src/styles.css`'e yeni sınıfları ekle**
 
 `.settings-users-forms { ... }` kuralından hemen önce (`.settings-form-actions` kuralından sonra) ekle:
 
@@ -698,7 +698,7 @@ export function SettingsServiceAccountsTab() {
 
 (Mevcut iki satırın yerine geçiyor — üçüncü seçiciyi ekleyerek. Ne `border-left` ne `box-shadow: inset` kullanılıyor, `design-system.test.ts`'in kuralına uygun.)
 
-- [ ] **Adım 4: `web/src/pages/settings-service-accounts.test.tsx`'i oluştur**
+- [x] **Adım 4: `web/src/pages/settings-service-accounts.test.tsx`'i oluştur**
 
 ```tsx
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react"
@@ -889,7 +889,7 @@ describe("SettingsServiceAccountsTab", () => {
 
 (4. testte `fetchMock.mockImplementation` render'dan sonra iki kez değiştiriliyor: ilk implementasyon yalnız boş listeyi döner [ilk `useEffect` çağrısı için], ikincisi hem GET'i hem `POST`'u ayırt eder — bu, `settings-users.test.tsx`'teki `usersCallCount` sayaç desenine benzer bir alternatif; burada GET ve POST aynı URL'e gittiği için `init?.method` üzerinden ayırt ediliyor.)
 
-- [ ] **Adım 5: Testleri çalıştır**
+- [x] **Adım 5: Testleri çalıştır**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web
@@ -898,7 +898,7 @@ npm test -- settings-service-accounts 2>&1 | tail -60
 
 Beklenen: BAŞARILI (6 test)
 
-- [ ] **Adım 6: Tip kontrolü ve tam frontend test paketini çalıştır**
+- [x] **Adım 6: Tip kontrolü ve tam frontend test paketini çalıştır**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web
@@ -907,7 +907,7 @@ npm test 2>&1 | tail -50
 
 Beklenen: BAŞARILI
 
-- [ ] **Adım 7: Commit**
+- [x] **Adım 7: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -920,7 +920,7 @@ git commit -m "feat: add the SettingsServiceAccountsTab component (list, create,
 **Dosyalar:**
 - Değiştir: `web/src/pages/settings.tsx`, `web/src/pages/settings.test.tsx`.
 
-- [ ] **Adım 1: `web/src/pages/settings.tsx`'i değiştir**
+- [x] **Adım 1: `web/src/pages/settings.tsx`'i değiştir**
 
 Tüm dosyanın içeriğini şununla değiştir:
 
@@ -960,7 +960,7 @@ export function SettingsPage() {
 }
 ```
 
-- [ ] **Adım 2: `web/src/pages/settings.test.tsx`'e yeni bir test ekle**
+- [x] **Adım 2: `web/src/pages/settings.test.tsx`'e yeni bir test ekle**
 
 Mevcut tek `it` bloğundan sonra, `describe` bloğunun içine ekle:
 
@@ -990,7 +990,7 @@ Mevcut tek `it` bloğundan sonra, `describe` bloğunun içine ekle:
   })
 ```
 
-- [ ] **Adım 3: Testleri çalıştır**
+- [x] **Adım 3: Testleri çalıştır**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web
@@ -999,7 +999,7 @@ npm test -- settings.test 2>&1 | tail -40
 
 Beklenen: BAŞARILI (2 test)
 
-- [ ] **Adım 4: Tip kontrolü + production build**
+- [x] **Adım 4: Tip kontrolü + production build**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop/web
@@ -1008,7 +1008,7 @@ npm run build 2>&1 | tail -30
 
 Beklenen: BAŞARILI
 
-- [ ] **Adım 5: Commit**
+- [x] **Adım 5: Commit**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
@@ -1020,15 +1020,15 @@ git commit -m "feat: add a Servis hesapları tab to Settings, wired to SettingsS
 
 **Dosyalar:** yok (yalnız doğrulama).
 
-- [ ] **Adım 1: Docker Compose ile hub'ı yeniden derleyip ayağa kaldır**
+- [x] **Adım 1: Docker Compose ile hub'ı yeniden derleyip ayağa kaldır**
 
 Çalıştır: `cd /Users/gokaybaz/Documents/ChatGPT/bazusop && docker compose down -v >/dev/null 2>&1; BAZUSOP_PORT=8090 BAZUSOP_BOOTSTRAP_SECRET=verify-bootstrap BAZUSOP_TOTP_ENCRYPTION_KEY=verify-totp-key BAZUSOP_SERVICE_ACCOUNT_PEPPER=verify-pepper docker compose up --build -d 2>&1 | tail -30`
 
-- [ ] **Adım 2: Sağlık kontrolünü bekle**
+- [x] **Adım 2: Sağlık kontrolünü bekle**
 
 Çalıştır: `for i in $(seq 1 20); do curl -s -o /dev/null -w "%{http_code}" http://127.0.0.1:8090/api/v1/health | grep -q 200 && echo healthy && break; sleep 1; done`
 
-- [ ] **Adım 3: Tek bir Python betiğiyle bootstrap → giriş → servis hesabı oluştur → listele → rotate → listele → revoke → listele → disable → listele — hepsi gerçek bir HTTP istemcisiyle**
+- [x] **Adım 3: Tek bir Python betiğiyle bootstrap → giriş → servis hesabı oluştur → listele → rotate → listele → revoke → listele → disable → listele — hepsi gerçek bir HTTP istemcisiyle**
 
 ```bash
 python3 -c "
@@ -1098,14 +1098,14 @@ print('disabled_at set after disable:', entry['disabled_at'] is not None)
 
 Beklenen çıktı sırasıyla: "accounts before create: 0", "created account: ci-bot operator", "active token after create: True", "rotated token differs from first: True", "active token id present after rotate: True", "active token after revoke: None", "disabled_at set after disable: True".
 
-- [ ] **Adım 4: Temizlik**
+- [x] **Adım 4: Temizlik**
 
 ```bash
 cd /Users/gokaybaz/Documents/ChatGPT/bazusop
 docker compose down -v
 ```
 
-- [ ] **Adım 5: Go ve frontend testlerini son kez birlikte çalıştır (gerçek Postgres ile)**
+- [x] **Adım 5: Go ve frontend testlerini son kez birlikte çalıştır (gerçek Postgres ile)**
 
 ```bash
 docker rm -f bazusop-test-pg-1350b >/dev/null 2>&1
@@ -1120,7 +1120,7 @@ cd web && npm test 2>&1 | tail -50 && npm run build 2>&1 | tail -20
 
 Beklenen: hepsi BAŞARILI
 
-- [ ] **Adım 6: `docker-compose.yml`'daki spike tamamlama notunu güncelle (varsa) ve son bir commit at**
+- [x] **Adım 6: `docker-compose.yml`'daki spike tamamlama notunu güncelle (varsa) ve son bir commit at**
 
 Önceki spike'ların (13.2, 13.3, 13.4) her biri, frontend bundle'ını embed edip planı "tamamlandı" işaretleyen tek bir "build:" commit'iyle kapanmıştı (`fc2779f`, `60926b0`, `31a1192`). Aynı deseni izle:
 
