@@ -43,6 +43,15 @@ type Token struct {
 	RevokedAt        *time.Time
 }
 
+// AccountSummary is what Service.ListForSite returns — the account plus
+// its current active token (nil if none, e.g. right after a Revoke with
+// no follow-up Rotate). ServiceAccount is embedded so existing callers
+// that access fields like summary.Name keep working unchanged.
+type AccountSummary struct {
+	ServiceAccount
+	ActiveToken *Token
+}
+
 var (
 	ErrInvalidRole     = errors.New("service accounts may only hold site-admin, operator, or viewer roles")
 	ErrInvalidExpiry   = errors.New("token expiry must be between 1 and 365 days")
@@ -74,6 +83,7 @@ type Store interface {
 	AccountByID(ctx context.Context, id string) (ServiceAccount, error)
 	DisableAccount(ctx context.Context, id string, at time.Time) error
 	AccountsForSite(ctx context.Context, siteID string) ([]ServiceAccount, error)
+	ActiveTokensForSite(ctx context.Context, siteID string) (map[string]Token, error)
 	CreateToken(ctx context.Context, token Token, secretHash string) error
 	TokenByID(ctx context.Context, id string) (Token, string, error)
 	RevokeToken(ctx context.Context, id string, at time.Time) error
@@ -164,8 +174,25 @@ func (service *Service) DisableAccount(ctx context.Context, siteID, accountID st
 	return service.store.DisableAccount(ctx, accountID, service.now())
 }
 
-func (service *Service) ListForSite(ctx context.Context, siteID string) ([]ServiceAccount, error) {
-	return service.store.AccountsForSite(ctx, siteID)
+func (service *Service) ListForSite(ctx context.Context, siteID string) ([]AccountSummary, error) {
+	accounts, err := service.store.AccountsForSite(ctx, siteID)
+	if err != nil {
+		return nil, err
+	}
+	activeTokens, err := service.store.ActiveTokensForSite(ctx, siteID)
+	if err != nil {
+		return nil, err
+	}
+	summaries := make([]AccountSummary, 0, len(accounts))
+	for _, account := range accounts {
+		summary := AccountSummary{ServiceAccount: account}
+		if token, ok := activeTokens[account.ID]; ok {
+			tokenCopy := token
+			summary.ActiveToken = &tokenCopy
+		}
+		summaries = append(summaries, summary)
+	}
+	return summaries, nil
 }
 
 // Validate looks the token up by its non-secret tokenID (O(1), indexed),

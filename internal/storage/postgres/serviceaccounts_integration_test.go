@@ -86,12 +86,23 @@ func TestPostgresServiceAccountLifecycle(t *testing.T) {
 	if err := store.CreateToken(ctx, secondToken, "hash-2"); err != nil {
 		t.Fatalf("create second token: %v", err)
 	}
+	activeBeforeRevoke, err := store.ActiveTokensForSite(ctx, siteID)
+	if err != nil || activeBeforeRevoke[account.ID].ID != secondToken.ID {
+		t.Fatalf("expected the active tokens map to report the second token as active, got %#v %v", activeBeforeRevoke, err)
+	}
 	if err := store.RevokeActiveTokensForAccount(ctx, account.ID, now.Add(3*time.Hour)); err != nil {
 		t.Fatalf("revoke active tokens: %v", err)
 	}
 	secondRevoked, _, err := store.TokenByID(ctx, secondToken.ID)
 	if err != nil || secondRevoked.RevokedAt == nil {
 		t.Fatalf("expected the second token to be revoked too, got %#v %v", secondRevoked, err)
+	}
+	activeAfterRevoke, err := store.ActiveTokensForSite(ctx, siteID)
+	if err != nil {
+		t.Fatalf("active tokens after revoke: %v", err)
+	}
+	if _, stillActive := activeAfterRevoke[account.ID]; stillActive {
+		t.Fatalf("expected no active token for the account after revoking, got %#v", activeAfterRevoke)
 	}
 
 	if err := store.DisableAccount(ctx, account.ID, now.Add(4*time.Hour)); err != nil {

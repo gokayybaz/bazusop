@@ -202,3 +202,37 @@ func TestListForSiteReturnsOnlyThatSitesAccounts(t *testing.T) {
 		t.Fatalf("expected exactly one site-a account, got %#v %v", accounts, err)
 	}
 }
+
+func TestListForSiteIncludesTheActiveTokenAndOmitsARevokedOne(t *testing.T) {
+	t.Parallel()
+	service := newTestService(t, time.Now)
+	account, firstToken, err := service.CreateAccount(t.Context(), "org_default", "site_default", "ci-bot", authorization.SiteRoleOperator, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstTokenID, _, _ := serviceaccounts.ParseToken(firstToken)
+
+	afterCreate, err := service.ListForSite(t.Context(), "site_default")
+	if err != nil || len(afterCreate) != 1 || afterCreate[0].ActiveToken == nil || afterCreate[0].ActiveToken.ID != firstTokenID {
+		t.Fatalf("expected the fresh token to be reported as active, got %#v %v", afterCreate, err)
+	}
+
+	secondToken, err := service.RotateToken(t.Context(), "site_default", account.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondTokenID, _, _ := serviceaccounts.ParseToken(secondToken)
+
+	afterRotate, err := service.ListForSite(t.Context(), "site_default")
+	if err != nil || len(afterRotate) != 1 || afterRotate[0].ActiveToken == nil || afterRotate[0].ActiveToken.ID != secondTokenID {
+		t.Fatalf("expected the rotated token to replace the active one, got %#v %v", afterRotate, err)
+	}
+
+	if err := service.RevokeToken(t.Context(), "site_default", secondTokenID); err != nil {
+		t.Fatal(err)
+	}
+	afterRevoke, err := service.ListForSite(t.Context(), "site_default")
+	if err != nil || len(afterRevoke) != 1 || afterRevoke[0].ActiveToken != nil {
+		t.Fatalf("expected no active token after revoking the only one, got %#v %v", afterRevoke, err)
+	}
+}

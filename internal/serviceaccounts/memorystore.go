@@ -65,6 +65,26 @@ func (store *MemoryStore) AccountsForSite(_ context.Context, siteID string) ([]S
 	return accounts, nil
 }
 
+func (store *MemoryStore) ActiveTokensForSite(_ context.Context, siteID string) (map[string]Token, error) {
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	result := make(map[string]Token)
+	for _, record := range store.tokens {
+		if record.token.RevokedAt != nil {
+			continue
+		}
+		account, ok := store.accounts[record.token.ServiceAccountID]
+		if !ok || account.SiteID != siteID {
+			continue
+		}
+		existing, found := result[record.token.ServiceAccountID]
+		if !found || record.token.CreatedAt.After(existing.CreatedAt) {
+			result[record.token.ServiceAccountID] = record.token
+		}
+	}
+	return result, nil
+}
+
 func (store *MemoryStore) CreateToken(_ context.Context, token Token, secretHash string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()

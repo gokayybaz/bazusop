@@ -75,6 +75,36 @@ func (store *Store) AccountsForSite(ctx context.Context, siteID string) ([]servi
 	return accounts, nil
 }
 
+func (store *Store) ActiveTokensForSite(ctx context.Context, siteID string) (map[string]serviceaccounts.Token, error) {
+	rows, err := store.pool.Query(ctx, `
+		SELECT DISTINCT ON (t.service_account_id)
+			t.id, t.service_account_id, t.created_at, t.expires_at, t.last_used_at, t.last_used_ip, t.revoked_at
+		FROM service_account_tokens t
+		JOIN service_accounts a ON a.id = t.service_account_id
+		WHERE a.site_id = $1 AND t.revoked_at IS NULL
+		ORDER BY t.service_account_id, t.created_at DESC`, siteID)
+	if err != nil {
+		return nil, fmt.Errorf("query active service account tokens: %w", err)
+	}
+	defer rows.Close()
+	result := make(map[string]serviceaccounts.Token)
+	for rows.Next() {
+		var token serviceaccounts.Token
+		var lastUsedIP *string
+		if err := rows.Scan(&token.ID, &token.ServiceAccountID, &token.CreatedAt, &token.ExpiresAt, &token.LastUsedAt, &lastUsedIP, &token.RevokedAt); err != nil {
+			return nil, fmt.Errorf("scan active service account token: %w", err)
+		}
+		if lastUsedIP != nil {
+			token.LastUsedIP = *lastUsedIP
+		}
+		result[token.ServiceAccountID] = token
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate active service account tokens: %w", err)
+	}
+	return result, nil
+}
+
 func (store *Store) CreateToken(ctx context.Context, token serviceaccounts.Token, secretHash string) error {
 	_, err := store.pool.Exec(ctx, `
 		INSERT INTO service_account_tokens (id, service_account_id, secret_hash, created_at, expires_at)
