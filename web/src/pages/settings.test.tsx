@@ -33,4 +33,28 @@ describe("SettingsPage", () => {
     expect(screen.queryByText("Görünüm")).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByText("Henüz kullanıcı yok.")).toBeInTheDocument())
   })
+
+  it("switches to the service-accounts tab on click", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith("/api/v1/session")) return Promise.resolve({ ok: true, json: async () => authenticatedWhoAmI } as Response)
+      if (url.endsWith("/api/v1/system/configuration")) return Promise.resolve({ ok: true, json: async () => ({ storage: "memory", timescale_enabled: false, telemetry_retention_days: 30, log_retention_days: 14, version: "0.5.0", commit: "abc123", build_date: "2026-09-23T00:00:00Z" }) } as Response)
+      if (url.endsWith("/api/v1/sites/site_default/service-accounts")) return Promise.resolve({ ok: true, json: async () => ({ service_accounts: [] }) } as Response)
+      return Promise.resolve({ ok: false } as Response)
+    }))
+
+    render(
+      <SessionProvider>
+        <SettingsPage />
+      </SessionProvider>,
+    )
+
+    expect(await screen.findByText("Görünüm")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("tab", { name: "Servis hesapları" }))
+
+    expect(await screen.findByText("Servis hesabı oluştur")).toBeInTheDocument()
+    expect(screen.queryByText("Görünüm")).not.toBeInTheDocument()
+    await waitFor(() => expect(screen.getByText("Henüz servis hesabı yok.")).toBeInTheDocument())
+  })
 })

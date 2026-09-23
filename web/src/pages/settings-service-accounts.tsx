@@ -188,7 +188,7 @@ export function SettingsServiceAccountsTab() {
 
       <div className="settings-users-forms">
         <Card className="settings-form-card">
-          <h3>Servis hesabı oluştur</h3>
+          <h3>Yeni servis hesabı oluştur</h3>
           <form className="alarm-form" onSubmit={createAccount}>
             <label>
               <span>Ad</span>
