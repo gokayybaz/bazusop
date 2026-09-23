@@ -284,8 +284,14 @@ func TestListServiceAccountsResponseNeverIncludesTheToken(t *testing.T) {
 	}
 	listResponse := httptest.NewRecorder()
 	handler.ServeHTTP(listResponse, listRequest)
-	if strings.Contains(listResponse.Body.String(), created.Token) {
-		t.Fatalf("expected the list response to never include the raw token, got %s", listResponse.Body.String())
+	body := listResponse.Body.String()
+	if strings.Contains(body, created.Token) {
+		t.Fatalf("expected the list response to never include the raw token, got %s", body)
+	}
+	for _, forbidden := range []string{"last_used_ip", "LastUsedIP", "OrganizationID", "SiteID"} {
+		if strings.Contains(body, forbidden) {
+			t.Fatalf("expected the list response to never leak %q, got %s", forbidden, body)
+		}
 	}
 }
 

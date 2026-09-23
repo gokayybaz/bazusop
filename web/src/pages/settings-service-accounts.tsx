@@ -5,6 +5,7 @@ import { Badge } from "../components/ui/badge"
 import { Card } from "../components/ui/card"
 import { EmptyFeature } from "../components/empty-feature"
 import { useSession } from "../lib/session"
+import { formatBuildDate } from "../lib/format"
 import type { ServiceAccount } from "../types"
 
 const jsonHeaders = { "Content-Type": "application/json" }
@@ -104,25 +105,37 @@ export function SettingsServiceAccountsTab() {
       .catch(() => setActionMessage(`${account.name} devre dışı bırakılamadı.`))
   }
 
+  const revealCard = revealedToken ? (
+    <Card className="settings-form-card token-reveal-card">
+      <h3>{revealedToken.name} için token</h3>
+      <p className="auth-warning">Bu token yalnız bir kez gösterilir. Güvenli bir yere kaydedin.</p>
+      <code>{revealedToken.token}</code>
+      <button onClick={() => void navigator.clipboard?.writeText(revealedToken.token)} type="button">
+        Kopyala
+      </button>
+    </Card>
+  ) : null
+
   if (state === "forbidden") {
-    return <EmptyFeature icon={KeyRound} text="Bu ekranı görüntülemek için site yöneticisi oturumu gerekir." title="Servis hesabı yönetimine erişim yetkiniz yok" />
+    return (
+      <div className="settings-users">
+        {revealCard}
+        <EmptyFeature icon={KeyRound} text="Bu ekranı görüntülemek için site yöneticisi oturumu gerekir." title="Servis hesabı yönetimine erişim yetkiniz yok" />
+      </div>
+    )
   }
   if (state === "error") {
-    return <EmptyFeature icon={KeyRound} text="Hub bağlantısını kontrol edin." title="Servis hesaplarına ulaşılamıyor" />
+    return (
+      <div className="settings-users">
+        {revealCard}
+        <EmptyFeature icon={KeyRound} text="Hub bağlantısını kontrol edin." title="Servis hesaplarına ulaşılamıyor" />
+      </div>
+    )
   }
 
   return (
     <div className="settings-users">
-      {revealedToken ? (
-        <Card className="settings-form-card token-reveal-card">
-          <h3>{revealedToken.name} için token</h3>
-          <p className="auth-warning">Bu token yalnız bir kez gösterilir. Güvenli bir yere kaydedin.</p>
-          <code>{revealedToken.token}</code>
-          <button onClick={() => void navigator.clipboard?.writeText(revealedToken.token)} type="button">
-            Kopyala
-          </button>
-        </Card>
-      ) : null}
+      {revealCard}
 
       <Card className="table-card page-card">
         <div className="card-header">
@@ -149,36 +162,40 @@ export function SettingsServiceAccountsTab() {
                 </tr>
               </thead>
               <tbody>
-                {accounts.map((account) => (
-                  <tr key={account.id}>
-                    <td>{account.name}</td>
-                    <td>{account.role}</td>
-                    <td>{account.created_at}</td>
-                    <td>
-                      <Badge className={account.active_token ? "totp-status confirmed" : "totp-status pending"}>
-                        {account.active_token ? "Aktif token var" : "Token yok"}
-                      </Badge>
-                    </td>
-                    <td>
-                      <Badge className={account.disabled_at ? "user-status disabled" : "user-status active"}>
-                        {account.disabled_at ? "Devre dışı" : "Aktif"}
-                      </Badge>
-                    </td>
-                    <td>
-                      <div className="service-account-actions">
-                        <button disabled={Boolean(account.disabled_at)} onClick={() => rotateToken(account)} type="button">
-                          Token yenile
-                        </button>
-                        <button disabled={!account.active_token} onClick={() => revokeToken(account)} type="button">
-                          Token iptal et
-                        </button>
-                        <button disabled={Boolean(account.disabled_at)} onClick={() => disableAccount(account)} type="button">
-                          Devre dışı bırak
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                {accounts.map((account) => {
+                  const tokenExpired = account.active_token ? new Date(account.active_token.expires_at).getTime() <= Date.now() : false
+                  const tokenBadgeClass = !account.active_token ? "totp-status pending" : tokenExpired ? "totp-status pending" : "totp-status confirmed"
+                  const tokenBadgeText = !account.active_token ? "Token yok" : tokenExpired ? "Süresi doldu" : "Aktif token var"
+                  return (
+                    <tr key={account.id}>
+                      <td>{account.name}</td>
+                      <td>{account.role}</td>
+                      <td>{account.created_at}</td>
+                      <td>
+                        <Badge className={tokenBadgeClass}>{tokenBadgeText}</Badge>
+                        {account.active_token ? <small className="token-expiry">Bitiş: {formatBuildDate(account.active_token.expires_at)}</small> : null}
+                      </td>
+                      <td>
+                        <Badge className={account.disabled_at ? "user-status disabled" : "user-status active"}>
+                          {account.disabled_at ? "Devre dışı" : "Aktif"}
+                        </Badge>
+                      </td>
+                      <td>
+                        <div className="service-account-actions">
+                          <button disabled={Boolean(account.disabled_at)} onClick={() => rotateToken(account)} type="button">
+                            Token yenile
+                          </button>
+                          <button disabled={!account.active_token} onClick={() => revokeToken(account)} type="button">
+                            Token iptal et
+                          </button>
+                          <button disabled={Boolean(account.disabled_at)} onClick={() => disableAccount(account)} type="button">
+                            Devre dışı bırak
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>

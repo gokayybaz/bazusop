@@ -409,4 +409,5 @@ tbody tr:hover { background: var(--surface-hover); }
 .site-role-badge { margin: 2px 4px 2px 0; }
 .totp-status.confirmed, .user-status.active { color: var(--success); border-color: color-mix(in srgb, var(--success) 32%, var(--border)); background: var(--success-soft); }
 .totp-status.pending, .user-status.disabled { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 32%, var(--border)); background: var(--warning-soft); }
+.token-expiry { display: block; margin-top: 4px; color: var(--subtle); font-size: 12px; }
 @media (max-width: 1100px) { .settings-users-forms { grid-template-columns: 1fr; } }

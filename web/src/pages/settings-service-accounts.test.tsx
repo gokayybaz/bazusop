@@ -149,6 +149,65 @@ describe("SettingsServiceAccountsTab", () => {
     expect(headers.get("X-CSRF-Token")).toBe("csrf-token-abc")
   })
 
+  it("keeps the revealed one-time token visible when the post-create list refresh fails", async () => {
+    const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith("/api/v1/session")) return Promise.resolve({ ok: true, json: async () => authenticatedWhoAmI } as Response)
+      if (url.endsWith(listURL)) return Promise.resolve({ ok: true, json: async () => ({ service_accounts: [] }) } as Response)
+      return Promise.resolve({ ok: false } as Response)
+    })
+    vi.stubGlobal("fetch", fetchMock)
+
+    render(
+      <SessionProvider>
+        <SettingsServiceAccountsTab />
+      </SessionProvider>,
+    )
+    await screen.findByText("Henüz servis hesabı yok.")
+
+    fetchMock.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/api/v1/session")) return Promise.resolve({ ok: true, json: async () => authenticatedWhoAmI } as Response)
+      if (url.endsWith(listURL) && init?.method === "POST") return Promise.resolve({ ok: true, status: 201, json: async () => ({ id: "acct-3", name: "ci-bot", role: "operator", token: "bazusop_sat_newid_newsecret" }) } as Response)
+      // The list-refresh GET that fires right after create fails transiently.
+      if (url.endsWith(listURL)) return Promise.resolve({ ok: false, status: 500 } as Response)
+      return Promise.resolve({ ok: false } as Response)
+    })
+
+    fireEvent.change(screen.getByLabelText("Ad"), { target: { value: "ci-bot" } })
+    fireEvent.click(screen.getByRole("button", { name: "Servis hesabı oluştur" }))
+
+    expect(await screen.findByText("bazusop_sat_newid_newsecret")).toBeInTheDocument()
+
+    // Let the failed list-refresh's .catch settle into the "error" state.
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Servis hesaplarına ulaşılamıyor" })).toBeInTheDocument())
+    expect(screen.getByText("bazusop_sat_newid_newsecret")).toBeInTheDocument()
+  })
+
+  it("shows a distinct badge and expiry date for an active-but-expired token", async () => {
+    const accountsWithExpiry: ServiceAccount[] = [
+      { id: "acct-1", name: "ci-bot", role: "operator", created_at: "2026-09-20T10:00:00Z", active_token: { id: "token-1", expires_at: "2020-01-01T00:00:00Z" } },
+      { id: "acct-2", name: "backup-bot", role: "viewer", created_at: "2026-09-21T10:00:00Z", active_token: { id: "token-2", expires_at: "2099-01-01T00:00:00Z" } },
+    ]
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      if (url.endsWith("/api/v1/session")) return Promise.resolve({ ok: true, json: async () => authenticatedWhoAmI } as Response)
+      if (url.endsWith(listURL)) return Promise.resolve({ ok: true, json: async () => ({ service_accounts: accountsWithExpiry }) } as Response)
+      return Promise.resolve({ ok: false } as Response)
+    }))
+
+    render(
+      <SessionProvider>
+        <SettingsServiceAccountsTab />
+      </SessionProvider>,
+    )
+
+    const table = await screen.findByRole("table", { name: "Servis hesapları" })
+    expect(within(table).getByText("Süresi doldu")).toBeInTheDocument()
+    expect(within(table).getAllByText("Aktif token var")).toHaveLength(1)
+    expect(within(table).queryByText(/2020/)).not.toBeNull()
+  })
+
   it("disables a service account with a CSRF header and shows the disabled status", async () => {
     let listCallCount = 0
     const fetchMock = vi.fn().mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
