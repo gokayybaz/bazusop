@@ -108,3 +108,6 @@ export type AuditTrailEvent = { event_id: string; occurred_at: string; correlati
 
 export type UserSiteRole = { site_id: string; role: string }
 export type ManagedUser = { id: string; email: string; role: string; disabled_at?: string; totp_confirmed_at?: string; site_roles: UserSiteRole[] }
+
+export type ServiceAccountToken = { id: string; expires_at: string; last_used_at?: string }
+export type ServiceAccount = { id: string; name: string; role: string; created_at: string; disabled_at?: string; active_token: ServiceAccountToken | null }

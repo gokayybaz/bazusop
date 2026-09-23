@@ -167,8 +167,8 @@ h1 { margin: 0; color: var(--strong); font-size: clamp(24px, 3vw, 32px); font-we
 .incident-row strong { margin-inline: 8px; color: var(--strong); font-size: 13px; }
 .incident-row span:not(.badge) { color: var(--accent); font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; }
 .incident-row small { display: block; margin-top: 7px; color: var(--subtle); font-size: 12px; }
-.incident-row button, .alarm-form button { min-height: 36px; padding: 0 11px; border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border)); border-radius: 8px; color: var(--accent); background: var(--accent-soft); cursor: pointer; }
-.incident-row button:disabled, .alarm-form button:disabled { cursor: not-allowed; opacity: .45; }
+.incident-row button, .alarm-form button, .service-account-actions button { min-height: 36px; padding: 0 11px; border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border)); border-radius: 8px; color: var(--accent); background: var(--accent-soft); cursor: pointer; }
+.incident-row button:disabled, .alarm-form button:disabled, .service-account-actions button:disabled { cursor: not-allowed; opacity: .45; }
 .incident-status.open { color: var(--danger); background: var(--danger-soft); }.incident-status.acknowledged { color: var(--warning); background: var(--warning-soft); }.incident-status.resolved { color: var(--success); background: var(--success-soft); }
 .alarm-form { display: grid; gap: 10px; }
 .compact-list { margin-top: 14px; }
@@ -401,6 +401,11 @@ tbody tr:hover { background: var(--surface-hover); }
 .settings-form-card { padding: 20px; border-radius: 16px; display: grid; gap: 12px; }
 .settings-form-card h3 { margin: 0; color: var(--strong); font-size: 15px; }
 .settings-form-actions { display: flex; gap: 10px; }
+.token-reveal-card { display: grid; gap: 10px; }
+.token-reveal-card h3 { margin: 0; color: var(--strong); font-size: 15px; }
+.token-reveal-card code { display: block; padding: 10px 12px; border-radius: 8px; background: var(--card); color: var(--strong); font: 600 13px ui-monospace, SFMono-Regular, Menlo, monospace; word-break: break-all; }
+.token-reveal-card button { min-height: 38px; width: fit-content; border: 1px solid var(--border); border-radius: 8px; background: var(--surface); color: var(--strong); cursor: pointer; }
+.service-account-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 .site-role-badge { margin: 2px 4px 2px 0; }
 .totp-status.confirmed, .user-status.active { color: var(--success); border-color: color-mix(in srgb, var(--success) 32%, var(--border)); background: var(--success-soft); }
 .totp-status.pending, .user-status.disabled { color: var(--warning); border-color: color-mix(in srgb, var(--warning) 32%, var(--border)); background: var(--warning-soft); }
