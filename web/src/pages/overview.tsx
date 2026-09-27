@@ -3,17 +3,23 @@ import { ChevronRight, CircleAlert } from "lucide-react"
 import { Badge } from "../components/ui/badge"
 import { Card } from "../components/ui/card"
 import { formatLastSeen } from "../lib/format"
-import type { AlertIncident, InventoryInstance } from "../types"
+import type { AlertIncident, FleetTelemetryAverage, InventoryInstance } from "../types"
 
-export function OverviewPage({ inventoryState, instances, alertState, activeIncidents, onOpenAlarmCenter }: {
+export function OverviewPage({ inventoryState, instances, alertState, activeIncidents, fleetTelemetry, fleetTelemetryState, onOpenAlarmCenter }: {
   inventoryState: "loading" | "ready" | "error"
   instances: InventoryInstance[]
   alertState: "loading" | "ready" | "error"
   activeIncidents: AlertIncident[]
+  fleetTelemetry: FleetTelemetryAverage | null
+  fleetTelemetryState: "loading" | "ready" | "error"
   onOpenAlarmCenter: () => void
 }) {
   const connectedInstances = instances.filter((instance) => instance.status === "connected").length
   const criticalIncidents = activeIncidents.filter((incident) => incident.severity === "critical").length
+
+  const cpuValue = fleetTelemetryState === "ready" && fleetTelemetry && fleetTelemetry.device_count > 0 ? `${fleetTelemetry.average_cpu_percent.toFixed(1)}%` : "—"
+  const cpuDetail = fleetTelemetryState === "error" ? "Telemetriye ulaşılamıyor" : fleetTelemetryState === "ready" && fleetTelemetry && fleetTelemetry.device_count === 0 ? "Filoda aktif cihaz yok" : fleetTelemetryState === "ready" && fleetTelemetry ? `${fleetTelemetry.device_count} bağlı cihazdan hesaplandı` : "Filo telemetrisi yükleniyor"
+  const cpuTrend = fleetTelemetryState === "ready" && fleetTelemetry && fleetTelemetry.device_count > 0 ? "Son 2 dakika" : "Veri yok"
 
   return (
     <>
@@ -24,7 +30,7 @@ export function OverviewPage({ inventoryState, instances, alertState, activeInci
           detail={inventoryState === "error" ? "Envantere ulaşılamıyor" : `${connectedInstances} bağlı`}
           trend={inventoryState === "ready" ? "Canlı envanter" : "Hub bekleniyor"}
         />
-        <Metric label="Ortalama CPU" value="42.8%" detail="24 saatlik filo ortalaması" trend="düne göre −%3,2" />
+        <Metric label="Ortalama CPU" value={cpuValue} detail={cpuDetail} trend={cpuTrend} />
         <Metric label="Açık alarmlar" value={alertState === "loading" ? "—" : String(activeIncidents.length)} detail={`${criticalIncidents} kritik alarm`} trend={`${activeIncidents.filter((incident) => incident.status === "acknowledged").length} alarm onaylandı`} alert />
       </section>
 

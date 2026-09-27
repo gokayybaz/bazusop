@@ -18,7 +18,7 @@ import { OverviewPage } from "./pages/overview"
 import { ServicesPanel } from "./pages/services-panel"
 import { SettingsPage } from "./pages/settings"
 import { TelemetryPanel } from "./pages/telemetry-panel"
-import type { AlertIncident, InventoryInstance, LogEntry, ManagedService, OperationJob, PageID, TelemetryPayload } from "./types"
+import type { AlertIncident, FleetTelemetryAverage, InventoryInstance, LogEntry, ManagedService, OperationJob, PageID, TelemetryPayload } from "./types"
 
 export function AppShell() {
   const location = useLocation()
@@ -38,6 +38,8 @@ export function AppShell() {
   const [jobState, setJobState] = useState<"idle" | "loading" | "ready" | "error">("idle")
   const [incidents, setIncidents] = useState<AlertIncident[]>([])
   const [alertState, setAlertState] = useState<"loading" | "ready" | "error">("loading")
+  const [fleetTelemetry, setFleetTelemetry] = useState<FleetTelemetryAverage | null>(null)
+  const [fleetTelemetryState, setFleetTelemetryState] = useState<"loading" | "ready" | "error">("loading")
 
   useEffect(() => {
     const controller = new AbortController()
@@ -66,6 +68,19 @@ export function AppShell() {
       .catch((error: unknown) => {
         if (error instanceof DOMException && error.name === "AbortError") return
         setAlertState("error")
+      })
+    fetch("/api/v1/telemetry/fleet-average", { signal: controller.signal })
+      .then((response) => {
+        if (!response.ok) throw new Error("fleet telemetry unavailable")
+        return response.json() as Promise<FleetTelemetryAverage>
+      })
+      .then((payload) => {
+        setFleetTelemetry(payload)
+        setFleetTelemetryState("ready")
+      })
+      .catch((error: unknown) => {
+        if (error instanceof DOMException && error.name === "AbortError") return
+        setFleetTelemetryState("error")
       })
     return () => controller.abort()
   }, [])
@@ -193,7 +208,7 @@ export function AppShell() {
               <div className="live-status"><span className="pulse" />Hub bağlantısı aktif</div>
             </div>
 
-            {activePage === "overview" ? <OverviewPage activeIncidents={activeIncidents} alertState={alertState} instances={instances} inventoryState={inventoryState} onOpenAlarmCenter={() => navigate("alerts")} /> : null}
+            {activePage === "overview" ? <OverviewPage activeIncidents={activeIncidents} alertState={alertState} fleetTelemetry={fleetTelemetry} fleetTelemetryState={fleetTelemetryState} instances={instances} inventoryState={inventoryState} onOpenAlarmCenter={() => navigate("alerts")} /> : null}
 
             {activePage === "alerts" ? <AlarmCenter incidents={incidents} onIncidentUpdated={(updated) => setIncidents((current) => current.map((incident) => incident.id === updated.id ? updated : incident))} /> : null}
 

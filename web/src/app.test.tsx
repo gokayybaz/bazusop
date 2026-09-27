@@ -10,6 +10,10 @@ function respondWithSession(url: string) {
   return url.endsWith("/api/v1/session") ? Promise.resolve({ ok: true, json: async () => authenticatedWhoAmI } as Response) : null
 }
 
+function respondWithFleetAverage(url: string) {
+  return url.endsWith("/api/v1/telemetry/fleet-average") ? Promise.resolve({ ok: true, json: async () => ({ average_cpu_percent: 47.8, device_count: 2 }) } as Response) : null
+}
+
 describe("bazUSOP shell", () => {
   beforeEach(() => {
     window.localStorage.clear()
@@ -17,7 +21,7 @@ describe("bazUSOP shell", () => {
     delete document.documentElement.dataset.theme
     vi.stubGlobal("fetch", vi.fn().mockImplementation((input: RequestInfo | URL) => {
       const url = String(input)
-      return respondWithSession(url) ?? Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+      return respondWithSession(url) ?? respondWithFleetAverage(url) ?? Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
     }))
     vi.stubGlobal("scrollTo", vi.fn())
   })
@@ -30,6 +34,7 @@ describe("bazUSOP shell", () => {
     expect(await screen.findByRole("heading", { name: "Operasyon özeti" })).toBeInTheDocument()
     expect(screen.getByText("Sunucular")).toBeInTheDocument()
     expect(screen.getByText("Ortalama CPU")).toBeInTheDocument()
+    expect(await screen.findByText("47.8%")).toBeInTheDocument()
     expect(screen.getByText("Açık alarmlar")).toBeInTheDocument()
     expect(screen.getByLabelText("Filo özeti").children).toHaveLength(3)
     expect(screen.getByRole("region", { name: "Operasyon alarmları" })).toBeInTheDocument()
@@ -38,6 +43,22 @@ describe("bazUSOP shell", () => {
     fireEvent.click(screen.getByRole("button", { name: "Filo" }))
     expect(screen.getByRole("heading", { name: "Sunucu filosu" })).toBeInTheDocument()
     expect(screen.getByRole("table", { name: "Sunucu sağlığı" })).toBeInTheDocument()
+  })
+
+  it("shows no data instead of a fake average when the fleet has no devices", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input)
+      const session = respondWithSession(url)
+      if (session) return session
+      if (url.endsWith("/api/v1/telemetry/fleet-average")) return Promise.resolve({ ok: true, json: async () => ({ average_cpu_percent: 0, device_count: 0 }) } as Response)
+      return Promise.resolve({ ok: true, json: async () => ({ instances: [] }) } as Response)
+    }))
+
+    render(<App />)
+
+    expect(await screen.findByText("Filoda aktif cihaz yok")).toBeInTheDocument()
+    expect(screen.queryByText("47.8%")).not.toBeInTheDocument()
+    expect(screen.queryByText("42.8%")).not.toBeInTheDocument()
   })
 
   it("presents a verifiable public product story", () => {

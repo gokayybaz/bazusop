@@ -111,3 +111,5 @@ export type ManagedUser = { id: string; email: string; role: string; disabled_at
 
 export type ServiceAccountToken = { id: string; expires_at: string; last_used_at?: string }
 export type ServiceAccount = { id: string; name: string; role: string; created_at: string; disabled_at?: string; active_token: ServiceAccountToken | null }
+
+export type FleetTelemetryAverage = { average_cpu_percent: number; device_count: number }
