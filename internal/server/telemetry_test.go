@@ -103,3 +103,64 @@ func enrolledIdentity(t *testing.T) (*enrollment.Authority, enrollment.Identity)
 	}
 	return authority, identity
 }
+
+func TestFleetAverageEndpointReflectsRecentTelemetryOnly(t *testing.T) {
+	t.Parallel()
+
+	service := telemetry.NewService(telemetry.NewMemoryStore())
+	handler := server.NewHandler(
+		server.WithDefaultScope(tenancy.DefaultScope()),
+		server.WithTelemetry(service),
+	)
+	scope := tenancy.DefaultScope()
+	now := time.Now().UTC()
+
+	if err := service.Report(t.Context(), tenancy.Agent{ID: "fresh-agent", OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}, telemetry.Sample{RecordedAt: now, CPUPercent: 80, MemoryPercent: 50, DiskPercent: 50}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Report(t.Context(), tenancy.Agent{ID: "stale-agent", OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}, telemetry.Sample{RecordedAt: now.Add(-10 * time.Minute), CPUPercent: 20, MemoryPercent: 50, DiskPercent: 50}); err != nil {
+		t.Fatal(err)
+	}
+
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/telemetry/fleet-average", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		AverageCPUPercent float64 `json:"average_cpu_percent"`
+		DeviceCount       int     `json:"device_count"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode fleet average: %v", err)
+	}
+	if payload.DeviceCount != 1 || payload.AverageCPUPercent != 80 {
+		t.Fatalf("expected only the fresh agent counted (80%%, 1 device), got %#v", payload)
+	}
+}
+
+func TestFleetAverageEndpointReturnsZeroDevicesForAnEmptyFleet(t *testing.T) {
+	t.Parallel()
+
+	handler := server.NewHandler(
+		server.WithDefaultScope(tenancy.DefaultScope()),
+		server.WithTelemetry(telemetry.NewService(telemetry.NewMemoryStore())),
+	)
+	request := httptest.NewRequest(http.MethodGet, "/api/v1/telemetry/fleet-average", nil)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", response.Code, response.Body.String())
+	}
+	var payload struct {
+		AverageCPUPercent float64 `json:"average_cpu_percent"`
+		DeviceCount       int     `json:"device_count"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
+		t.Fatalf("decode fleet average: %v", err)
+	}
+	if payload.DeviceCount != 0 || payload.AverageCPUPercent != 0 {
+		t.Fatalf("expected a zero-value response for an empty fleet, got %#v", payload)
+	}
+}

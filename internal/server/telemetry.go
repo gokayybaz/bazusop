@@ -8,6 +8,7 @@ import (
 
 	"github.com/gokayybaz/bazusop/internal/alerting"
 	"github.com/gokayybaz/bazusop/internal/enrollment"
+	"github.com/gokayybaz/bazusop/internal/inventory"
 	"github.com/gokayybaz/bazusop/internal/telemetry"
 	"github.com/gokayybaz/bazusop/internal/tenancy"
 )
@@ -102,5 +103,20 @@ func handleTelemetryHistory(service *telemetry.Service, scope tenancy.Scope) htt
 			Latest  *telemetry.Sample  `json:"latest"`
 			Samples []telemetry.Sample `json:"samples"`
 		}{Latest: latest, Samples: samples})
+	}
+}
+
+func handleFleetAverageTelemetry(service *telemetry.Service, scope tenancy.Scope) http.HandlerFunc {
+	return func(response http.ResponseWriter, request *http.Request) {
+		since := time.Now().UTC().Add(-inventory.ConnectedWindow)
+		average, err := service.FleetAverage(request.Context(), scope, since)
+		if err != nil {
+			http.Error(response, http.StatusText(http.StatusServiceUnavailable), http.StatusServiceUnavailable)
+			return
+		}
+		writeJSON(response, http.StatusOK, struct {
+			AverageCPUPercent float64 `json:"average_cpu_percent"`
+			DeviceCount       int     `json:"device_count"`
+		}{average.AverageCPUPercent, average.DeviceCount})
 	}
 }
