@@ -26,9 +26,19 @@ type Sample struct {
 	NetworkTXBytes uint64    `json:"network_tx_bytes"`
 }
 
+// FleetAverage is the fleet-wide average CPU across every agent whose most
+// recent sample falls within the requested window — DeviceCount is how many
+// agents contributed (0 means no agent has reported recently, e.g. an empty
+// fleet), so callers can distinguish "no data" from "0% average".
+type FleetAverage struct {
+	AverageCPUPercent float64
+	DeviceCount       int
+}
+
 type Store interface {
 	Append(context.Context, Sample) error
 	History(context.Context, tenancy.Scope, string, time.Time, time.Time, int) ([]Sample, error)
+	FleetAverage(ctx context.Context, scope tenancy.Scope, since time.Time) (FleetAverage, error)
 }
 
 type Service struct {
@@ -61,6 +71,13 @@ func (service *Service) History(ctx context.Context, scope tenancy.Scope, agentI
 		return nil, ErrInvalidSample
 	}
 	return service.store.History(ctx, scope, agentID, from.UTC(), to.UTC(), limit)
+}
+
+func (service *Service) FleetAverage(ctx context.Context, scope tenancy.Scope, since time.Time) (FleetAverage, error) {
+	if err := scope.Validate(); err != nil {
+		return FleetAverage{}, err
+	}
+	return service.store.FleetAverage(ctx, scope, since.UTC())
 }
 
 func validPercent(value float64) bool {
@@ -122,4 +139,27 @@ func (store *MemoryStore) History(_ context.Context, scope tenancy.Scope, agentI
 		result = result[len(result)-limit:]
 	}
 	return append([]Sample(nil), result...), nil
+}
+
+func (store *MemoryStore) FleetAverage(_ context.Context, scope tenancy.Scope, since time.Time) (FleetAverage, error) {
+	store.mu.RLock()
+	defer store.mu.RUnlock()
+
+	var sum float64
+	count := 0
+	for agent, samples := range store.samples {
+		if agent.OrganizationID != scope.OrganizationID || agent.SiteID != scope.SiteID || len(samples) == 0 {
+			continue
+		}
+		latest := samples[len(samples)-1]
+		if latest.RecordedAt.Before(since) {
+			continue
+		}
+		sum += latest.CPUPercent
+		count++
+	}
+	if count == 0 {
+		return FleetAverage{}, nil
+	}
+	return FleetAverage{AverageCPUPercent: sum / float64(count), DeviceCount: count}, nil
 }

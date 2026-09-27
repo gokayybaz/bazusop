@@ -95,6 +95,7 @@ func NewHandler(options ...Option) http.Handler {
 	}
 	if configuration.telemetryService != nil {
 		registerAudited(mux, "/api/v1/instances/{agentID}/telemetry", http.MethodGet, "telemetry", []string{"agentID"}, configuration.auditTrail, configuration.scope, handleTelemetryHistory(configuration.telemetryService, configuration.scope))
+		registerAudited(mux, "/api/v1/telemetry/fleet-average", http.MethodGet, "telemetry", nil, configuration.auditTrail, configuration.scope, handleFleetAverageTelemetry(configuration.telemetryService, configuration.scope))
 		if configuration.enrollmentAuthority != nil {
 			registerAudited(mux, "/api/v1/agents/telemetry", http.MethodPost, "telemetry", nil, configuration.auditTrail, configuration.scope, handleTelemetryReport(configuration.enrollmentAuthority, configuration.telemetryService, configuration.alertService))
 		}

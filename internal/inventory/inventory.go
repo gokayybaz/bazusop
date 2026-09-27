@@ -20,7 +20,11 @@ type Status string
 const (
 	StatusConnected Status = "connected"
 	StatusStale     Status = "stale"
-	connectedWindow        = 2 * time.Minute
+	// ConnectedWindow is exported so internal/server can pass the same
+	// "how fresh counts as connected" threshold to telemetry.Service.FleetAverage —
+	// the fleet-average CPU stat should reflect exactly the same device set
+	// the UI already calls "connected" here.
+	ConnectedWindow = 2 * time.Minute
 )
 
 type Facts struct {
@@ -103,7 +107,7 @@ func (service *Service) List(ctx context.Context, scope tenancy.Scope) ([]Host, 
 	now := service.now().UTC()
 	for index := range hosts {
 		hosts[index].Status = StatusStale
-		if now.Sub(hosts[index].LastSeenAt) <= connectedWindow {
+		if now.Sub(hosts[index].LastSeenAt) <= ConnectedWindow {
 			hosts[index].Status = StatusConnected
 		}
 	}

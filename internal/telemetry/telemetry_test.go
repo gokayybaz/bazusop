@@ -57,3 +57,68 @@ func TestInvalidSampleIsRejected(t *testing.T) {
 		t.Fatal("expected out-of-range CPU value to be rejected")
 	}
 }
+
+func TestFleetAverageOnlyCountsAgentsWithARecentSample(t *testing.T) {
+	t.Parallel()
+
+	store := telemetry.NewMemoryStore()
+	service := telemetry.NewService(store)
+	scope := tenancy.DefaultScope()
+	now := time.Date(2026, time.September, 27, 12, 0, 0, 0, time.UTC)
+
+	if err := service.Report(context.Background(), tenancy.Agent{ID: "agent-fresh", OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}, telemetry.Sample{RecordedAt: now, CPUPercent: 60, MemoryPercent: 50, DiskPercent: 50}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Report(context.Background(), tenancy.Agent{ID: "agent-stale", OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}, telemetry.Sample{RecordedAt: now.Add(-10 * time.Minute), CPUPercent: 100, MemoryPercent: 50, DiskPercent: 50}); err != nil {
+		t.Fatal(err)
+	}
+	if err := service.Report(context.Background(), tenancy.Agent{ID: "agent-other-site", OrganizationID: scope.OrganizationID, SiteID: "some-other-site"}, telemetry.Sample{RecordedAt: now, CPUPercent: 100, MemoryPercent: 50, DiskPercent: 50}); err != nil {
+		t.Fatal(err)
+	}
+
+	average, err := service.FleetAverage(context.Background(), scope, now.Add(-2*time.Minute))
+	if err != nil {
+		t.Fatalf("fleet average: %v", err)
+	}
+	if average.DeviceCount != 1 || average.AverageCPUPercent != 60 {
+		t.Fatalf("expected only the fresh, same-site agent counted (60%%, 1 device), got %#v", average)
+	}
+}
+
+func TestFleetAverageReturnsZeroDevicesWhenFleetIsEmpty(t *testing.T) {
+	t.Parallel()
+
+	service := telemetry.NewService(telemetry.NewMemoryStore())
+	average, err := service.FleetAverage(context.Background(), tenancy.DefaultScope(), time.Now().Add(-2*time.Minute))
+	if err != nil {
+		t.Fatalf("fleet average: %v", err)
+	}
+	if average.DeviceCount != 0 || average.AverageCPUPercent != 0 {
+		t.Fatalf("expected a zero-value FleetAverage for an empty fleet, got %#v", average)
+	}
+}
+
+func TestFleetAverageAveragesAcrossMultipleRecentAgents(t *testing.T) {
+	t.Parallel()
+
+	service := telemetry.NewService(telemetry.NewMemoryStore())
+	scope := tenancy.DefaultScope()
+	now := time.Date(2026, time.September, 27, 12, 0, 0, 0, time.UTC)
+
+	for _, entry := range []struct {
+		agent string
+		cpu   float64
+	}{{"agent-1", 40}, {"agent-2", 60}} {
+		if err := service.Report(context.Background(), tenancy.Agent{ID: entry.agent, OrganizationID: scope.OrganizationID, SiteID: scope.SiteID}, telemetry.Sample{RecordedAt: now, CPUPercent: entry.cpu, MemoryPercent: 50, DiskPercent: 50}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	average, err := service.FleetAverage(context.Background(), scope, now.Add(-2*time.Minute))
+	if err != nil {
+		t.Fatalf("fleet average: %v", err)
+	}
+	if average.DeviceCount != 2 || average.AverageCPUPercent != 50 {
+		t.Fatalf("expected (40+60)/2 = 50%% across 2 devices, got %#v", average)
+	}
+}
