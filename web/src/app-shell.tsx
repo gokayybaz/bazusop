@@ -171,7 +171,7 @@ export function AppShell() {
               <kbd><Command size={12} /> K</kbd>
             </button>
             <div className="topbar-actions">
-              <Badge className="environment"><span className="status-dot" />Üretim</Badge>
+              <Badge className="environment"><span className="status-dot" />Canlı</Badge>
               <ThemeToggle />
               <button aria-label="Bildirimler" className="icon-button" type="button"><Bell size={18} /></button>
               {session.status === "authenticated" ? (
