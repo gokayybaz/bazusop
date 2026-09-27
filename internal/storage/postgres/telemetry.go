@@ -89,3 +89,22 @@ func (store *Store) History(ctx context.Context, scope tenancy.Scope, agentID st
 	}
 	return samples, nil
 }
+
+func (store *Store) FleetAverage(ctx context.Context, scope tenancy.Scope, since time.Time) (telemetry.FleetAverage, error) {
+	if err := scope.Validate(); err != nil {
+		return telemetry.FleetAverage{}, err
+	}
+	row := store.pool.QueryRow(ctx, `
+		SELECT COALESCE(AVG(cpu_percent), 0), COUNT(*)
+		FROM (
+			SELECT DISTINCT ON (agent_id) cpu_percent
+			FROM telemetry_samples
+			WHERE organization_id = $1 AND site_id = $2 AND recorded_at >= $3
+			ORDER BY agent_id, recorded_at DESC
+		) latest`, scope.OrganizationID, scope.SiteID, since)
+	var result telemetry.FleetAverage
+	if err := row.Scan(&result.AverageCPUPercent, &result.DeviceCount); err != nil {
+		return telemetry.FleetAverage{}, fmt.Errorf("query fleet average telemetry: %w", err)
+	}
+	return result, nil
+}
